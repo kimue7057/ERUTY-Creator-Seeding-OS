@@ -118,6 +118,21 @@ docker compose @composeArgs run --rm verify node .local/build/mcp-staging-verify
 - 연결 도구에서 Creator Seeding 전용 Supabase project를 찾지 못했고 Vercel team 목록은 비어 있었다. 기존 `eruty-campaign-os`에는 접근/재사용하지 않았다. 전용 cloud 자원·실제 OAuth tenant·Work 권한은 아직 미확정이다.
 - 기존 SDK 1.32.1 / protocol 2025-11-25 contract를 유지한다. Work가 협상한 실제 protocol/transport 오류를 기록하고 지원을 관찰한 뒤 판단한다. SDK-only 통과로 hosted Work 호환을 확정하지 않는다.
 
+## Windows 로컬 E2E: 클라우드 서버 없이 실행
+
+사용자가 로컬 E2E/Tunnel/OAuth 설정을 승인한 경우에만 실행한다. 기존 `compose.yaml`의 전용 PostgreSQL·MCP·private gateway를 그대로 재사용한다. 운영 조직/DB는 연결하지 않는다.
+
+1. 검증한 공식 `tunnel-client.exe`와 번들 `cloudflared.exe`를 ignored `.local/bin/tunnel-client/`에 둔다. PowerShell 7에서 `./scripts/mcp-local-access.ps1 -Action Collect`를 직접 실행하여 Tunnel ID와 전용 Read + Use runtime key를 입력한다. 키는 Windows 사용자 DPAPI로 암호화하고 `.local/mcp-local-e2e` ACL을 현재 사용자로 제한한다. `Inspect`는 실제 org/workspace 연결을 조회한다. 키/응답 원문을 Git·채팅·CI에 복사하지 않는다.
+2. Auth0 테스트 tenant 관리자 권한이 없으면 `compose.oauth-local.yaml`의 독립 Keycloak 26.8.1 + 별도 PostgreSQL을 테스트 IdP로 사용할 수 있다. **RFC 8707 `resource-indicators`는 Keycloak의 experimental 기능**이며 운영 준비 완료를 뜻하지 않는다. MCP는 Secure MCP Tunnel을 사용하고, OAuth 로그인·discovery/JWKS만 개발용 HTTPS로 연결한다.
+3. 번들 `cloudflared.exe tunnel --no-autoupdate --url http://127.0.0.1:3381 --metrics 127.0.0.1:3382 --loglevel info --management-diagnostics=false`를 실행하고 로그를 private 디렉터리에만 저장한다. 출력된 실제 origin을 `.local/mcp-local-e2e/oauth-origin.json`의 `{"origin":"https://실제할당호스트.trycloudflare.com"}`에 기록한다. Quick Tunnel은 개발 전용이며 재시작하면 hostname이 바뀐다. 기존 identity를 자동 덮어쓰지 않는다.
+4. `pnpm exec tsx scripts/mcp-local-oauth.ts prepare`로 합성 사용자/realm·무작위 비밀번호를 생성한다. 기존 IdP 설정이 있으면 거부한다. `.local/mcp-staging/.env`의 OAuth issuer/JWKS/metadata/실제 import subject를 설정한다. `docker compose --env-file .local/mcp-local-e2e/oauth.env -f staging/probe/compose.oauth-local.yaml up -d` 후 `pnpm exec tsx scripts/mcp-local-oauth.ts inspect`로 실제 사용자 ID와 public/S256/consent 설정을 재조회한다.
+5. 외부 gateway는 테스트 realm의 OIDC/login/resource 경로만 허용한다. `/admin`, master realm, account console, DCR, MCP와 DB는 공개하지 않는다. 관리자 접근은 `127.0.0.1:3380`으로 제한한다. Keycloak의 기본 discovery가 누락한 public-client `none` 광고만 공식 SPI metadata override로 추가한다. **JWT 서명 알고리즘의 `none` 허용과는 무관하며 기존 RS256/ES256 검증을 유지한다.** 이 설정만으로 실제 PKCE/token 발급 성공을 주장하지 않는다.
+6. 기존 절차대로 빈 전용 DB `init` 결과를 `.local/mcp-staging/sandbox.json`에 저장하고 `mcp:staging:prepare --sandbox`, `--profile private up -d mcp private-gateway`를 실행한다. grant는 초기화 시점부터 1시간이다. `mcp:staging:smoke`, `mcp-local-access.ps1 -Action Doctor`, `Connect`, `Status`를 실행한다. 단순 process/ready 외에 loopback health details에서 control-plane polling 성공과 OAuth discovery 완료를 확인한다. 실제 로그인 전에는 tools/list가 `auth_required/not_observed`일 수 있으며 성공으로 채우지 않는다.
+7. ChatGPT Plugins에서 Connection `Tunnel`, 실제 ERUTY Tunnel, OAuth `Provided`, public client `eruty-work-probe`, 인증 방식 `none`, scopes `discovery:read discovery:probe`를 사용한다. **관리 화면의 정확한 callback**을 private `work-callback.txt`에 저장하고 `pnpm exec tsx scripts/mcp-local-oauth.ts callback`으로 allowlist를 갱신·재조회한다. 추정 callback/와일드카드를 등록하지 않는다. `mcp-local-access.ps1 -Action OAuthLogin`은 사용자 전용 별도 창에만 합성 로그인 정보를 표시한다. 사용자가 로그인/동의를 완료한다.
+8. 위 hosted Work 체크리스트의 세 실제 호출→독립 `verify`→`revoke`→실제 Work 재호출 거부→`verify --closed`를 수행한다. 실험 종료 후 IdP consent/session, Work plugin, 전용 runtime key를 각각 철회하고 `mcp-local-access.ps1 -Action Stop`, HTTPS 터널 프로세스 종료, OAuth compose `stop`을 실행한다. 기존 증거/DB volume은 삭제하지 않는다.
+
+Keycloak metadata/public client 호환성 근거: [공식 MCP 설정](https://www.keycloak.org/securing-apps/mcp-authz-server), [SPI discovery override](https://www.keycloak.org/server/all-provider-config), [기본 metadata의 none 누락 이슈](https://github.com/keycloak/keycloak/issues/49730). Quick Tunnel의 임시 URL/가용성 제약은 [Cloudflare 공식 문서](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/)를 따른다.
+
 ## 공식 근거 (확인 2026-10-21)
 
 - [OpenAI Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels): 사설 연결/권한/워크스페이스/외부 IdP 경계.

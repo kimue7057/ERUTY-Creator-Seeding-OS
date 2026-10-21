@@ -1,0 +1,28 @@
+{
+  admin off
+  auto_https off
+  log default {
+    exclude http.log.error
+  }
+}
+:8080 {
+  # RFC 8414/OIDC discovery for an issuer with a realm path.
+  @discovery path /.well-known/oauth-authorization-server/realms/eruty-probe /.well-known/openid-configuration/realms/eruty-probe
+  rewrite @discovery /realms/eruty-probe/.well-known/openid-configuration
+  @oidc path /realms/eruty-probe/.well-known/openid-configuration /realms/eruty-probe/.well-known/oauth-authorization-server /realms/eruty-probe/protocol/openid-connect/* /realms/eruty-probe/login-actions/* /resources/*
+  handle @oidc {
+    reverse_proxy keycloak:8080 {
+      header_up Host {$OAUTH_PUBLIC_HOST}
+      header_up -Forwarded
+      header_up X-Forwarded-Host {$OAUTH_PUBLIC_HOST}
+      header_up X-Forwarded-Proto https
+      header_up X-Forwarded-Port 443
+      header_up X-Forwarded-For 127.0.0.1
+      header_up -X-Forwarded-Prefix
+    }
+  }
+  # No admin, master realm, account console, DCR, DB or MCP routes.
+  handle {
+    respond 404
+  }
+}

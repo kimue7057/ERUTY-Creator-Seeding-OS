@@ -1,6 +1,6 @@
 # ERUTY Creator Seeding OS
 
-MCP 실증 스테이징은 [실행 구성·OAuth 준비·Work 체크리스트](staging/probe/README.md)를 따른다. `pnpm mcp:staging:prepare`는 ignored 로컬 설정/무작위 비밀번호만 만들며 배포하지 않는다. 전용 PostgreSQL·제한된 MCP 계정·독립 read-only 검증 계정을 사용한다. 실제 외부 OAuth/hosted Work 연결은 아직 미검증이고, 배포·Tunnel·plugin 설치는 사용자 승인 후 별도로 수행한다.
+MCP 실증은 [실행 구성·OAuth·Work 체크리스트](staging/probe/README.md)를 따른다. 전용 PostgreSQL·제한된 MCP 계정·독립 read-only 검증 계정을 사용한다. Windows 로컬 E2E용 Secure MCP Tunnel 및 테스트 OAuth 구성도 제공한다. hosted Work 로그인·세 도구 호출·DB 대조·철회 후 차단이 모두 확인되기 전에는 Work 연결 완료로 판정하지 않는다.
 
 기존 Campaign OS와 독립된 Next.js 운영 대시보드. 승인된 제품 기획은 [PRD v1.2](docs/PRD-v1.2.md), 현재 개발 기록과 미구현 범위는 [IMPLEMENTATION](docs/IMPLEMENTATION.md)에 있다.
 
@@ -81,7 +81,7 @@ STEP 1–2 로컬 MVP는 검증 완료이며, 실제 Work SNS 탐색/MCP 쓰기�
 
 `pnpm db:migrate`로 additive `0003`을 적용한다. 통합 테스트 전에 `pnpm mcp:build`가 필요하다. `pnpm mcp:dev`/`mcp:start`는 별도 프로세스이며 유효 설정 없이는 시작하지 않는다. `.env.example`은 주석 처리된 설정 안내만 제공한다. 테스트용 전용 조직은 명시적인 `mcp:provision` CLI로만 만들며 기존 조직을 등록하지 않는다.
 
-**OAuth 로그인 제공자와 실제 hosted Work 플러그인 연결은 아직 미구성·미검증**이다. 스테이징 배포·터널·플러그인 설치/게시는 수행하지 않았다. 실행/권한/IdP·protocol 제약과 승인 후 검증 순서는 [DISCOVERY-PROBE-01](docs/DISCOVERY-PROBE-01.md), 검토용 예시는 [work-probe](integrations/work-probe/README.md)에 있다.
+**실제 hosted Work 플러그인 연결은 아직 미검증**이다. 로컬 OAuth/Tunnel 실행은 Work 호출의 증거가 아니다. 실행/권한/IdP·protocol 제약과 검증 순서는 [MCP 실행 안내](staging/probe/README.md), [DISCOVERY-PROBE-01](docs/DISCOVERY-PROBE-01.md), 검토용 예시는 [work-probe](integrations/work-probe/README.md)에 있다.
 
 ## 마이그레이션/운영 메모
 
