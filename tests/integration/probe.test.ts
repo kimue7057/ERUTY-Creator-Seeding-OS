@@ -4,7 +4,8 @@ import assert from "node:assert/strict";
 import { createServer, type Server as HttpServer } from "node:http";
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { spawn } from "node:child_process";
+import { spawn, execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { resolve } from "node:path";
 import { generateKeyPair, exportJWK, SignJWT, type JWTPayload } from "jose";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -17,11 +18,13 @@ import { provisionProbeSandbox } from "../../src/lib/probe/provision";
 import { createProbeHttpServer } from "../../src/lib/probe/server";
 import { probeConfig } from "../../src/lib/probe/config";
 import { probeHash } from "../../src/lib/probe/contracts";
+import { probeService } from "../../src/lib/probe/service";
 let issuer: string; let resource: string; let resourceB: string;
 let userId: string; let sandbox: Awaited<ReturnType<typeof provisionProbeSandbox>>; let other: typeof sandbox;
 let keys: Awaited<ReturnType<typeof generateKeyPair>>; let wrongKeys: typeof keys;
 const servers: HttpServer[] = []; const events: { request_id: string; outcome: string }[] = [];
 const clients: Client[] = [];
+const extraSandboxes: Awaited<ReturnType<typeof provisionProbeSandbox>>[] = [];
 const nonce = randomUUID(), idempotencyKey = randomUUID(); let storedId: string;
 async function listen(server: HttpServer) { server.listen(0, "127.0.0.1"); await once(server, "listening"); return `http://127.0.0.1:${(server.address() as { port: number }).port}`; }
 async function token(options: { payload?: JWTPayload; wrongKey?: boolean; scope?: string; subject?: string; expired?: boolean } = {}) {
@@ -59,7 +62,7 @@ before(async () => {
 after(async () => {
   for (const client of clients) await client.close().catch(() => {});
   for (const server of servers) { server.closeAllConnections(); await new Promise<void>(resolve => server.close(() => resolve())); }
-  for (const ws of [sandbox, other].filter(Boolean)) {
+  for (const ws of [sandbox, other, ...extraSandboxes].filter(Boolean)) {
     await db.delete(auditEvents).where(eq(auditEvents.organizationId, ws.organization_id));
     await db.delete(probes).where(eq(probes.organizationId, ws.organization_id));
     await db.delete(grants).where(eq(grants.organizationId, ws.organization_id));
@@ -185,4 +188,26 @@ test("built Node server entry runs as a separate local process and performs auth
   } finally {
     if (child.exitCode === null && child.signalCode === null) { const exited = once(child, "exit"); child.kill(); await exited; }
   }
+});
+
+test("operator CLIs explicitly provision a new sandbox, independently verify a receipt, and revoke using the current writer identity", async () => {
+  const [staff] = await db.select({ email: users.email }).from(users).where(eq(users.id, userId));
+  const subject = `synthetic-cli-${randomUUID()}`;
+  const environment: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: "test", MCP_PROBE_USER_EMAIL: staff.email, MCP_PROBE_SUBJECT: subject, MCP_OAUTH_ISSUER: issuer, MCP_PROBE_SETUP_CONFIRM: "create-new-synthetic-organization" };
+  const run = (script: string, env: NodeJS.ProcessEnv = environment) => promisify(execFile)(process.execPath, [resolve("node_modules/tsx/dist/cli.mjs"), script], { env, windowsHide: true, timeout: 10000, encoding: "utf8" });
+  const provisioned = await run("scripts/mcp-provision.ts"); const workspace = JSON.parse(provisioned.stdout) as typeof sandbox; extraSandboxes.push(workspace);
+  assert.notEqual(workspace.organization_id, sandbox.organization_id);
+  const result = await probeService(workspace.organization_id, "local-cli-test").write({ issuer, subject, scopes: ["discovery:read", "discovery:probe"], expiresAt: Math.floor(Date.now() / 1000) + 300 }, { contract_version: 1, nonce: randomUUID(), idempotency_key: randomUUID() }, randomUUID());
+  const cliEnv = { ...environment, MCP_PROBE_ORGANIZATION_ID: workspace.organization_id, MCP_PROBE_ID: result.probe_id, MCP_PROBE_GRANT_ID: workspace.grant_id };
+  const verified = JSON.parse((await run("scripts/mcp-verify.ts", cliEnv)).stdout);
+  assert.equal(verified.persisted_readback, true); assert.equal(verified.payload_sha256, result.payload_sha256); assert.equal(verified.work_connection, "unverified");
+  await assert.rejects(() => run("scripts/mcp-verify.ts", { ...cliEnv, MCP_PROBE_ORGANIZATION_ID: sandbox.organization_id }));
+  await db.update(memberships).set({ role: "reviewer" }).where(and(eq(memberships.organizationId, workspace.organization_id), eq(memberships.userId, userId)));
+  await assert.rejects(() => run("scripts/mcp-revoke.ts", cliEnv));
+  assert.equal((await db.select().from(grants).where(eq(grants.id, workspace.grant_id)))[0].revokedAt, null);
+  await db.update(memberships).set({ role: "manager" }).where(and(eq(memberships.organizationId, workspace.organization_id), eq(memberships.userId, userId)));
+  await run("scripts/mcp-revoke.ts", cliEnv);
+  const [event] = await db.select().from(auditEvents).where(and(eq(auditEvents.entityId, workspace.grant_id), eq(auditEvents.action, "discovery.probe_grant_revoked_by_operator_cli")));
+  assert.equal(event.actorId, userId);
+  assert.ok((await db.select().from(grants).where(eq(grants.id, workspace.grant_id)))[0].revokedAt);
 });

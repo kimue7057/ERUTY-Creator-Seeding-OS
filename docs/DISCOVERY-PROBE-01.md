@@ -81,7 +81,7 @@ pnpm mcp:revoke    # MCP_PROBE_GRANT_ID + sandbox org. 기존 receipt는 보존
 | --- | --- |
 | 타입 검사 / lint / Next build / MCP build | 통과 |
 | 단위 | 8건 통과 (기존 포함) |
-| DB/S3/MCP 통합 | 18건 통과 (MCP 7건 + 기존 11건) |
+| DB/S3/MCP 통합 | 19건 통과 (MCP/CLI 8건 + 기존 11건) |
 | 실제 MCP wire/별도 Node bundle → PostgreSQL write/read | 통과, synthetic loopback client |
 | 신규 migration / 이전 데이터/브리프·파일 보존 | 통과, 등록되지 않은 기존 조직 유지 |
 | 대화형 OAuth 로그인 / hosted Work plugin 설치·쓰기 | 미실행·미검증 |
