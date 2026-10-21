@@ -182,5 +182,7 @@ test("built Node server entry runs as a separate local process and performs auth
     const result = readResult(await callWrite(client, { nonce: randomUUID(), idempotency_key: randomUUID() }));
     assert.equal(readResult(await client.callTool({ name: "read_discovery_probe", arguments: { contract_version: 1, probe_id: result.probe_id } })).payload_sha256, result.payload_sha256);
     await client.close();
-  } finally { const exited = once(child, "exit"); child.kill(); await exited; }
+  } finally {
+    if (child.exitCode === null && child.signalCode === null) { const exited = once(child, "exit"); child.kill(); await exited; }
+  }
 });
