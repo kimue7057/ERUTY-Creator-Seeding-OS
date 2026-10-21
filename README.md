@@ -60,6 +60,18 @@ pnpm test:smoke
 
 검증 근거와 제한은 [TEST-RESULTS](docs/TEST-RESULTS.md), Work 실증 상태는 [PHASE-0-RESULTS](docs/PHASE-0-RESULTS.md)를 참고한다.
 
+## STEP 3 실증 준비
+
+STEP 1–2 로컬 MVP는 검증 완료이며, 실제 Work SNS 탐색/MCP 쓰기는 아직 미실험이다. 이번 준비 문서는 실행 연동이나 신규 DB 구현이 아니다.
+
+- [플랫폼별 Phase 0 체크리스트와 Work 프롬프트](docs/PHASE-0-RUNBOOK.md)
+- [STEP 3 DB 및 MCP 인터페이스 설계](docs/STEP-3-DATA-MCP-DESIGN.md)
+- [PR #1–4 병합 준비와 CI 재검증 순서](docs/PR-MERGE-READINESS.md)
+- [운영 환경·저장소 보안 확인과 후속 작업](docs/OPERATIONS-READINESS.md)
+- [STEP 3 작은 PR 단위 개발 계획](docs/STEP-3-PR-PLAN.md)
+
+현재 저장소는 Public이다. 실제 크리에이터 증거·비공개 브리프/Work 채팅/토큰은 저장소·이슈·공개 CI artifact에 넣지 않는다. Private 전환과 main 보호 설정을 검토하되 사용자 승인 전 실제 변경·병합·배포는 수행하지 않는다.
+
 ## 마이그레이션/운영 메모
 
 `0001`은 기존 캠페인의 생성 스냅샷을 브리프 v1으로 backfill하고, 현재 버전 FK와 UPDATE 방지 트리거를 추가한다. 지연 검사 FK(DEFERRABLE)와 트리거는 Drizzle 스키마가 표현하지 못하는 수동 SQL이므로 향후 마이그레이션에서도 유지한다. 제품 보관은 과거 참조를 유지한다. 프로젝트/캠페인 영구 삭제는 제공하지 않고 캠페인은 보관 상태를 사용할 수 있다.

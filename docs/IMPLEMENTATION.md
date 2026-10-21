@@ -9,6 +9,7 @@
 | campaigns-01 | 캠페인 목록/생성/수정/상세, 다중 국가/플랫폼, 필터 검증, 프로젝트/제품 연결, 불변 브리프. DB 통합/브라우저 스모크 통과 | 구현/로컬·CI 검사 완료, PR 검토 대기 | feat/campaigns-01 | typecheck/lint/build, 단위 4건, PostgreSQL 통합 4건, Playwright 2건, 실제 브라우저/모바일 확인 |
 | projects-02 | 비공개 S3 호환 스토리지, 업로드 검증/버전/다운로드 권한. 실제 파일 업로드/재조회 확인 | 구현/로컬·CI 검사 완료, Draft PR #4 검토 대기 | feat/projects-02 | PR #3 위에 쌓음. 단위 5건/DB·S3 통합 11건/브라우저 4건/타입·린트·빌드 통과. [범위/근거](PROJECTS-02.md) |
 | discovery-00 | 실제 Work의 SNS 방문/내부 검색 및 MCP 쓰기 실증 | 미검증 | 해당 없음 | PHASE-0-SNS-SPIKE; 실제 Work에서 별도 실행 |
+| discovery-00-prep | Phase 0 플랫폼별 체크리스트, STEP 3 DB/MCP 계약, PR 병합·운영 점검과 작은 PR 계획 | 문서 준비 완료 / 실제 Work 실증 미실행 | docs/discovery-00-prep | #4 기준 문서 전용. [시작 계획](STEP-3-PR-PLAN.md) |
 
 ## 구현 결정
 
@@ -35,3 +36,5 @@
 ## 파일 수용 기준과 남은 범위
 
 projects-02의 실제 업로드·다운로드 및 이전 브리프 보존 수용 기준은 통과했다. [구체적인 검증과 제한](PROJECTS-02.md)을 참고한다. 운영 스토리지/관리형 DB 배포 및 cleanup 주기 실행 설정은 남아 있다. STEP 3–7과 GPT Work 직접 SNS 탐색/쓰기/실행 연동은 구현·실증하지 않았다.
+
+STEP 1–2 로컬 MVP 구현은 검증 완료로 유지한다. 다음 작업은 [Phase 0 실증 준비](PHASE-0-RUNBOOK.md)이며 실제 Work 수행자와 승인된 실험 환경이 필요하다. [병합 순서](PR-MERGE-READINESS.md) 및 [운영 보안 설정 확인](OPERATIONS-READINESS.md)은 준비 기록이며 사용자 승인 전 병합·배포·visibility 변경은 하지 않았다.
