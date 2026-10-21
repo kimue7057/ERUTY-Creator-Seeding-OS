@@ -1,6 +1,6 @@
 # discovery-probe-01 — 최소 원격 MCP 쓰기 검증 서버
 
-상태: 구현 및 로컬 검사 완료 / CI 확인 예정 / **스테이징 미배포·실제 Work 연결 미실행**. 기준: [DB/MCP 설계](STEP-3-DATA-MCP-DESIGN.md), [작업 계획](STEP-3-PR-PLAN.md). PR #5 `c3b3c44` 위 별도 Draft PR로 작업한다. 기존 PR은 병합하지 않는다.
+상태: 구현 및 로컬·CI 검사 완료 / [Draft PR #6](https://github.com/kimue7057/ERUTY-Creator-Seeding-OS/pull/6) 검토 대기 / **스테이징 미배포·실제 Work 연결 미실행**. 기준: [DB/MCP 설계](STEP-3-DATA-MCP-DESIGN.md), [작업 계획](STEP-3-PR-PLAN.md). PR #5 `c3b3c44` 위 별도 Draft PR로 작업한다. 기존 PR은 병합하지 않는다.
 
 ## 범위와 수용 계획
 
@@ -87,4 +87,6 @@ pnpm mcp:revoke    # MCP_PROBE_GRANT_ID + sandbox org. 기존 receipt는 보존
 | 대화형 OAuth 로그인 / hosted Work plugin 설치·쓰기 | 미실행·미검증 |
 | 스테이징 배포 / 병합 / 운영 설정 변경 | 미실행 |
 
-UI 변경이 없어 신규 UI 스모크를 만들지 않았다. 기존 브라우저 회귀는 CI에서 별도로 확인한다. 자동 테스트의 client 이름도 local-probe-test-not-work로 구분한다. Public 저장소/CI에는 실제 후보·Work 채팅·비밀값을 넣지 않는다.
+기능·테스트 코드 `7929498`의 [CI 실행 39553509808](https://github.com/kimue7057/ERUTY-Creator-Seeding-OS/actions/runs/39553509808)에서 설치/실제 PostgreSQL·S3/마이그레이션/타입/린트/단위 **8건**/DB·S3·MCP·CLI 통합 **19건**/MCP·Next 빌드/기존 Chromium **4건** 전체 통과를 확인했다. 테스트 데이터는 synthetic이며 OAuth 로그인이나 실제 Work 지원 결과가 아니다. GitHub Actions 자체 runtime 전환 안내 외 앱 lint/build 경고는 없다.
+
+UI 변경이 없어 신규 UI 스모크를 만들지 않았다. 자동 테스트의 client 이름도 local-probe-test-not-work로 구분한다. Public 저장소/CI에는 실제 후보·Work 채팅·비밀값을 넣지 않는다.
