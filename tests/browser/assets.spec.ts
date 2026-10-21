@@ -64,6 +64,7 @@ test("real browser uploads PDF and a dropped product image, previews/downloads, 
   await (await chooser).setFiles(fixture.paths.png2);
   await expect(png).toContainText("현재 v2");
   await png.locator("summary").click(); await expect(png).toContainText("버전 이력 · 2개");
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: "test-results/assets-project.png", fullPage: true });
   downloading = page.waitForEvent("download"); await png.getByRole("button", { name: "product-test.png v2 다운로드", exact: true }).first().click();
   expect(await readFile((await (await downloading).path())!)).toEqual(fixture.bytes.png2);
@@ -71,7 +72,13 @@ test("real browser uploads PDF and a dropped product image, previews/downloads, 
   downloading = page.waitForEvent("download"); await page.getByRole("button", { name: "product-test.png v1 다운로드", exact: true }).click();
   expect(await readFile((await (await downloading).path())!)).toEqual(fixture.bytes.png);
   await expect(page.getByRole("button", { name: "product-test.png v2 다운로드", exact: true })).toHaveCount(0);
+  await page.evaluate(() => window.scrollTo(0, 0));
   await page.screenshot({ path: "test-results/assets-frozen-brief.png", fullPage: true });
+  await page.goto(projectUrl); await page.setViewportSize({ width: 390, height: 844 });
+  await expect(png.getByRole("button", { name: "새 버전 업로드", exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: "test-results/assets-mobile.png", fullPage: true });
 });
 test("HTTP routes enforce session, organization, live role and same-origin token before issuing file URLs", async ({ browser }) => {
   const storage = createS3Storage();

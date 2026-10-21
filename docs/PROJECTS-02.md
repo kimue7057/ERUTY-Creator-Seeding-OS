@@ -1,10 +1,10 @@
 # projects-02 — Private versioned project assets
 
-상태: 구현 및 로컬 DB·S3 검증 완료, 브라우저 CI 검증 중. 담당: Codex. 기준: PRD v1.2 / PHASE-1-MVP. STEP 1–4 및 STEP 5 방향, PostgreSQL/Next.js 구조는 유지한다.
+상태: 구현 및 로컬·CI 검증 완료, Draft PR 검토 대기. 담당: Codex. 기준: PRD v1.2 / PHASE-1-MVP. STEP 1–4 및 STEP 5 방향, PostgreSQL/Next.js 구조는 유지한다.
 
 ## 브랜치 의존성
 
-2026-10-21 확인: PR #1, #2, #3은 모두 OPEN Draft이며 미병합이다. `feat/projects-02`는 원격 `feat/campaigns-01`의 `a0cd931`에서 시작하며, 새 Draft PR의 base는 `feat/campaigns-01`이다. 선행 PR을 임의로 병합하지 않는다.
+2026-10-21 확인: PR #1, #2, #3은 모두 OPEN Draft이며 미병합이다. `feat/projects-02`는 원격 `feat/campaigns-01`의 `a0cd931`에서 시작하며, [Draft PR #4](https://github.com/kimue7057/ERUTY-Creator-Seeding-OS/pull/4)의 base는 `feat/campaigns-01`이다. 선행 PR을 임의로 병합하지 않는다.
 
 ## 범위와 수용 계획
 
@@ -34,11 +34,17 @@
 | 타입 검사 / 린트 / 프로덕션 빌드 | 통과. 린트 및 빌드 경고 0 |
 | 단위 테스트 | 5건 통과 |
 | PostgreSQL + 실제 S3 통합 테스트 | 11건 통과 |
-| 브라우저 | 로컬 브라우저 제어는 Work 설정상 비활성. CI Chromium 회귀/캡처로 검증 중 |
+| 브라우저 | CI Chromium 4건 통과. 로컬 브라우저 제어는 Work 설정상 비활성 |
+
+기능 코드 `4ed8ea7`의 [CI 실행 39545628423](https://github.com/kimue7057/ERUTY-Creator-Seeding-OS/actions/runs/39545628423)에서 설치/실제 PostgreSQL 18·SeaweedFS/마이그레이션/시드/타입/린트/단위 5건/DB·S3 통합 11건/빌드/**브라우저 4건 전체 통과**를 확인했다. 브라우저는 실제 PDF 선택·PNG 드롭 업로드, 새로고침 후 자료/제품 분류 유지, 실제 이미지 미리보기, 다운로드 원본 바이트 일치, 새 버전 업로드 후 캠페인 v1 원본 다운로드를 검증한다. 실제 HTTP 라우트의 세션/조직/현재 역할/Origin 검증과 기존 프로젝트·캠페인 회귀도 포함한다.
+
+캡처는 해당 실행의 `asset-browser-screenshots` artifact와 로컬 Git 제외 폴더 `.local/qa/ci-39545628423/`에 보관했다. 프로젝트 자료실의 현재 v2/이력 v1·v2, 캠페인의 v1 파일 접근 화면을 확인했다. GitHub Actions 자체의 Node 런타임 전환 안내가 있으나 앱 린트/빌드 경고는 없다.
 
 실제 S3 검증 범위: PDF/JPG/PNG/WebP/MP4 왕복 SHA-256 일치, 익명/다른 조직 접근 거절, reviewer 업로드 거절, 같은 조직의 다른 사용자 intent 사용 거절, 짧은 서명 URL 만료, 동시 버전 직렬화, 이전 브리프 원본 바이트 보존, DB 버전 수정/참조 버전 삭제/객체 덮어쓰기 거절. 위조·크기 초과·불완전·중간 중단 스트림과 S3 응답 유실/DB 게시 전 취소를 주입해 미게시 및 cleanup 재실행을 확인했다.
 
 Windows에서 이미지 검사/S3 스트림 핸들이 임시 파일 삭제를 방해하던 문제를 수정하고, 중단 후 임시 파일이 0개인지 회귀 검증했다. 오류 주입의 덮어쓰기 거절 테스트에서 AWS SDK의 non-retryable streaming 안내가 출력되지만 예상된 412 거절이며 테스트는 통과한다.
+
+Next.js 번들에서 파일 감지 라이브러리의 동적 Node import가 실패하던 문제는 크기 제한을 통과한 동일 바이트 버퍼로 시그니처/내용을 검사하도록 수정했다. 검사 기준을 완화하지 않았으며 실제 HTTP 업로드·다운로드와 CI 브라우저 흐름으로 검증했다.
 
 ## 로컬 리플러츠 완료 기준 실증
 
