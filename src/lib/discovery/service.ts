@@ -12,6 +12,7 @@ export type DiscoveryScope = "discovery:read" | "discovery:observe" | "discovery
 export type DiscoveryActor = ActorScope & {
   principalId: string; executionSource: typeof DISCOVERY_SOURCES[number]; environmentSha256: string;
   campaignIds?: readonly string[];
+  requestId?: string;
   reauthorize?: (tx: DiscoveryTransaction, campaignId: string, scope: DiscoveryScope) => Promise<void>;
 };
 type Run = typeof runs.$inferSelect;
@@ -55,7 +56,7 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
     }
     const [{ count }] = await tx.select({ count: sql<number>`count(*)::int` }).from(requests).where(and(eq(requests.organizationId, actor.organizationId), eq(requests.principalKey, principalKey(actor))));
     if (count >= 10000) throw new DiscoveryError(429, "quota_exceeded");
-    const requestId = randomUUID();
+    const requestId = actor.requestId ?? randomUUID();
     const receipt = { ...await action(), contract_version: 1 as const, actor_id: actor.userId, principal_id: actor.principalId, request_id: requestId, payload_sha256: hash, recorded_at: new Date().toISOString(), replayed: false };
     await tx.insert(requests).values({ organizationId: actor.organizationId, actorId: actor.userId, principalKey: principalKey(actor), tool, idempotencyKey: input.idempotency_key, payloadSha256: hash, requestId, receipt });
     await tx.insert(auditEvents).values({ organizationId: actor.organizationId, actorId: actor.userId, entityId: requestId, action: `discovery.${tool}` });
@@ -144,7 +145,7 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
         }
         const [{ count }] = await tx.select({ count: sql<number>`count(*)::int` }).from(logs).where(eq(logs.runId, run.id));
         if (count >= 10000) throw new DiscoveryError(429, "quota_exceeded");
-        const [log] = await tx.insert(logs).values({ ...fields(run), sequence: count + 1, eventType: data.event_type, outcome: data.outcome, occurredAt: new Date(data.occurred_at), sourceUrl: normalized.source_url, query: data.query, parentLogId: data.parent_log_id, failureCode: data.failure_code, message: data.message, correlationId: randomUUID(), createdBy: actor.userId }).returning();
+        const [log] = await tx.insert(logs).values({ ...fields(run), sequence: count + 1, eventType: data.event_type, outcome: data.outcome, occurredAt: new Date(data.occurred_at), sourceUrl: normalized.source_url, query: data.query, parentLogId: data.parent_log_id, failureCode: data.failure_code, message: data.message, correlationId: actor.requestId ?? randomUUID(), createdBy: actor.userId }).returning();
         const updated = await advance(tx, actor, run);
         return { run_id: run.id, campaign_id: run.campaignId, log_id: log.id, sequence: log.sequence, status: updated.status, lock_version: updated.lockVersion };
       });
@@ -236,6 +237,7 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
       const data = readRunInput.parse(input), run = await loadRun(tx, actor, data.run_id, "discovery:read");
       const entries = await tx.select().from(logs).where(and(eq(logs.organizationId, actor.organizationId), eq(logs.runId, run.id), sql`${logs.sequence} > ${data.cursor}`)).orderBy(logs.sequence).limit(data.limit + 1);
       const facts = await tx.select().from(evidence).where(and(eq(evidence.organizationId, actor.organizationId), eq(evidence.runId, run.id))).orderBy(evidence.recordedAt, evidence.id).limit(data.limit + 1).offset(data.evidence_cursor);
+      await tx.insert(auditEvents).values({ organizationId: actor.organizationId, actorId: actor.userId, entityId: run.id, action: "discovery.run_read" });
       return { ...wireRun(run), counts: await summary(tx, run), logs: entries.slice(0, data.limit), next_cursor: entries.length > data.limit ? entries[data.limit - 1].sequence : null, evidence: facts.slice(0, data.limit), next_evidence_cursor: facts.length > data.limit ? data.evidence_cursor + data.limit : null, work_connection: "unverified" };
     }),
     reviewEvidence: (actor: DiscoveryActor, input: unknown) => transaction(async tx => {

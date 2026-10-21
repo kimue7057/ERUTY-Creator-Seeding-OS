@@ -133,3 +133,24 @@ export const discoveryRequests = pgTable("discovery_requests", {
   foreignKey({ name: "discovery_request_member_fk", columns: [t.organizationId, t.actorId], foreignColumns: [memberships.organizationId, memberships.userId] }),
   check("discovery_request_hash", sql`${t.payloadSha256} ~ '^[a-f0-9]{64}$'`),
 ]);
+
+// Separate from synthetic probe grants. No memberships or grants are auto-enrolled.
+export const discoveryMcpGrants = pgTable("discovery_mcp_grants", {
+  id: uuid().defaultRandom().primaryKey(), organizationId: uuid("organization_id").notNull(), userId: uuid("user_id").notNull(),
+  issuer: text().notNull(), subject: text().notNull(), environmentSha256: text("environment_sha256").notNull(),
+  executionSource: text("execution_source", { enum: ["work_manual_task", "codex_test"] }).notNull(), scopes: text().array().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdBy: uuid("created_by").notNull().references(() => users.id), ...times(),
+}, t => [uniqueIndex("discovery_mcp_principal").on(t.organizationId, t.issuer, t.subject).where(sql`${t.revokedAt} is null`), unique("discovery_mcp_grant_scope").on(t.organizationId, t.id),
+  foreignKey({ name: "discovery_mcp_member_fk", columns: [t.organizationId, t.userId], foreignColumns: [memberships.organizationId, memberships.userId] }),
+  enumCheck("discovery_mcp_source", t.executionSource, ["work_manual_task", "codex_test"]),
+  check("discovery_mcp_scopes", sql`cardinality(${t.scopes}) > 0 and ${t.scopes} <@ ARRAY['discovery:read','discovery:observe','discovery:submit']::text[] and ${t.scopes} @> ARRAY['discovery:read']::text[]`),
+  check("discovery_mcp_environment_hash", sql`${t.environmentSha256} ~ '^[a-f0-9]{64}$'`),
+  check("discovery_mcp_expiry", sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.createdAt} + interval '24 hours'`),
+]);
+export const discoveryGrantCampaigns = pgTable("discovery_grant_campaigns", {
+  ...scope(), grantId: uuid("grant_id").notNull(),
+}, t => [unique("discovery_grant_campaign_identity").on(t.grantId, t.campaignId),
+  foreignKey({ name: "discovery_grant_campaign_fk", columns: [t.organizationId, t.projectId, t.campaignId], foreignColumns: [campaigns.organizationId, campaigns.projectId, campaigns.id] }),
+  foreignKey({ name: "discovery_grant_identity_fk", columns: [t.organizationId, t.grantId], foreignColumns: [discoveryMcpGrants.organizationId, discoveryMcpGrants.id] }),
+]);

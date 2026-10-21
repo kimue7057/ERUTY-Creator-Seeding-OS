@@ -37,7 +37,8 @@
     "mcp:staging:prepare": "tsx scripts/mcp-staging-prepare.ts",
     "mcp:staging:init": "tsx scripts/mcp-staging-init.ts",
     "mcp:staging:verify": "tsx scripts/mcp-staging-verify.ts",
-    "mcp:staging:smoke": "tsx scripts/mcp-staging-smoke.ts"
+    "mcp:staging:smoke": "tsx scripts/mcp-staging-smoke.ts",
+    "mcp:discovery:operator": "tsx scripts/discovery-operator.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1153.0",

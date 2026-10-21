@@ -36,6 +36,13 @@
       "when": 1792572345619,
       "tag": "0004_many_madrox",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792574107124,
+      "tag": "0005_typical_jackal",
+      "breakpoints": true
     }
   ]
 }

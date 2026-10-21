@@ -8,40 +8,57 @@ import type { ProbeConfig } from "./config";
 import { probeAuthenticator } from "./auth";
 import { probeService } from "./service";
 import { capabilitiesInput, writeProbeInput, readProbeInput, ProbeError, PROBE_SCOPES, type ProbeIdentity } from "./contracts";
+import { DiscoveryError } from "../discovery/contracts";
 
 export function createProbeHttpServer(config: ProbeConfig, log: (event: { request_id: string; outcome: string }) => void = () => {}, service = probeService(config.organizationId, config.build)) {
+  return createAuthorizedMcpHttpServer(config, {
+    name: "eruty-discovery-probe", scopes: PROBE_SCOPES, bodyLimit: 4096, check: service.check,
+    tools: [
+      { name: "eruty_capabilities", description: "Read the authorized synthetic sandbox scope and server build. Work connectivity remains unverified.", schema: capabilitiesInput, scopes: ["discovery:read"], readOnly: true },
+      { name: "write_discovery_probe", description: "Persist one synthetic UUID nonce with an idempotency UUID and an audit receipt in the authorized test sandbox. Does not discover creators or start Work.", schema: writeProbeInput, scopes: ["discovery:read", "discovery:probe"], readOnly: false },
+      { name: "read_discovery_probe", description: "Read back a persisted probe owned by the current authorized principal and audit the read.", schema: readProbeInput, scopes: ["discovery:read"], readOnly: true },
+    ],
+    async call(identity, name, args, requestId) {
+      if (name === "eruty_capabilities") return { ...await service.capabilities(identity, args), transport: "streamable-http-stateless-json", protocol_versions: SUPPORTED_PROTOCOL_VERSIONS, authentication: "oauth-resource-jwt" };
+      if (name === "write_discovery_probe") return service.write(identity, args, requestId);
+      if (name === "read_discovery_probe") return service.read(identity, args);
+      throw new ProbeError(404, "unknown_tool");
+    },
+  }, log);
+}
+export type McpAdapter = {
+  name: string; scopes: readonly string[]; bodyLimit: number;
+  tools: { name: string; description: string; schema: z.ZodType; scopes: readonly string[]; readOnly: boolean }[];
+  check: (identity: ProbeIdentity) => Promise<void>;
+  call: (identity: ProbeIdentity, name: string, args: unknown, requestId: string) => Promise<Record<string, unknown>>;
+};
+export function createAuthorizedMcpHttpServer(config: ProbeConfig, adapter: McpAdapter, log: (event: { request_id: string; outcome: string }) => void = () => {}) {
   const authenticate = probeAuthenticator(config);
-  const challenge = (error = "invalid_token") => `Bearer resource_metadata="${config.metadataUrl}", scope="discovery:read discovery:probe", error="${error}", error_description="ERUTY probe authorization required"`;
-  const descriptors = [
-    { name: "eruty_capabilities", description: "Read the authorized synthetic sandbox scope and server build. Work connectivity remains unverified.", schema: capabilitiesInput, scope: "discovery:read", readOnly: true },
-    { name: "write_discovery_probe", description: "Persist one synthetic UUID nonce with an idempotency UUID and an audit receipt in the authorized test sandbox. Does not discover creators or start Work.", schema: writeProbeInput, scope: "discovery:probe", readOnly: false },
-    { name: "read_discovery_probe", description: "Read back a persisted probe owned by the current authorized principal and audit the read.", schema: readProbeInput, scope: "discovery:read", readOnly: true },
-  ];
+  const challenge = (error = "invalid_token") => `Bearer resource_metadata="${config.metadataUrl}", scope="${adapter.scopes.join(" ")}", error="${error}", error_description="ERUTY authorization required"`;
+  const domainError = (error: unknown) => error instanceof ProbeError || error instanceof DiscoveryError ? error : null;
   function mcp(identity: ProbeIdentity, requestId: string) {
-    const server = new Server({ name: "eruty-discovery-probe", version: "0.1.0" }, { capabilities: { tools: {} } });
+    const server = new Server({ name: adapter.name, version: "0.1.0" }, { capabilities: { tools: {} } });
     server.setRequestHandler(ListToolsRequestSchema, async () => {
-      await service.check(identity);
-      return { tools: descriptors.map(tool => ({
+      await adapter.check(identity);
+      return { tools: adapter.tools.map(tool => ({
         name: tool.name, description: tool.description,
-        inputSchema: z.toJSONSchema(tool.schema) as { type: "object" },
+        inputSchema: z.toJSONSchema(tool.schema, { io: "input" }) as { type: "object" },
         annotations: { readOnlyHint: tool.readOnly, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-        securitySchemes: [{ type: "oauth2", scopes: ["discovery:read", ...(tool.readOnly ? [] : ["discovery:probe"])] }],
-        _meta: { securitySchemes: [{ type: "oauth2", scopes: ["discovery:read", ...(tool.readOnly ? [] : ["discovery:probe"])] }] },
+        securitySchemes: [{ type: "oauth2", scopes: [...tool.scopes] }],
+        _meta: { securitySchemes: [{ type: "oauth2", scopes: [...tool.scopes] }] },
       })) };
     });
     server.setRequestHandler(CallToolRequestSchema, async ({ params }): Promise<CallToolResult> => {
       try {
-        let result: Record<string, unknown>;
-        if (params.name === "eruty_capabilities") result = { ...await service.capabilities(identity, params.arguments), transport: "streamable-http-stateless-json", protocol_versions: SUPPORTED_PROTOCOL_VERSIONS, authentication: "oauth-resource-jwt" };
-        else if (params.name === "write_discovery_probe") result = await service.write(identity, params.arguments, requestId);
-        else if (params.name === "read_discovery_probe") result = await service.read(identity, params.arguments);
-        else throw new ProbeError(404, "unknown_tool");
+        if (!adapter.tools.some(tool => tool.name === params.name)) throw new ProbeError(404, "unknown_tool");
+        const result = await adapter.call(identity, params.name, params.arguments, requestId);
         return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
       } catch (error) {
-        const code = error instanceof ProbeError ? error.code : error instanceof z.ZodError ? "invalid_input" : "request_failed";
+        const exposed = domainError(error);
+        const code = exposed?.code ?? (error instanceof z.ZodError ? "invalid_input" : "request_failed");
         log({ request_id: requestId, outcome: code });
         return { isError: true, content: [{ type: "text", text: code }],
-          ...(error instanceof ProbeError && [401, 403].includes(error.status) ? { _meta: { "mcp/www_authenticate": [challenge(code === "insufficient_scope" ? code : "invalid_token")] } } : {}),
+          ...(exposed && [401, 403].includes(exposed.status) ? { _meta: { "mcp/www_authenticate": [challenge(code === "insufficient_scope" ? code : "invalid_token")] } } : {}),
         };
       }
     });
@@ -55,7 +72,7 @@ export function createProbeHttpServer(config: ProbeConfig, log: (event: { reques
       req.on("data", (chunk: Buffer) => {
         if (failed) return;
         length += chunk.length;
-        if (length > 4096) { failed = true; reject(new ProbeError(413, "body_too_large")); return; }
+        if (length > adapter.bodyLimit) { failed = true; reject(new ProbeError(413, "body_too_large")); return; }
         bytes.push(chunk);
       });
       req.on("end", resolve); req.on("error", () => reject(new ProbeError(400, "incomplete_request"))); req.on("aborted", () => reject(new ProbeError(400, "incomplete_request")));
@@ -76,7 +93,7 @@ export function createProbeHttpServer(config: ProbeConfig, log: (event: { reques
       const path = req.url;
       if (path === "/.well-known/oauth-protected-resource/mcp" || path === "/.well-known/oauth-protected-resource") {
         if (req.method !== "GET") throw new ProbeError(405, "method_not_allowed");
-        json(res, 200, { resource: config.resource, authorization_servers: [config.issuer], scopes_supported: PROBE_SCOPES, bearer_methods_supported: ["header"] }); return;
+        json(res, 200, { resource: config.resource, authorization_servers: [config.issuer], scopes_supported: adapter.scopes, bearer_methods_supported: ["header"] }); return;
       }
       if (path !== "/mcp") throw new ProbeError(404, "not_found");
       if (req.method === "OPTIONS") {
@@ -84,10 +101,10 @@ export function createProbeHttpServer(config: ProbeConfig, log: (event: { reques
         res.setHeader("Access-Control-Allow-Headers", "Authorization, Content-Type, Accept, MCP-Protocol-Version"); res.writeHead(204); res.end(); return;
       }
       const identity = await authenticate(req.headers.authorization);
-      await service.check(identity);
+      await adapter.check(identity);
       if (req.method !== "POST") { res.setHeader("Allow", "POST, OPTIONS"); throw new ProbeError(405, "method_not_allowed"); }
       if ((req.headers["content-type"] ?? "").split(";")[0].trim() !== "application/json") throw new ProbeError(415, "json_required");
-      if (Number(req.headers["content-length"] ?? 0) > 4096) throw new ProbeError(413, "body_too_large");
+      if (Number(req.headers["content-length"] ?? 0) > adapter.bodyLimit) throw new ProbeError(413, "body_too_large");
       const parsed = await body(req);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new ProbeError(400, "single_request_required");
       const server = mcp(identity, requestId);
@@ -97,8 +114,8 @@ export function createProbeHttpServer(config: ProbeConfig, log: (event: { reques
       await transport.handleRequest(req, res, parsed);
       log({ request_id: requestId, outcome: "handled" });
     } catch (error) {
-      const code = error instanceof ProbeError ? error.code : "request_failed";
-      const status = error instanceof ProbeError ? error.status : 503;
+      const code = domainError(error)?.code ?? "request_failed";
+      const status = domainError(error)?.status ?? 503;
       log({ request_id: requestId, outcome: code });
       if (!res.headersSent && !res.destroyed) {
         if (status === 401 || status === 403 && code === "insufficient_scope") res.setHeader("WWW-Authenticate", challenge(code === "insufficient_scope" ? code : "invalid_token"));

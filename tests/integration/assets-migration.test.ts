@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Client } from "pg";
-test("0002–0004 preserve legacy asset IDs/versions and frozen briefs without inventing discovery or capability records", async () => {
+test("0002–0005 preserve legacy asset IDs/versions and frozen briefs without inventing discovery or capability records", async () => {
   const originalUrl = new URL(process.env.DATABASE_URL!);
   const database = `eruty_migration_${randomUUID().replaceAll("-", "")}`;
   const admin = new Client({ connectionString: originalUrl.href }); await admin.connect();
@@ -33,7 +33,8 @@ test("0002–0004 preserve legacy asset IDs/versions and frozen briefs without i
     assert.equal((await client.query("SELECT count(*)::int AS count FROM campaign_asset_references")).rows[0].count, 2);
     await client.query(await readFile("drizzle/0003_short_lucky_pierre.sql", "utf8"));
     await client.query(await readFile("drizzle/0004_many_madrox.sql", "utf8"));
-    for (const table of ["discovery_runs", "creator_accounts", "discovery_evidence", "campaign_creators", "discovery_logs", "discovery_capability_receipts"]) {
+    await client.query(await readFile("drizzle/0005_typical_jackal.sql", "utf8"));
+    for (const table of ["discovery_runs", "creator_accounts", "discovery_evidence", "campaign_creators", "discovery_logs", "discovery_capability_receipts", "discovery_mcp_grants", "discovery_grant_campaigns"]) {
       assert.equal((await client.query(`SELECT count(*)::int AS count FROM ${table}`)).rows[0].count, 0);
     }
     assert.equal((await client.query("SELECT count(*)::int AS count FROM discovery_probe_workspaces")).rows[0].count, 0);
