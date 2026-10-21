@@ -55,6 +55,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+      - run: pnpm mcp:build
       - run: pnpm test:integration
       - run: pnpm build
       - run: pnpm exec playwright install --with-deps chromium

@@ -1,0 +1,21 @@
+{
+  "mcpServers": {
+    "eruty-discovery-probe": {
+      "type": "streamable-http",
+      "url": "https://probe.example.invalid/mcp",
+      "extensions": {
+        "com.openai": {
+          "auth": {
+            "type": "oauth",
+            "client": {
+              "mode": "provided",
+              "clientId": "REPLACE_WITH_APPROVED_OAUTH_CLIENT_ID",
+              "tokenEndpointAuthMethod": "none"
+            },
+            "baseScopes": ["discovery:read", "discovery:probe"]
+          }
+        }
+      }
+    }
+  }
+}

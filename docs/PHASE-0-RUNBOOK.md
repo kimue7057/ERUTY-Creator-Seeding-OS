@@ -64,7 +64,7 @@ UI 이름과 필터는 실제 보이는 항목을 기록한다. 아래 검색어
 
 ## MCP 쓰기 별도 실험: MCP-01
 
-이 저장소에는 아직 ERUTY MCP 서버·인증 연결·probe 테이블이 없다. 아래는 후속 최소 서버 PR과 스테이징 승인이 선행되어야 하는 실험이다. 로컬 PostgreSQL 포트를 인터넷에 노출하거나 임의 터널을 열지 않는다.
+discovery-probe-01에서 최소 MCP 서버/probe 테이블 및 로컬 JWT·DB 검사를 구현했다. [구현 범위](DISCOVERY-PROBE-01.md)를 참고한다. 실제 OAuth 로그인·스테이징·Work 인증 연결은 미구성이다. 아래 실험에는 코드 검토와 스테이징 승인이 선행되어야 한다. 로컬 PostgreSQL 포트를 인터넷에 노출하거나 임의 터널을 열지 않는다.
 
 1. **운영자:** Work 환경에서 ERUTY 테스트 플러그인/원격 MCP 연결 경로와 허용된 인증·도구 목록을 확인한다. 없으면 `tool_unavailable`/`not_tested`로 종료한다.
 2. **Work:** `eruty_capabilities`로 서버 build/schema, principal, 허용 scope 및 테스트 campaign 범위를 읽는다. 목록 표시 성공만으로 쓰기 성공이라 하지 않는다.

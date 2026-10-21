@@ -46,3 +46,9 @@
 [Draft PR #4](https://github.com/kimue7057/ERUTY-Creator-Seeding-OS/pull/4), [CI 실행 39545628423](https://github.com/kimue7057/ERUTY-Creator-Seeding-OS/actions/runs/39545628423), 기능 코드 `4ed8ea7`: 타입/린트/단위 **5건**/실제 PostgreSQL·S3 통합 **11건**/빌드/Chromium 브라우저 **4건** 전부 통과했다. 실제 SeaweedFS 4.48 S3에 PDF/JPG/PNG/WebP/MP4를 업로드·재조회·다운로드하고 SHA-256 일치를 확인했다.
 
 브라우저에서 PDF 선택 및 이미지 드롭 업로드→새로고침→이미지 미리보기/다운로드→v2 업로드→기존 캠페인의 v1 다운로드를 검증했다. 로컬 `[샘플] 리플러츠`에도 합성 PDF·이미지와 v1 참조 캠페인, 현재 이미지 v2를 저장했다. 조직/사용자/역할 차단, 기존 데이터 이관, 불변 브리프, 위조/초과/중단/고아 객체와 서명 만료를 포함한 세부 근거 및 운영 미완료 항목은 [PROJECTS-02.md](PROJECTS-02.md)에 기록했다. 운영 배포나 실제 브랜드 비공개 파일의 확보를 완료로 주장하지 않는다.
+
+## discovery-probe-01 후속 검증 (2026-10-21)
+
+[Draft PR #6](https://github.com/kimue7057/ERUTY-Creator-Seeding-OS/pull/6), 기능·테스트 코드 `7929498`, [CI 실행 39553509808](https://github.com/kimue7057/ERUTY-Creator-Seeding-OS/actions/runs/39553509808): 타입/린트/단위 **8건**/실제 DB·S3·MCP·CLI 통합 **19건**/MCP·Next 빌드/기존 브라우저 **4건** 전체 통과했다. MCP·관리 CLI 관련 8개 통합 검사는 local synthetic client의 authenticated HTTP→실제 PostgreSQL 저장/조회, 별도 DB 연결 확인, 현재 권한/조직·주체 격리, 토큰·Origin·입력 차단, 동시 멱등성, grant 철회 및 빌드된 서버 프로세스를 포함한다.
+
+스테이징 배포, 외부 IdP의 대화형 OAuth 로그인, hosted Work의 plugin 설치/도구 호출은 미실행이다. 로컬 Codex 설정이나 테스트용 JWKS/JWT 성공을 실제 Work 연결 완료로 표시하지 않았다. [구체적인 구현·승인 후 수용 기준](DISCOVERY-PROBE-01.md)을 참고한다.

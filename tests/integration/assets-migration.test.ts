@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Client } from "pg";
-test("0002 preserves legacy asset IDs/versions and frozen brief JSON without inventing file verification", async () => {
+test("0002/0003 preserve legacy asset IDs/versions and frozen brief JSON without inventing file verification or probe enrollment", async () => {
   const originalUrl = new URL(process.env.DATABASE_URL!);
   const database = `eruty_migration_${randomUUID().replaceAll("-", "")}`;
   const admin = new Client({ connectionString: originalUrl.href }); await admin.connect();
@@ -31,6 +31,12 @@ test("0002 preserves legacy asset IDs/versions and frozen brief JSON without inv
     assert.deepEqual((await client.query("SELECT brief_snapshot FROM campaigns WHERE id=$1", [campaign])).rows[0].brief_snapshot, snapshot);
     assert.deepEqual((await client.query("SELECT snapshot FROM campaign_brief_revisions WHERE campaign_id=$1", [campaign])).rows[0].snapshot, snapshot);
     assert.equal((await client.query("SELECT count(*)::int AS count FROM campaign_asset_references")).rows[0].count, 2);
+    await client.query(await readFile("drizzle/0003_short_lucky_pierre.sql", "utf8"));
+    assert.equal((await client.query("SELECT count(*)::int AS count FROM discovery_probe_workspaces")).rows[0].count, 0);
+    assert.equal((await client.query("SELECT count(*)::int AS count FROM discovery_probes")).rows[0].count, 0);
+    assert.deepEqual((await client.query("SELECT brief_snapshot FROM campaigns WHERE id=$1", [campaign])).rows[0].brief_snapshot, snapshot);
+    assert.deepEqual((await client.query("SELECT snapshot FROM campaign_brief_revisions WHERE campaign_id=$1", [campaign])).rows[0].snapshot, snapshot);
+    assert.equal((await client.query("SELECT version FROM project_asset_versions WHERE asset_id=$1", [asset])).rows[0].version, 7);
   } finally {
     await client.end();
     // The generated database name is fixed-prefix UUID data, never a supplied DB name.

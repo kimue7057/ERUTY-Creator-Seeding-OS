@@ -7,3 +7,5 @@ allowBuilds:
   '@embedded-postgres/linux-x64': true
   unrs-resolver: true
   ffmpeg-static: true
+minimumReleaseAgeExclude:
+  - jose@6.2.13

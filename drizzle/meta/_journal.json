@@ -22,6 +22,13 @@
       "when": 1792556257607,
       "tag": "0002_dashing_bullseye",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1792561572994,
+      "tag": "0003_short_lucky_pierre",
+      "breakpoints": true
     }
   ]
 }
