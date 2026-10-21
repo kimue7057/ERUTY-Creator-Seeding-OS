@@ -9,7 +9,7 @@ x-common: &common
   security_opt: [no-new-privileges:true]
   cap_drop: [ALL]
   read_only: true
-  tmpfs: [/tmp:size=16m,mode=1777]
+  tmpfs: ["/tmp:size=16m,mode=1777"]
 x-config: &config
   NODE_ENV: production
   MCP_RESOURCE_URL: ${MCP_RESOURCE_URL:?Set approved resource URL}
