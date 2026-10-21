@@ -30,4 +30,5 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+      - run: pnpm test:integration
       - run: pnpm build
