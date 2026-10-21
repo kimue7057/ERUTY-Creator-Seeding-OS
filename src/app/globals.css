@@ -78,7 +78,12 @@ input[type=checkbox], input[type=radio] { accent-color: var(--green); }
 .project-symbol { width: 43px; height: 43px; border-radius: 9px; background: #edf1e8; color: #5b7856; display: grid; place-items: center; font-size: 18px; font-weight: 700; margin-bottom: 23px; }
 .card-footer { display: flex; justify-content: space-between; align-items: center; border-top: 1px solid #edf0ea; padding-top: 16px; margin-top: 24px; font-size: 11px; color: var(--muted); }
 .card-summary { min-height: 42px; margin-top: 10px; color: var(--muted); font-size: 12px; line-height: 1.8; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.table-scroll { overflow-x: auto; }
+.table-scroll { overflow-x: auto; position: relative; }
+.search-form { max-width: 100%; }
+.search-form > .input { width: auto; max-width: 100%; }
+.mobile-signout { display: none; }
+.page-heading > div { min-width: 0; }
+h1 { overflow-wrap: anywhere; }
 table { width: 100%; border-collapse: collapse; text-align: left; font-size: 12px; }
 th { padding: 14px 20px; color: #8a958c; font-weight: 500; font-size: 11px; background: #fafbf8; border-bottom: 1px solid var(--line); white-space: nowrap; }
 td { padding: 18px 20px; border-bottom: 1px solid #edf0eb; }
@@ -110,3 +115,4 @@ tr:hover td { background: #fcfdfb; }
 @media (min-width: 1600px) { main { padding-top: 48px; } }
 @media (max-width: 1100px) { .project-grid { grid-template-columns: repeat(2, 1fr); } .sidebar { width: 214px; } .content-shell { margin-left: 214px; } main { padding: 28px 24px; } .topbar { padding: 0 24px; } .stats-grid { gap: 10px; } .stat-card { padding: 16px; } }
 @media (max-width: 760px) { .sidebar { position: static; width: auto; padding: 16px; border-bottom: 1px solid var(--line); } .sidebar .workspace, .sidebar .nav-group, .sidebar-bottom, .brand-caption, .sidebar .future-nav { display: none; } .sidebar nav { display: flex; gap: 8px; margin-top: 12px; } .nav-item { width: auto; margin: 0; } .content-shell { margin: 0; } .topbar { height: 48px; padding: 0 20px; } main { padding: 25px 18px; } h1 { font-size: 25px; } .page-heading { align-items: flex-start; gap: 12px; } .page-heading .btn { padding: 10px; } .stats-grid { grid-template-columns: 1fr 1fr; } .project-grid, .detail-grid, .field-grid { grid-template-columns: 1fr; } .field-full { grid-column: auto; } .form-section { padding: 22px; } .search { width: 100%; } .steps { grid-template-columns: repeat(4, 1fr); } .login-wrap { grid-template-columns: 1fr; } .login-brand { padding: 32px; min-height: 220px; } .login-brand h1 { font-size: 27px; margin-top: 25px; } .login-brand footer { display: none; } .login-form-wrap { padding: 40px 25px; } }
+@media (max-width: 760px) { .mobile-signout { display: block; } .topbar > div:last-child > span { display: none; } }

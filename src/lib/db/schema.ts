@@ -73,6 +73,7 @@ export const campaigns = pgTable("campaigns", {
   startsOn: text("starts_on"), endsOn: text("ends_on"),
   status: text({ enum: ["draft", "ready", "archived"] }).notNull().default("draft"),
   briefSnapshot: jsonb("brief_snapshot").$type<BriefSnapshot>().notNull(),
+  briefVersion: integer("brief_version").default(1).notNull(),
   createdBy: uuid("created_by").notNull().references(() => users.id),
   updatedBy: uuid("updated_by").notNull().references(() => users.id), ...timestamps(),
 }, t => [
@@ -81,6 +82,7 @@ export const campaigns = pgTable("campaigns", {
   foreignKey({ columns: [t.organizationId, t.projectId], foreignColumns: [projects.organizationId, projects.id] }),
   check("campaign_follower_bounds", sql`${t.followerMin} >= 0 and ${t.followerMax} >= ${t.followerMin}`),
   check("campaign_goal", sql`${t.goalCount} > 0`),
+  check("campaign_brief_version", sql`${t.briefVersion} > 0`),
   check("campaign_budget", sql`${t.budget} is null or ${t.budget} >= 0`),
   check("campaign_status", sql`${t.status} in ('draft', 'ready', 'archived')`),
   check("campaign_countries", sql`cardinality(${t.countryCodes}) > 0`),
@@ -93,6 +95,16 @@ export const campaignProducts = pgTable("campaign_products", {
   primaryKey({ columns: [t.campaignId, t.productId] }),
   foreignKey({ columns: [t.organizationId, t.projectId, t.campaignId], foreignColumns: [campaigns.organizationId, campaigns.projectId, campaigns.id] }).onDelete("cascade"),
   foreignKey({ columns: [t.organizationId, t.projectId, t.productId], foreignColumns: [products.organizationId, products.projectId, products.id] }),
+]);
+export const campaignBriefRevisions = pgTable("campaign_brief_revisions", {
+  organizationId: uuid("organization_id").notNull(), projectId: uuid("project_id").notNull(),
+  campaignId: uuid("campaign_id").notNull(), version: integer().notNull(),
+  snapshot: jsonb().$type<BriefSnapshot>().notNull(),
+  createdBy: uuid("created_by").notNull().references(() => users.id), ...timestamps(),
+}, t => [
+  primaryKey({ columns: [t.campaignId, t.version] }),
+  foreignKey({ columns: [t.organizationId, t.projectId, t.campaignId], foreignColumns: [campaigns.organizationId, campaigns.projectId, campaigns.id] }).onDelete("cascade"),
+  check("brief_revision_version", sql`${t.version} > 0`),
 ]);
 export const auditEvents = pgTable("audit_events", {
   id: uuid().defaultRandom().primaryKey(), organizationId: uuid("organization_id").notNull().references(() => organizations.id),
