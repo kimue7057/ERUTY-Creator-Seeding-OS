@@ -13,6 +13,7 @@ test("PostgreSQL persists project edits and isolates organizations / products", 
     const project = await saveProject(actor, input);
     const second = await saveProject(actor, { ...input, name: "TEST 별도 프로젝트" });
     const product = await saveProduct(actor, project.id, { name: "Synthetic product", features: "Test-only", url: "" });
+    assert.equal((await listProjects(actor)).find(p => p.id === project.id)?.productCount, 1);
     await saveProject(actor, { ...input, summary: "Updated brief" }, project.id);
     assert.equal((await getProject(actor, project.id))?.summary, "Updated brief");
     assert.equal((await getProject(other, project.id)), null);

@@ -1,6 +1,6 @@
-import { and, eq, desc, ilike, isNull, sql } from "drizzle-orm";
+import { and, eq, desc, ilike, isNull, sql, countDistinct } from "drizzle-orm";
 import { db } from "../db";
-import { projects, products, projectAssets, auditEvents } from "../db/schema";
+import { projects, products, projectAssets, campaigns, auditEvents } from "../db/schema";
 import { assertWriter, type ActorScope } from "../auth/permissions";
 import { idSchema, projectSchema, productSchema, type ProjectInput, type ProductInput } from "../validation/projects";
 
@@ -10,9 +10,12 @@ export async function listProjects(actor: ActorScope, query = "") {
   const search = query.trim().slice(0, 100).replace(/[\\%_]/g, "\\$&");
   return db.select({
     id: projects.id, name: projects.name, summary: projects.summary, website: projects.website, updatedAt: projects.updatedAt,
-    productCount: sql<number>`(select count(*)::int from products p where p.project_id = ${projects.id} and p.organization_id = ${projects.organizationId} and p.archived_at is null)`,
-    campaignCount: sql<number>`(select count(*)::int from campaigns c where c.project_id = ${projects.id} and c.organization_id = ${projects.organizationId})`,
-  }).from(projects).where(and(eq(projects.organizationId, actor.organizationId), search ? ilike(projects.name, `%${search}%`) : undefined)).orderBy(desc(projects.updatedAt)).limit(100);
+    productCount: countDistinct(products.id), campaignCount: countDistinct(campaigns.id),
+  }).from(projects)
+    .leftJoin(products, and(eq(products.projectId, projects.id), eq(products.organizationId, projects.organizationId), isNull(products.archivedAt)))
+    .leftJoin(campaigns, and(eq(campaigns.projectId, projects.id), eq(campaigns.organizationId, projects.organizationId)))
+    .where(and(eq(projects.organizationId, actor.organizationId), search ? ilike(projects.name, `%${search}%`) : undefined))
+    .groupBy(projects.id).orderBy(desc(projects.updatedAt)).limit(100);
 }
 export async function getProject(actor: ActorScope, id: string) {
   const [project] = await db.select().from(projects).where(projectScope(actor, id));

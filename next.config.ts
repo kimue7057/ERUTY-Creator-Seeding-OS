@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 const config: NextConfig = {
   poweredByHeader: false,
+  agentRules: false,
   serverExternalPackages: ["pg"],
   async headers() {
     return [{ source: "/:path*", headers: [

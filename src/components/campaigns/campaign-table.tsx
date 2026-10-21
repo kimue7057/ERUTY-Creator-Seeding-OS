@@ -1,0 +1,8 @@
+import Link from "next/link";
+import { ArrowUpRight } from "lucide-react";
+import { countryLabel, platformLabel, statusLabel } from "@/lib/validation/campaigns";
+import { dateLabel } from "@/components/ui";
+type CampaignRow = { projectName: string; campaign: { id: string; title: string; countryCodes: string[]; platforms: string[]; followerMin: number; followerMax: number; goalCount: number; status: string; updatedAt: Date } };
+export function CampaignTable({ rows }: { rows: CampaignRow[] }) {
+  return <div className="table-scroll"><table><thead><tr><th>캠페인 / 프로젝트</th><th>타겟 국가 · 플랫폼</th><th>팔로워 범위</th><th>목표</th><th>상태</th><th>최근 수정</th><th><span className="sr-only">상세</span></th></tr></thead><tbody>{rows.map(({ campaign: c, projectName }) => <tr key={c.id}><td><Link href={`/campaigns/${c.id}`} className="font-semibold hover:underline">{c.title}</Link><div className="muted text-[10px] mt-2">{projectName}</div></td><td><div>{c.countryCodes.map(countryLabel).join(", ")}</div><div className="flex gap-1 mt-2">{c.platforms.map(p => <span className="badge" key={p}>{platformLabel(p)}</span>)}</div></td><td className="whitespace-nowrap muted">{c.followerMin.toLocaleString("ko-KR")}–{c.followerMax.toLocaleString("ko-KR")}</td><td className="whitespace-nowrap">{c.goalCount}명</td><td><span className={`badge ${c.status === "ready" ? "badge-green" : c.status === "archived" ? "" : "badge-amber"}`}>{statusLabel(c.status)}</span></td><td className="muted whitespace-nowrap text-[10px]">{dateLabel(c.updatedAt)}</td><td><Link href={`/campaigns/${c.id}`} aria-label={`${c.title} 상세`}><ArrowUpRight size={15} className="text-[#789078]" /></Link></td></tr>)}</tbody></table></div>;
+}

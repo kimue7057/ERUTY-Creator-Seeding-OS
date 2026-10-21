@@ -17,6 +17,7 @@ jobs:
       APP_ORIGIN: http://127.0.0.1:3000
       BOOTSTRAP_EMAIL: operator@example.invalid
       BOOTSTRAP_PASSWORD: ci-only-synthetic-operator-password
+      E2E_ALLOW_WRITES: "true"
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -32,3 +33,5 @@ jobs:
       - run: pnpm test
       - run: pnpm test:integration
       - run: pnpm build
+      - run: pnpm exec playwright install --with-deps chromium
+      - run: pnpm test:smoke

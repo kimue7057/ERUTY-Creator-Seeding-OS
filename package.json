@@ -18,7 +18,8 @@
     "db:local": "tsx scripts/local-postgres.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
-    "db:seed": "tsx scripts/seed.ts"
+    "db:seed": "tsx scripts/seed.ts",
+    "db:demo": "tsx scripts/demo.ts"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.1.0",

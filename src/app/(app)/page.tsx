@@ -5,9 +5,11 @@ import { ProjectCard } from "@/components/projects/project-card";
 import { requireActor } from "@/lib/auth/session";
 import { canWrite } from "@/lib/auth/permissions";
 import { listProjects, workspaceCounts } from "@/lib/projects/service";
+import { listCampaigns } from "@/lib/campaigns/service";
+import { CampaignTable } from "@/components/campaigns/campaign-table";
 export default async function Overview() {
   const actor = await requireActor();
-  const [projects, counts] = await Promise.all([listProjects(actor), workspaceCounts(actor)]);
+  const [projects, counts, campaigns] = await Promise.all([listProjects(actor), workspaceCounts(actor), listCampaigns(actor)]);
   const stats = [
     { label: "전체 프로젝트", value: counts.projects, note: "브랜드와 제품의 시작점", icon: FolderKanban },
     { label: "등록된 제품", value: counts.products, note: "캠페인에 연결할 제품", icon: Package },
@@ -19,6 +21,7 @@ export default async function Overview() {
     <div className="section-heading"><h2>시딩 워크플로</h2><span className="badge badge-green">STEP 1–2 · 데이터 준비</span></div><Steps />
     <div className="section-heading"><h2>최근 프로젝트 <span className="text-xs font-normal muted ml-2">브랜드의 모든 정보를 한 곳에</span></h2><Link href="/projects" className="text-xs muted flex gap-2 items-center">전체 보기<ArrowUpRight size={13} /></Link></div>
     {projects.length ? <div className="project-grid">{projects.slice(0, 3).map(p => <ProjectCard key={p.id} project={p} />)}</div> : <section className="surface"><Empty title="첫 프로젝트를 만들어 보세요" text="브랜드 소개와 제품을 등록하고, 국가와 플랫폼에 맞는 캠페인을 준비하세요." href={canWrite(actor) ? "/projects/new" : undefined} label="프로젝트 만들기" /></section>}
+    <div className="section-heading"><h2>최근 캠페인</h2><Link href="/campaigns" className="text-xs muted flex gap-2 items-center">전체 보기<ArrowUpRight size={13} /></Link></div><section className="surface">{campaigns.length ? <CampaignTable rows={campaigns.slice(0, 5)} /> : <Empty title="다음 캠페인을 준비해 보세요" text="프로젝트와 제품을 연결한 뒤 국가, 플랫폼, 크리에이터 조건을 설정하세요." href={canWrite(actor) ? "/campaigns/new" : undefined} label="캠페인 만들기" />}</section>
     <div className="info-banner"><Sprout size={21} className="shrink-0 mt-0.5" /><div><strong>작은 준비가, 좋은 협업의 시작입니다.</strong><br />브랜드와 제품을 충분히 정리해 두면 다음 캠페인에서도 그대로 사용할 수 있어요. SNS 직접 발굴 및 GPT Work 연동은 실증 대기 중입니다.</div></div>
   </>;
 }
