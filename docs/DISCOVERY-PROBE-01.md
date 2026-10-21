@@ -63,7 +63,7 @@ pnpm mcp:verify    # 독립 DB 연결로 nonce/hash/actor/request/audit 확인
 pnpm mcp:revoke    # MCP_PROBE_GRANT_ID + sandbox org. 기존 receipt는 보존
 ```
 
-외부 IdP/subject가 없는 상태에서 실제 Work 계정을 임의로 만들어 연결하지 않는다. 같은 issuer+subject는 한 grant에만 묶인다. 만료 후 갱신·주체 변경은 운영자가 별도 검토해야 하며 자동 refresh/권한 확대를 제공하지 않는다. 장기 운영용 grant 관리 UI·retention/purge·분산 rate limiter는 범위 밖이다. 배포된 앱에는 이 CLI를 공개 endpoint로 노출하지 않는다.
+외부 IdP/subject가 없는 상태에서 실제 Work 계정을 임의로 만들어 연결하지 않는다. 같은 issuer+subject는 한 grant에만 묶인다. 만료 후 갱신·주체 변경은 운영자가 별도 검토해야 하며 자동 refresh/권한 확대를 제공하지 않는다. CLI는 운영자의 DB 접근 권한으로 실행하는 관리 명령이며 OAuth 사용자 로그인 증거가 아니다. revoke는 `MCP_PROBE_USER_EMAIL`로 명시한 현재 sandbox writer를 감사 행위자로 기록하고 이전 grant 생성자를 현재 실행자로 추정하지 않는다. 장기 운영용 grant 관리 UI·retention/purge·분산 rate limiter는 범위 밖이다. 배포된 앱에는 이 CLI를 공개 endpoint로 노출하지 않는다.
 
 ## Hosted Work 플러그인 연결 검토 — 승인 후 수행할 절차
 
