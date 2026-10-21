@@ -7,7 +7,7 @@
 | foundation-01 | Next.js App Router/TS/Tailwind, 인증 셸, PostgreSQL/Drizzle 초기 마이그레이션, CI. 로그인 없는 접근 차단, 타입/린트/단위/빌드 통과 | 구현/로컬 검사 완료, PR 검토 대기 | feat/foundation-01 | PostgreSQL 18.4 마이그레이션/시드, typecheck/lint/build, 단위 2건 통과 |
 | projects-01 | 프로젝트 목록/생성/수정/상세, 브랜드/USP/URL, 제품 관리. 새로고침 후 유지, 권한/프로젝트 격리 검증 | 구현/로컬 검사 완료, PR 검토 대기 | feat/projects-01 | typecheck/lint/build, 단위 3건, PostgreSQL 통합 1건 통과. 브라우저 검증은 캠페인 통합 후 수행 |
 | campaigns-01 | 캠페인 목록/생성/수정/상세, 다중 국가/플랫폼, 필터 검증, 프로젝트/제품 연결, 불변 브리프. DB 통합/브라우저 스모크 통과 | 구현/로컬·CI 검사 완료, PR 검토 대기 | feat/campaigns-01 | typecheck/lint/build, 단위 4건, PostgreSQL 통합 4건, Playwright 2건, 실제 브라우저/모바일 확인 |
-| projects-02 | 비공개 S3 호환 스토리지, 업로드 검증/버전/다운로드 권한. 실제 파일 업로드/재조회 확인 | 미구현 | 미정 | object storage 설정 필요 |
+| projects-02 | 비공개 S3 호환 스토리지, 업로드 검증/버전/다운로드 권한. 실제 파일 업로드/재조회 확인 | 구현, 로컬 DB·S3 검사 통과, 브라우저 CI 검증 중 | feat/projects-02 | PR #3 위에 쌓음. [범위/근거](PROJECTS-02.md) |
 | discovery-00 | 실제 Work의 SNS 방문/내부 검색 및 MCP 쓰기 실증 | 미검증 | 해당 없음 | PHASE-0-SNS-SPIKE; 실제 Work에서 별도 실행 |
 
 ## 구현 결정

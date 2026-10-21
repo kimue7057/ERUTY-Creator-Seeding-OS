@@ -15,6 +15,13 @@
       "when": 1792553857700,
       "tag": "0001_dapper_bloodstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792556257607,
+      "tag": "0002_dashing_bullseye",
+      "breakpoints": true
     }
   ]
 }

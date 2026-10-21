@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, uuid, text, timestamp, integer, jsonb, primaryKey, unique, foreignKey, check, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, integer, bigint, jsonb, primaryKey, unique, uniqueIndex, foreignKey, check, index } from "drizzle-orm/pg-core";
 
 const timestamps = () => ({
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
@@ -49,6 +49,7 @@ export const projectAssets = pgTable("project_assets", {
   id: uuid().defaultRandom().primaryKey(), organizationId: uuid("organization_id").notNull(),
   projectId: uuid("project_id").notNull(), productId: uuid("product_id"),
   name: text().notNull(), kind: text().notNull(), objectPath: text("object_path").notNull(),
+  category: text().default("other").notNull(),
   version: integer().notNull().default(1),
   provenance: jsonb().$type<{ source: string; verificationStatus: "unverified" | "staff_uploaded" }>().notNull(),
   createdBy: uuid("created_by").notNull().references(() => users.id),
@@ -57,12 +58,44 @@ export const projectAssets = pgTable("project_assets", {
   foreignKey({ columns: [t.organizationId, t.projectId], foreignColumns: [projects.organizationId, projects.id] }),
   foreignKey({ columns: [t.organizationId, t.projectId, t.productId], foreignColumns: [products.organizationId, products.projectId, products.id] }),
   check("asset_positive_version", sql`${t.version} > 0`),
+  unique("asset_scoped_identity").on(t.organizationId, t.projectId, t.id),
+  check("asset_category", sql`${t.category} in ('brand_intro', 'product_image', 'advertising_video', 'brand_guide', 'other')`),
+]);
+export const projectAssetVersions = pgTable("project_asset_versions", {
+  id: uuid().defaultRandom().primaryKey(), organizationId: uuid("organization_id").notNull(), projectId: uuid("project_id").notNull(),
+  assetId: uuid("asset_id").notNull(), version: integer().notNull(), objectPath: text("object_path").notNull(),
+  storageVersionId: text("storage_version_id"), originalName: text("original_name").notNull(),
+  mimeType: text("mime_type"), byteSize: bigint("byte_size", { mode: "number" }), sha256: text(),
+  verificationStatus: text("verification_status", { enum: ["verified", "legacy_unverified"] }).notNull(),
+  uploadId: uuid("upload_id").unique(), createdBy: uuid("created_by").notNull().references(() => users.id), ...timestamps(),
+}, t => [
+  unique("asset_version_number").on(t.assetId, t.version),
+  uniqueIndex("asset_verified_object").on(t.objectPath).where(sql`${t.verificationStatus} = 'verified'`),
+  unique("asset_version_scoped_identity").on(t.organizationId, t.projectId, t.id),
+  foreignKey({ columns: [t.organizationId, t.projectId, t.assetId], foreignColumns: [projectAssets.organizationId, projectAssets.projectId, projectAssets.id] }),
+  check("asset_version_valid", sql`${t.version} > 0 and (${t.verificationStatus} = 'legacy_unverified' or (${t.verificationStatus} = 'verified' and ${t.sha256} is not null and ${t.sha256} ~ '^[a-f0-9]{64}$' and ${t.byteSize} is not null and ${t.byteSize} > 0 and ${t.mimeType} is not null and ${t.mimeType} in ('application/pdf','image/jpeg','image/png','image/webp','video/mp4')))`),
+]);
+export const assetUploads = pgTable("asset_uploads", {
+  id: uuid().defaultRandom().primaryKey(), organizationId: uuid("organization_id").notNull(), projectId: uuid("project_id").notNull(),
+  assetId: uuid("asset_id"), productId: uuid("product_id"), name: text().notNull(), category: text().notNull(),
+  originalName: text("original_name").notNull(), declaredMime: text("declared_mime").notNull(), expectedSize: bigint("expected_size", { mode: "number" }).notNull(),
+  objectPath: text("object_path").notNull().unique(),
+  state: text({ enum: ["pending", "receiving", "completed", "failed", "cancelled"] }).default("pending").notNull(),
+  failureCode: text("failure_code"), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  createdBy: uuid("created_by").notNull().references(() => users.id), ...timestamps(),
+}, t => [
+  foreignKey({ columns: [t.organizationId, t.projectId], foreignColumns: [projects.organizationId, projects.id] }),
+  foreignKey({ columns: [t.organizationId, t.projectId, t.assetId], foreignColumns: [projectAssets.organizationId, projectAssets.projectId, projectAssets.id] }),
+  foreignKey({ columns: [t.organizationId, t.projectId, t.productId], foreignColumns: [products.organizationId, products.projectId, products.id] }),
+  index("asset_upload_expiry").on(t.state, t.expiresAt),
+  check("upload_state_valid", sql`${t.state} in ('pending','receiving','completed','failed','cancelled')`),
+  check("upload_size_valid", sql`${t.expectedSize} > 0 and ${t.expectedSize} <= 52428800`),
 ]);
 export type BriefSnapshot = {
   version: 1; capturedAt: string;
   project: { id: string; name: string; website: string; summary: string; usp: string; brandStyle: string; referenceUrls: string[] };
   products: { id: string; name: string; features: string; url: string }[];
-  assets: { id: string; name: string; kind: string; version: number; objectPath: string }[];
+  assets: { id: string; name: string; kind: string; version: number; objectPath: string; versionId?: string; sha256?: string; mimeType?: string; byteSize?: number }[];
 };
 export const campaigns = pgTable("campaigns", {
   id: uuid().defaultRandom().primaryKey(), organizationId: uuid("organization_id").notNull(), projectId: uuid("project_id").notNull(),
@@ -103,8 +136,17 @@ export const campaignBriefRevisions = pgTable("campaign_brief_revisions", {
   createdBy: uuid("created_by").notNull().references(() => users.id), ...timestamps(),
 }, t => [
   primaryKey({ columns: [t.campaignId, t.version] }),
+  unique("campaign_brief_scoped_identity").on(t.organizationId, t.projectId, t.campaignId, t.version),
   foreignKey({ columns: [t.organizationId, t.projectId, t.campaignId], foreignColumns: [campaigns.organizationId, campaigns.projectId, campaigns.id] }).onDelete("cascade"),
   check("brief_revision_version", sql`${t.version} > 0`),
+]);
+export const campaignAssetReferences = pgTable("campaign_asset_references", {
+  organizationId: uuid("organization_id").notNull(), projectId: uuid("project_id").notNull(), campaignId: uuid("campaign_id").notNull(),
+  briefVersion: integer("brief_version").notNull(), assetVersionId: uuid("asset_version_id").notNull(),
+}, t => [
+  primaryKey({ columns: [t.campaignId, t.briefVersion, t.assetVersionId] }),
+  foreignKey({ columns: [t.organizationId, t.projectId, t.campaignId, t.briefVersion], foreignColumns: [campaignBriefRevisions.organizationId, campaignBriefRevisions.projectId, campaignBriefRevisions.campaignId, campaignBriefRevisions.version] }).onDelete("cascade"),
+  foreignKey({ columns: [t.organizationId, t.projectId, t.assetVersionId], foreignColumns: [projectAssetVersions.organizationId, projectAssetVersions.projectId, projectAssetVersions.id] }),
 ]);
 export const auditEvents = pgTable("audit_events", {
   id: uuid().defaultRandom().primaryKey(), organizationId: uuid("organization_id").notNull().references(() => organizations.id),

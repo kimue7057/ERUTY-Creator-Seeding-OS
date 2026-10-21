@@ -1,0 +1,99 @@
+import "dotenv/config";
+import { test, expect } from "@playwright/test";
+import { readFile } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import { resolve } from "node:path";
+import { generateAssetFixtures } from "../asset-fixtures";
+import { db, pool } from "../../src/lib/db";
+import { sessions, memberships } from "../../src/lib/db/schema";
+import { eq, and } from "drizzle-orm";
+import { withWorkspace } from "../integration/fixture";
+import { saveProject } from "../../src/lib/projects/service";
+import { beginUpload, receiveUpload } from "../../src/lib/assets/service";
+import { createS3Storage } from "../../src/lib/storage/s3";
+let fixture: Awaited<ReturnType<typeof generateAssetFixtures>>;
+test.beforeAll(async () => { if (process.env.E2E_ALLOW_WRITES !== "true") throw new Error("Dedicated test DB and E2E_ALLOW_WRITES=true required"); fixture = await generateAssetFixtures(resolve(".local/browser-assets")); });
+test.afterAll(() => pool.end());
+test("real browser uploads PDF and a dropped product image, previews/downloads, and preserves a brief's original file after v2", async ({ page }) => {
+  await page.goto("/login");
+  await page.getByLabel("이메일", { exact: true }).fill(process.env.BOOTSTRAP_EMAIL!);
+  await page.getByLabel("비밀번호", { exact: true }).fill(process.env.BOOTSTRAP_PASSWORD!);
+  await page.getByRole("button", { name: "로그인", exact: true }).click();
+  await page.getByRole("link", { name: "새 프로젝트", exact: true }).click();
+  const name = `SMOKE 리플러츠 자료 ${Date.now()}`;
+  await page.getByLabel("프로젝트명 *", { exact: true }).fill(name);
+  await page.getByRole("button", { name: "프로젝트 만들기", exact: true }).click();
+  await expect(page.getByRole("heading", { name, exact: true })).toBeVisible();
+  const projectUrl = page.url();
+  await page.getByRole("link", { name: "제품 추가", exact: true }).click();
+  await page.getByLabel("제품명 *", { exact: true }).fill("SMOKE 제품");
+  await page.getByRole("button", { name: "제품 저장", exact: true }).click();
+  await page.getByLabel("자료 파일 선택", { exact: true }).setInputFiles(fixture.paths.pdf);
+  await expect(page.getByRole("heading", { name: "brand-test.pdf", exact: true })).toBeVisible();
+  await page.getByLabel("파일의 제품 연결", { exact: true }).selectOption({ label: "SMOKE 제품" });
+  await page.getByLabel("자료 분류", { exact: true }).selectOption("product_image");
+  const transfer = await page.evaluateHandle(({ bytes }) => { const data = new DataTransfer(); data.items.add(new File([new Uint8Array(bytes)], "product-test.png", { type: "image/png" })); return data; }, { bytes: [...fixture.bytes.png] });
+  await page.locator(".asset-dropzone").dispatchEvent("drop", { dataTransfer: transfer });
+  await expect(page.getByRole("heading", { name: "product-test.png", exact: true })).toBeVisible();
+  await page.reload();
+  const png = page.locator(".asset-card").filter({ has: page.getByRole("heading", { name: "product-test.png", exact: true }) });
+  await expect(png).toContainText("제품 이미지 · SMOKE 제품");
+  await png.getByRole("button", { name: "product-test.png v1 미리보기", exact: true }).click();
+  const preview = page.getByRole("dialog"); await expect(preview).toBeVisible();
+  await expect.poll(() => preview.locator("img").evaluate(el => (el as HTMLImageElement).naturalWidth)).toBe(600);
+  await page.getByRole("button", { name: "미리보기 닫기", exact: true }).click();
+  let downloading = page.waitForEvent("download");
+  await png.getByRole("button", { name: "product-test.png v1 다운로드", exact: true }).click();
+  const firstDownload = await downloading;
+  expect(await readFile((await firstDownload.path())!)).toEqual(fixture.bytes.png);
+  await page.getByRole("link", { name: "캠페인 만들기", exact: true }).click();
+  await page.getByLabel("캠페인명 *", { exact: true }).fill("SMOKE 파일 브리프");
+  for (const checkbox of ["SMOKE 제품", "일본 JP", "TikTok"]) await page.getByRole("checkbox", { name: checkbox, exact: true }).check();
+  await page.getByLabel("크리에이터 카테고리 *", { exact: true }).fill("라이프스타일");
+  await page.getByRole("button", { name: "캠페인 만들기", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "SMOKE 파일 브리프", exact: true })).toBeVisible();
+  const campaignUrl = page.url();
+  await page.goto(projectUrl);
+  const chooser = page.waitForEvent("filechooser"); await png.getByRole("button", { name: "새 버전 업로드", exact: true }).click();
+  await (await chooser).setFiles(fixture.paths.png2);
+  await expect(png).toContainText("현재 v2");
+  await png.locator("summary").click(); await expect(png).toContainText("버전 이력 · 2개");
+  await page.screenshot({ path: "test-results/assets-project.png", fullPage: true });
+  downloading = page.waitForEvent("download"); await png.getByRole("button", { name: "product-test.png v2 다운로드", exact: true }).first().click();
+  expect(await readFile((await (await downloading).path())!)).toEqual(fixture.bytes.png2);
+  await page.goto(campaignUrl);
+  downloading = page.waitForEvent("download"); await page.getByRole("button", { name: "product-test.png v1 다운로드", exact: true }).click();
+  expect(await readFile((await (await downloading).path())!)).toEqual(fixture.bytes.png);
+  await expect(page.getByRole("button", { name: "product-test.png v2 다운로드", exact: true })).toHaveCount(0);
+  await page.screenshot({ path: "test-results/assets-frozen-brief.png", fullPage: true });
+});
+test("HTTP routes enforce session, organization, live role and same-origin token before issuing file URLs", async ({ browser }) => {
+  const storage = createS3Storage();
+  await withWorkspace(async (actor, other) => {
+    try {
+      const project = await saveProject(actor, { name: "HTTP synthetic", website: "", summary: "", usp: "", brandStyle: "", referenceUrls: [] });
+      const payload = { assetId: null, productId: null, name: "HTTP image", category: "other" as const, originalName: "http.png", declaredMime: "image/png" as const, expectedSize: fixture.bytes.png.length };
+      const intent = await beginUpload(actor, project.id, payload);
+      const version = await receiveUpload(actor, project.id, intent.id, new ReadableStream({ start(c) { c.enqueue(fixture.bytes.png); c.close(); } }), "image/png", storage);
+      const endpoint = `/api/projects/${project.id}/assets/${version.assetId}/download`;
+      const contexts = [];
+      for (const owner of [actor, other]) {
+        const token = randomBytes(32).toString("hex");
+        await db.insert(sessions).values({ tokenHash: createHash("sha256").update(token).digest("hex"), userId: owner.userId, organizationId: owner.organizationId, expiresAt: new Date(Date.now() + 60000) });
+        const context = await browser.newContext({ baseURL: "http://127.0.0.1:3000" });
+        await context.addCookies([{ name: "eruty_session", value: token, url: "http://127.0.0.1:3000", httpOnly: true, sameSite: "Lax" }]); contexts.push(context);
+      }
+      try {
+        const headers = { "X-Eruty-Request": "1", Origin: "http://127.0.0.1:3000" }; const data = { versionId: version.versionId };
+        expect((await contexts[1].request.post(endpoint, { headers, data })).status()).toBe(404);
+        expect((await contexts[0].request.post(endpoint, { data })).status()).toBe(403);
+        expect((await contexts[0].request.post(endpoint, { headers: { ...headers, Origin: "https://example.invalid" }, data })).status()).toBe(403);
+        await db.update(memberships).set({ role: "reviewer" }).where(and(eq(memberships.organizationId, actor.organizationId), eq(memberships.userId, actor.userId)));
+        expect((await contexts[0].request.post(endpoint, { headers, data })).status()).toBe(200);
+        expect((await contexts[0].request.post(`/api/projects/${project.id}/uploads`, { headers, data: payload })).status()).toBe(403);
+        await contexts[0].clearCookies();
+        expect((await contexts[0].request.post(endpoint, { headers, data })).status()).toBe(401);
+      } finally { for (const context of contexts) await context.close(); }
+    } finally { for (const object of await storage.list(`eruty/${actor.organizationId}/`)) await storage.remove(object); }
+  });
+});

@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.25.0",
-  "engines": { "node": ">=22.12" },
+  "engines": {
+    "node": ">=22.12"
+  },
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1",
     "build": "next build",
@@ -19,18 +21,28 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
-    "db:demo": "tsx scripts/demo.ts"
+    "db:demo": "tsx scripts/demo.ts",
+    "storage:install": "tsx scripts/storage-install.ts",
+    "storage:local": "tsx scripts/storage-local.ts",
+    "storage:init": "tsx scripts/storage-init.ts",
+    "assets:cleanup": "tsx scripts/assets-cleanup.ts",
+    "assets:demo": "tsx scripts/assets-demo.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1153.0",
+    "@aws-sdk/s3-request-presigner": "^3.1153.0",
     "@tailwindcss/postcss": "^4.1.0",
     "dotenv": "^17.2.0",
     "drizzle-orm": "0.45.4",
+    "file-type": "^22.2.0",
     "lucide-react": "^0.577.0",
     "next": "16.4.2",
+    "pdf-lib": "^1.17.1",
     "pg": "^8.16.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "server-only": "^0.0.1",
+    "sharp": "^0.35.5",
     "tailwindcss": "^4.1.0",
     "zod": "^4.3.0"
   },
@@ -44,6 +56,7 @@
     "embedded-postgres": "18.4.0-beta.17",
     "eslint": "^9.39.0",
     "eslint-config-next": "16.4.2",
+    "ffmpeg-static": "^5.3.0",
     "tsx": "^4.21.0",
     "typescript": "^5.9.0"
   }
