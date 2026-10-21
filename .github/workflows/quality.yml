@@ -1,5 +1,12 @@
 name: Quality
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+concurrency:
+  group: quality-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -18,6 +25,11 @@ jobs:
       BOOTSTRAP_EMAIL: operator@example.invalid
       BOOTSTRAP_PASSWORD: ci-only-synthetic-operator-password
       E2E_ALLOW_WRITES: "true"
+      S3_ENDPOINT: http://127.0.0.1:9000
+      S3_REGION: us-east-1
+      S3_BUCKET: eruty-private-ci
+      S3_FORCE_PATH_STYLE: "true"
+      S3_ACCESS_KEY_ID: ephemeral-ci-storage
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -26,6 +38,18 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      - name: Generate ephemeral storage credential
+        run: node -e "const key = require('crypto').randomBytes(32).toString('hex'); console.log('::add-mask::' + key); require('fs').appendFileSync(process.env.GITHUB_ENV, 'S3_SECRET_ACCESS_KEY=' + key + '\n')"
+      - run: pnpm storage:install
+      - name: Start authenticated loopback S3 service
+        run: |
+          mkdir -p .local
+          pnpm storage:local > .local/storage-process.log 2>&1 &
+          for attempt in $(seq 1 30); do
+            if curl -s -o /dev/null http://127.0.0.1:9000; then break; fi
+            sleep 1
+          done
+          pnpm storage:init
       - run: pnpm db:migrate
       - run: pnpm db:seed
       - run: pnpm typecheck
@@ -34,4 +58,11 @@ jobs:
       - run: pnpm test:integration
       - run: pnpm build
       - run: pnpm exec playwright install --with-deps chromium
+      - run: sudo apt-get install -y fonts-noto-cjk
       - run: pnpm test:smoke
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: asset-browser-screenshots
+          path: test-results/assets-*.png
+          if-no-files-found: ignore

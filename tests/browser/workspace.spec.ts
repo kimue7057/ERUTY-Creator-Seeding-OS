@@ -33,9 +33,9 @@ test("project/product CRUD, independent campaigns, validation and frozen brief s
   await page.getByLabel("제품명 *", { exact: true }).fill(product);
   await page.getByLabel("제품 특징 · USP", { exact: true }).fill("Synthetic product features");
   await page.getByRole("button", { name: "제품 저장", exact: true }).click();
-  await expect(page.getByText(product, { exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: product, exact: true })).toBeVisible();
   await page.reload();
-  await expect(page.getByText(product, { exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: product, exact: true })).toBeVisible();
   await page.getByRole("link", { name: "캠페인 만들기", exact: true }).click();
   await page.getByLabel("캠페인명 *", { exact: true }).fill(`SMOKE JP TikTok ${key}`);
   await page.getByRole("checkbox", { name: product, exact: true }).check();
@@ -82,7 +82,7 @@ test("project/product CRUD, independent campaigns, validation and frozen brief s
   await page.goto("/projects/new");
   await page.getByLabel("프로젝트명 *", { exact: true }).fill(`SMOKE 베베도르 ${key}`);
   await page.getByRole("button", { name: "프로젝트 만들기", exact: true }).click();
-  await expect(page.getByText(product, { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("cell", { name: product, exact: true })).toHaveCount(0);
   await page.goto("/");
   await expect(page.getByRole("button", { name: "크리에이터 발굴 예정" })).toBeDisabled();
   await page.setViewportSize({ width: 390, height: 844 });

@@ -2,7 +2,7 @@ import "dotenv/config";
 import { randomUUID } from "node:crypto";
 import { eq } from "drizzle-orm";
 import { db } from "../../src/lib/db";
-import { organizations, users, memberships, projects, products, projectAssets, campaigns, campaignProducts, auditEvents } from "../../src/lib/db/schema";
+import { organizations, users, memberships, projects, products, projectAssets, projectAssetVersions, assetUploads, campaigns, campaignProducts, auditEvents } from "../../src/lib/db/schema";
 import type { ActorScope } from "../../src/lib/auth/permissions";
 export async function withWorkspace(run: (actor: ActorScope, other: ActorScope) => Promise<void>) {
   const key = randomUUID();
@@ -16,6 +16,8 @@ export async function withWorkspace(run: (actor: ActorScope, other: ActorScope) 
       await db.delete(auditEvents).where(eq(auditEvents.organizationId, org.id));
       await db.delete(campaignProducts).where(eq(campaignProducts.organizationId, org.id));
       await db.delete(campaigns).where(eq(campaigns.organizationId, org.id));
+      await db.delete(assetUploads).where(eq(assetUploads.organizationId, org.id));
+      await db.delete(projectAssetVersions).where(eq(projectAssetVersions.organizationId, org.id));
       await db.delete(projectAssets).where(eq(projectAssets.organizationId, org.id));
       await db.delete(products).where(eq(products.organizationId, org.id));
       await db.delete(projects).where(eq(projects.organizationId, org.id));
