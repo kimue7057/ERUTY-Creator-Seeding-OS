@@ -1,0 +1,6 @@
+{
+  "name": "eruty-discovery-probe-review-only",
+  "version": "0.1.0",
+  "description": "Review-only template for an authenticated synthetic ERUTY database probe. Not installed, published or Work-verified.",
+  "author": { "name": "ERUTY" }
+}

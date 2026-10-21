@@ -153,3 +153,43 @@ export const auditEvents = pgTable("audit_events", {
   actorId: uuid("actor_id").notNull().references(() => users.id),
   entityId: uuid("entity_id").notNull(), action: text().notNull(), ...timestamps(),
 });
+
+// Explicit opt-in sandbox boundary. Existing organizations are never enrolled by migration.
+export const discoveryProbeWorkspaces = pgTable("discovery_probe_workspaces", {
+  organizationId: uuid("organization_id").primaryKey().references(() => organizations.id),
+  projectId: uuid("project_id").notNull(), campaignId: uuid("campaign_id").notNull(),
+  purpose: text().notNull().default("synthetic_mcp_probe"),
+  disabledAt: timestamp("disabled_at", { withTimezone: true }),
+  createdBy: uuid("created_by").notNull().references(() => users.id), ...timestamps(),
+}, t => [
+  unique("probe_workspace_scope").on(t.organizationId, t.projectId, t.campaignId),
+  foreignKey({ columns: [t.organizationId, t.projectId, t.campaignId], foreignColumns: [campaigns.organizationId, campaigns.projectId, campaigns.id] }),
+  check("probe_workspace_synthetic", sql`${t.purpose} = 'synthetic_mcp_probe'`),
+]);
+export const discoveryProbeGrants = pgTable("discovery_probe_grants", {
+  id: uuid().defaultRandom().primaryKey(), organizationId: uuid("organization_id").notNull(),
+  userId: uuid("user_id").notNull().references(() => users.id),
+  issuer: text().notNull(), subject: text().notNull(),
+  scopes: text().array().notNull(), expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdBy: uuid("created_by").notNull().references(() => users.id), ...timestamps(),
+}, t => [
+  unique("probe_principal_identity").on(t.issuer, t.subject),
+  unique("probe_grant_scope").on(t.organizationId, t.userId, t.id),
+  foreignKey({ columns: [t.organizationId], foreignColumns: [discoveryProbeWorkspaces.organizationId] }),
+  foreignKey({ columns: [t.organizationId, t.userId], foreignColumns: [memberships.organizationId, memberships.userId] }),
+  check("probe_grant_scopes", sql`cardinality(${t.scopes}) > 0 and ${t.scopes} <@ ARRAY['discovery:read','discovery:probe']::text[]`),
+]);
+export const discoveryProbes = pgTable("discovery_probes", {
+  id: uuid().defaultRandom().primaryKey(), organizationId: uuid("organization_id").notNull(),
+  projectId: uuid("project_id").notNull(), campaignId: uuid("campaign_id").notNull(),
+  principalId: uuid("principal_id").notNull(), actorId: uuid("actor_id").notNull(),
+  idempotencyKey: uuid("idempotency_key").notNull(), nonce: uuid().notNull(),
+  payloadSha256: text("payload_sha256").notNull(), requestId: uuid("request_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, t => [
+  unique("probe_idempotency").on(t.principalId, t.idempotencyKey),
+  foreignKey({ columns: [t.organizationId, t.projectId, t.campaignId], foreignColumns: [discoveryProbeWorkspaces.organizationId, discoveryProbeWorkspaces.projectId, discoveryProbeWorkspaces.campaignId] }),
+  foreignKey({ columns: [t.organizationId, t.actorId, t.principalId], foreignColumns: [discoveryProbeGrants.organizationId, discoveryProbeGrants.userId, discoveryProbeGrants.id] }),
+  check("probe_sha256", sql`${t.payloadSha256} ~ '^[a-f0-9]{64}$'`),
+]);

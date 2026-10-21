@@ -31,6 +31,7 @@ pnpm dev
 pnpm typecheck
 pnpm lint
 pnpm test
+pnpm mcp:build
 pnpm test:integration
 pnpm build
 ```
@@ -71,6 +72,14 @@ STEP 1–2 로컬 MVP는 검증 완료이며, 실제 Work SNS 탐색/MCP 쓰기�
 - [STEP 3 작은 PR 단위 개발 계획](docs/STEP-3-PR-PLAN.md)
 
 현재 저장소는 Public이다. 실제 크리에이터 증거·비공개 브리프/Work 채팅/토큰은 저장소·이슈·공개 CI artifact에 넣지 않는다. Private 전환과 main 보호 설정을 검토하되 사용자 승인 전 실제 변경·병합·배포는 수행하지 않는다.
+
+### discovery-probe-01: 최소 MCP 서버
+
+독립 Node 프로세스의 인증된 Streamable HTTP MCP와 `eruty_capabilities`, `write_discovery_probe`, `read_discovery_probe`를 구현했다. synthetic UUID만 받으며 전용 테스트 조직/subject grant·현재 membership/scope·토큰 서명을 검증한다. 실제 PostgreSQL probe 행과 감사 기록, 멱등성 및 독립 DB read-back을 로컬에서 확인했다. 전체 discovery 기능이나 Work 실행 버튼은 없다.
+
+`pnpm db:migrate`로 additive `0003`을 적용한다. 통합 테스트 전에 `pnpm mcp:build`가 필요하다. `pnpm mcp:dev`/`mcp:start`는 별도 프로세스이며 유효 설정 없이는 시작하지 않는다. `.env.example`은 주석 처리된 설정 안내만 제공한다. 테스트용 전용 조직은 명시적인 `mcp:provision` CLI로만 만들며 기존 조직을 등록하지 않는다.
+
+**OAuth 로그인 제공자와 실제 hosted Work 플러그인 연결은 아직 미구성·미검증**이다. 스테이징 배포·터널·플러그인 설치/게시는 수행하지 않았다. 실행/권한/IdP·protocol 제약과 승인 후 검증 순서는 [DISCOVERY-PROBE-01](docs/DISCOVERY-PROBE-01.md), 검토용 예시는 [work-probe](integrations/work-probe/README.md)에 있다.
 
 ## 마이그레이션/운영 메모
 

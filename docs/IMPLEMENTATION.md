@@ -10,6 +10,7 @@
 | projects-02 | 비공개 S3 호환 스토리지, 업로드 검증/버전/다운로드 권한. 실제 파일 업로드/재조회 확인 | 구현/로컬·CI 검사 완료, Draft PR #4 검토 대기 | feat/projects-02 | PR #3 위에 쌓음. 단위 5건/DB·S3 통합 11건/브라우저 4건/타입·린트·빌드 통과. [범위/근거](PROJECTS-02.md) |
 | discovery-00 | 실제 Work의 SNS 방문/내부 검색 및 MCP 쓰기 실증 | 미검증 | 해당 없음 | PHASE-0-SNS-SPIKE; 실제 Work에서 별도 실행 |
 | discovery-00-prep | Phase 0 플랫폼별 체크리스트, STEP 3 DB/MCP 계약, PR 병합·운영 점검과 작은 PR 계획 | 문서 준비 완료 / 실제 Work 실증 미실행 | docs/discovery-00-prep | #4 기준 문서 전용. [시작 계획](STEP-3-PR-PLAN.md) |
+| discovery-probe-01 | 최소 원격 MCP 3도구, 전용 synthetic 조직/grant, JWT/현재 권한·멱등성·감사/DB read-back | 구현/로컬 검사 완료, hosted Work·스테이징 미실행 | feat/discovery-probe-01 | 미병합 #5 기준. [구현·검증 경계](DISCOVERY-PROBE-01.md) |
 
 ## 구현 결정
 
