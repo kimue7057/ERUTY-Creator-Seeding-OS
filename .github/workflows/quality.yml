@@ -43,6 +43,9 @@ jobs:
           done
       - name: Check canonical discovery and unauthenticated rejection through real gateway
         run: DOTENV_CONFIG_PATH=.local/mcp-staging/.env pnpm mcp:staging:smoke
+      - name: Redacted MCP and gateway diagnostics on failure
+        if: failure()
+        run: docker compose --env-file .local/mcp-staging/.env -f staging/probe/compose.yaml logs --no-color mcp private-gateway
       - name: Remove ephemeral runner services
         if: always()
         run: docker compose --env-file .local/mcp-staging/.env -f staging/probe/compose.yaml --profile private down --volumes
