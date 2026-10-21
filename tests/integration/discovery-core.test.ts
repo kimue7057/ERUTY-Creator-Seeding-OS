@@ -1,0 +1,108 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { eq, sql } from "drizzle-orm";
+import { withDiscoveryDatabase } from "../discovery-fixture";
+import { localDiscoveryActor, prepareSample, logSample, observationSample } from "../discovery-samples";
+import { discoveryService } from "../../src/lib/discovery/service";
+import { campaigns, memberships } from "../../src/lib/db/schema";
+import { creatorAccounts, campaignCreators, discoveryEvidence, discoveryCapabilities } from "../../src/lib/db/discovery-schema";
+import { DiscoveryError } from "../../src/lib/discovery/contracts";
+const errorCode = (code: string) => (error: unknown) => error instanceof DiscoveryError && error.code === code;
+
+test("discovery core: concurrent/lost-response retries, campaign reuse and frozen targeting use actual PostgreSQL", async () => {
+  await withDiscoveryDatabase(async ({ database, client, actor, campaign }) => {
+    const service = discoveryService(database), who = localDiscoveryActor(actor), a = await campaign(), b = await campaign();
+    const prepare = prepareSample(a.id);
+    const [run, replay] = await Promise.all([service.prepare(who, prepare), service.prepare(who, prepare)]);
+    assert.equal(run.run_id, replay.run_id); assert.notEqual(run.replayed, replay.replayed);
+    assert.equal(run.status, "prepared"); assert.equal(run.started_at, null);
+    const contextHash = run.context_sha256 as string;
+    await database.update(campaigns).set({ countryCodes: ["US"], followerMin: 1, followerMax: 100 }).where(eq(campaigns.id, a.id));
+    const search = await service.appendLog(who, logSample(run.run_id as string));
+    const observation = observationSample(run.run_id as string, contextHash, search.log_id as string);
+    const [stored, repeated] = await Promise.all([service.record(who, observation), service.record(who, observation)]);
+    assert.equal(stored.creator_account_id, repeated.creator_account_id); assert.deepEqual(stored.evidence_ids, repeated.evidence_ids);
+    const afterLoss = await discoveryService(database).record(who, observation);
+    assert.equal(afterLoss.replayed, true); assert.equal(stored.request_id, afterLoss.request_id);
+    await assert.rejects(service.record(who, { ...observation, profile: { ...observation.profile, match_notes: "Different payload" } }), errorCode("idempotency_conflict"));
+    const secondRun = await service.prepare(who, prepareSample(b.id));
+    const secondLog = await service.appendLog(who, logSample(secondRun.run_id as string));
+    const second = await service.record(who, observationSample(secondRun.run_id as string, secondRun.context_sha256 as string, secondLog.log_id as string));
+    assert.equal(stored.creator_account_id, second.creator_account_id);
+    assert.notEqual(stored.campaign_creator_id, second.campaign_creator_id);
+    assert.equal((await database.select().from(creatorAccounts)).length, 1);
+    assert.equal((await database.select().from(campaignCreators)).length, 2);
+    const result = await service.getRun(who, { contract_version: 1, run_id: run.run_id });
+    assert.deepEqual(result.targeting_snapshot.countryCodes, ["JP"]); assert.equal(result.targeting_snapshot.followerMin, 10000);
+    assert.equal(result.context_sha256, contextHash); assert.equal(result.counts.discovered, 1); assert.equal(result.counts.verified, 0);
+    const independent = await client.query("select facts,payload_sha256,observation_method from discovery_evidence where id=$1", [(stored.evidence_ids as string[])[0]]);
+    assert.equal(independent.rows[0].facts.audience_country, "unknown"); assert.equal(independent.rows[0].observation_method, "codex_test");
+    assert.equal(independent.rows[0].facts.targeting.followers, "match");
+    assert.equal((await client.query("select count(*)::int n from discovery_requests where receipt->>'creator_account_id'=$1", [stored.creator_account_id])).rows[0].n, 2);
+  });
+});
+test("discovery core: tenant/live role, platform, context, identity collisions and unknown metrics fail safely", async () => {
+  await withDiscoveryDatabase(async ({ database, actor, other, reader, campaign }) => {
+    const service = discoveryService(database), who = localDiscoveryActor(actor), a = await campaign();
+    await assert.rejects(service.prepare(localDiscoveryActor(other), prepareSample(a.id)), errorCode("not_found_or_forbidden"));
+    await assert.rejects(service.prepare(localDiscoveryActor({ ...reader, role: "admin" }), prepareSample(a.id)), errorCode("insufficient_scope"));
+    await assert.rejects(service.prepare({ ...who, executionSource: "work_manual_task" }, { ...prepareSample(a.id), execution_source: "work_manual_task", work_task_reference: "synthetic-unverified-reference" }), errorCode("unverified_capability"));
+    const run = await service.prepare(who, prepareSample(a.id)), search = await service.appendLog(who, logSample(run.run_id as string));
+    const observation = observationSample(run.run_id as string, run.context_sha256 as string, search.log_id as string);
+    await assert.rejects(service.record(who, { ...observation, expected_context_sha256: "0".repeat(64) }), errorCode("stale_context"));
+    await assert.rejects(service.record(who, { ...observation, identity: { ...observation.identity, platform: "youtube" } }), errorCode("targeting_platform_mismatch"));
+    const stored = await service.record(who, { ...observation, identity: { ...observation.identity, platform_account_id: "11111" } });
+    await assert.rejects(service.record(who, { ...observation, idempotency_key: randomUUID(), identity: { ...observation.identity, platform_account_id: "22222" } }), errorCode("identity_conflict"));
+    const renamed = observationSample(run.run_id as string, run.context_sha256 as string, search.log_id as string, "renamed");
+    const renamedResult = await service.record(who, { ...renamed, identity: { ...renamed.identity, platform_account_id: "11111" } });
+    assert.equal(renamedResult.creator_account_id, stored.creator_account_id);
+    const hidden = observationSample(run.run_id as string, run.context_sha256 as string, search.log_id as string, "hidden");
+    hidden.profile.metrics[0] = { ...hidden.profile.metrics[0], precision: "hidden", raw_display: "Hidden", value: null }; hidden.profile.country = { code: null, basis: "Unknown" };
+    const unknown = await service.record(who, hidden);
+    assert.deepEqual(unknown.targeting, { followers: "unknown", country: "unknown", category: "match" });
+    await assert.rejects(service.getRun(localDiscoveryActor(other), { contract_version: 1, run_id: run.run_id }), errorCode("not_found_or_forbidden"));
+    await database.update(memberships).set({ role: "reviewer" }).where(eq(memberships.userId, actor.userId));
+    await assert.rejects(service.appendLog(who, logSample(run.run_id as string)), errorCode("insufficient_scope"));
+  });
+});
+test("discovery core: restrictions, submission and human review never verify synthetic/browser-unconfirmed data", async () => {
+  await withDiscoveryDatabase(async ({ database, actor, reader, campaign }) => {
+    const service = discoveryService(database), who = localDiscoveryActor(actor), a = await campaign();
+    const run = await service.prepare(who, prepareSample(a.id));
+    const failure = await service.appendLog(who, { ...logSample(run.run_id as string), event_type: "login_required", outcome: "blocked", query: null, failure_code: "login_required" });
+    const submitted = await service.submit(who, { contract_version: 1, run_id: run.run_id, expected_lock_version: failure.lock_version, outcome: "blocked", limitations: ["Synthetic login restriction"], idempotency_key: randomUUID() });
+    assert.equal(submitted.status, "awaiting_review"); assert.equal((submitted.counts as { failures: number }).failures, 1);
+    await assert.rejects(service.appendLog(who, logSample(run.run_id as string)), errorCode("run_closed"));
+    await assert.rejects(service.reviewRun(who, { run_id: run.run_id, expected_lock_version: submitted.lock_version, verdict: "completed", reason: "Attempt to overstate success" }), errorCode("insufficient_verified_evidence"));
+    await assert.rejects(service.reviewRun(localDiscoveryActor(reader), { run_id: run.run_id, expected_lock_version: submitted.lock_version, verdict: "blocked", reason: "Reader cannot review" }), errorCode("insufficient_scope"));
+    const ended = await service.reviewRun(who, { run_id: run.run_id, expected_lock_version: submitted.lock_version, verdict: "blocked", reason: "Synthetic blocked attempt reviewed" });
+    assert.equal(ended.status, "blocked");
+    const another = await service.prepare(who, prepareSample(a.id)), search = await service.appendLog(who, logSample(another.run_id as string));
+    const observed = await service.record(who, observationSample(another.run_id as string, another.context_sha256 as string, search.log_id as string));
+    for (const id of observed.evidence_ids as string[]) await service.reviewEvidence(who, { evidence_id: id, verdict: "accepted", reason: "Synthetic fixture test only" });
+    assert.equal((await service.getRun(who, { contract_version: 1, run_id: another.run_id })).counts.verified, 0);
+    assert.equal((await database.select().from(campaignCreators))[0].discoveryState, "verification_pending");
+    const e = await database.select().from(discoveryEvidence); assert.ok(e.every(row => row.observationMethod === "codex_test"));
+  });
+});
+test("review projection requires native search, pinned capability and both reviewed Work-source profile/content (synthetic contract fixture only)", async () => {
+  await withDiscoveryDatabase(async ({ database, actor, campaign }) => {
+    const service = discoveryService(database), a = await campaign(), who = { ...localDiscoveryActor(actor), executionSource: "work_manual_task" as const };
+    for (const kind of ["sns_native_search", "work_mcp_write"] as const) await database.insert(discoveryCapabilities).values({ organizationId: actor.organizationId, platform: "instagram", kind, verdict: "verified", environmentSha256: who.environmentSha256, privateEvidenceReference: "SYNTHETIC CONTRACT FIXTURE — NOT ACTUAL WORK EVIDENCE", facts: { native_search: true, direct_profiles: 5, recent_content_profiles: 5, limitations: ["Synthetic test only"] }, observedAt: new Date(), reviewedBy: actor.userId });
+    const run = await service.prepare(who, { ...prepareSample(a.id), execution_source: "work_manual_task", work_task_reference: "synthetic-contract-fixture-not-a-real-work-task" });
+    const search = await service.appendLog(who, logSample(run.run_id as string));
+    const stored = await service.record(who, { ...observationSample(run.run_id as string, run.context_sha256 as string, search.log_id as string), work_trace_reference: "synthetic-contract-fixture-not-a-real-work-trace" });
+    const staff = localDiscoveryActor(actor);
+    await service.reviewEvidence(staff, { evidence_id: (stored.evidence_ids as string[])[0], verdict: "accepted", reason: "Synthetic contract fixture" });
+    assert.equal((await service.getRun(who, { contract_version: 1, run_id: run.run_id })).counts.verified, 0);
+    await service.reviewEvidence(staff, { evidence_id: (stored.evidence_ids as string[])[1], verdict: "accepted", reason: "Synthetic contract fixture" });
+    assert.equal((await service.getRun(who, { contract_version: 1, run_id: run.run_id })).counts.verified, 1);
+    assert.equal((await database.select().from(campaignCreators))[0].discoveryState, "direct_sns_verified");
+    assert.equal((await database.select({ n: sql<number>`count(*)::int` }).from(creatorAccounts))[0].n, 1);
+    const submitted = await service.submit(who, { contract_version: 1, run_id: run.run_id, expected_lock_version: stored.lock_version, outcome: "submitted", limitations: ["Synthetic contract fixture only"], idempotency_key: randomUUID() });
+    const completed = await service.reviewRun(staff, { run_id: run.run_id, expected_lock_version: submitted.lock_version, verdict: "completed", reason: "Synthetic contract fixture — not real Work verification" });
+    assert.equal(completed.status, "completed");
+    await assert.rejects(service.reviewEvidence(staff, { evidence_id: (stored.evidence_ids as string[])[0], verdict: "rejected", reason: "Terminal history must be corrected in a new run" }), errorCode("run_closed"));
+  });
+});
