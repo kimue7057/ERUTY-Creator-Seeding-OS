@@ -39,8 +39,8 @@ export function discoveryQueries(database: Pick<typeof db, "transaction"> = db) 
         ${filters.state ? sql`and c.discovery_state=${filters.state}` : sql``}
         ${filters.source ? sql`and r.execution_source=${filters.source}` : sql``}
         ${filters.category ? sql`and e.facts->'categories' ? ${filters.category}` : sql``}
-        ${filters.min !== undefined ? sql`and m.followers::numeric >= ${filters.min}` : sql``}
-        ${filters.max !== undefined ? sql`and m.followers::numeric <= ${filters.max}` : sql``}
+        ${filters.min !== undefined ? sql`and m.precision='exact' and m.followers::numeric >= ${filters.min}` : sql``}
+        ${filters.max !== undefined ? sql`and m.precision='exact' and m.followers::numeric <= ${filters.max}` : sql``}
         order by e.observed_at desc,c.id limit ${PAGE_SIZE} offset ${(filters.page - 1) * PAGE_SIZE}`);
       const runRows = await tx.select({ run: discoveryRuns,
         // Literal outer qualifiers avoid single-table SELECT dequalifying nested columns.

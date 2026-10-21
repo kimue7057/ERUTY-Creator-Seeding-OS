@@ -11,15 +11,17 @@ import { DiscoveryError } from "../../src/lib/discovery/contracts";
 test("discovery views use persisted scoped observations, precision-aware filters and immutable identity", async () => {
   await withDiscoveryDatabase(async ({ database, actor, other, reader, campaign }) => {
     const service = discoveryService(database), queries = discoveryQueries(database), who = localDiscoveryActor(actor), a = await campaign(), b = await campaign();
-    const run = await service.prepare(who, prepareSample(a.id)), log = await service.appendLog(who, logSample(run.run_id));
+    const run = await service.prepare(who, { ...prepareSample(a.id), requested_count: 2 }), log = await service.appendLog(who, logSample(run.run_id));
     const observation = observationSample(run.run_id, run.context_sha256, log.log_id, "query");
     const stored = await service.record(who, { ...observation, identity: { ...observation.identity, platform_account_id: "33333", display_name: "SYNTHETIC original" } });
     const hidden = observationSample(run.run_id, run.context_sha256, log.log_id, "query_hidden");
     await service.record(who, { ...hidden, profile: { ...hidden.profile, metrics: [{ ...hidden.profile.metrics[0], value: null, raw_display: "hidden", precision: "hidden" }] } });
+    const rounded = observationSample(run.run_id, run.context_sha256, log.log_id, "query_round");
+    await service.record(who, { ...rounded, profile: { ...rounded.profile, metrics: [{ ...rounded.profile.metrics[0], value: 12000, raw_display: "12K", precision: "rounded" }] } });
     const dashboard = await queries.dashboard(reader, a.id);
-    assert.equal(dashboard?.creators.length, 2); assert.equal(dashboard?.runs[0].discovered, 2); assert.equal(dashboard?.runs[0].failures, 0);
+    assert.equal(dashboard?.creators.length, 3); assert.equal(dashboard?.runs[0].discovered, 3); assert.equal(dashboard?.runs[0].failures, 0);
     const index = await queries.campaigns(actor), card = index.find(row => row.id === a.id);
-    assert.equal(card?.creatorCount, 2); assert.equal(card?.runCount, 1); assert.equal(index.length, 2);
+    assert.equal(card?.creatorCount, 3); assert.equal(card?.runCount, 1); assert.equal(index.length, 2);
     assert.equal((await queries.dashboard(actor, a.id, { min: 10000, max: 13000, category: "synthetic", platform: "instagram", source: "codex_test", state: "verification_pending" }))?.creators.length, 1);
     assert.equal((await queries.dashboard(actor, a.id, { platform: "tiktok" }))?.creators.length, 0);
     assert.equal((await queries.dashboard(actor, a.id))?.counts.verified, 0);
