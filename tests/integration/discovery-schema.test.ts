@@ -1,0 +1,45 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
+import { withDiscoveryDatabase, sqlFailure } from "../discovery-fixture";
+import { discoveryRuns, creatorAccounts, discoveryLogs, discoveryEvidence, creatorAccountAliases, campaignCreators, discoveryEvidenceReviews, discoveryRequests } from "../../src/lib/db/discovery-schema";
+
+test("discovery migration: scoped references, immutable evidence/logs/requests and frozen run context are enforced by PostgreSQL", async () => {
+  await withDiscoveryDatabase(async ({ database, client, actor, other, campaign }) => {
+    const a = await campaign(), b = await campaign(other);
+    const target = { countryCodes: a.countryCodes, platforms: a.platforms, categories: a.categories, followerMin: a.followerMin, followerMax: a.followerMax, goalCount: a.goalCount, notes: a.notes, exclusions: a.exclusions };
+    const input = { organizationId: actor.organizationId, projectId: a.projectId, campaignId: a.id, briefVersion: 1, platform: "instagram" as const, executionSource: "codex_test" as const, targetingSnapshot: target, targetingSha256: "a".repeat(64), contextSha256: "b".repeat(64), requestedCount: 5, environmentSnapshot: { environment_sha256: "c".repeat(64), work_connection: "unverified" as const }, createdBy: actor.userId, updatedBy: actor.userId };
+    const [run] = await database.insert(discoveryRuns).values(input).returning();
+    await assert.rejects(database.insert(discoveryRuns).values({ ...input, organizationId: other.organizationId }), sqlFailure("23503"));
+    await assert.rejects(database.insert(discoveryRuns).values({ ...input, executionSource: "work_manual_task" }), sqlFailure("23514"));
+    await assert.rejects(database.update(discoveryRuns).set({ targetingSha256: "d".repeat(64), lockVersion: 1 }).where(eq(discoveryRuns.id, run.id)), sqlFailure("23514"));
+    await database.update(discoveryRuns).set({ status: "collecting", lockVersion: 1, startedAt: new Date() }).where(eq(discoveryRuns.id, run.id));
+    const [account] = await database.insert(creatorAccounts).values({ organizationId: actor.organizationId, platform: "instagram", canonicalProfileUrl: "https://www.instagram.com/eruty_synthetic_fixture/", firstSeenAt: new Date(), lastSeenAt: new Date(), createdBy: actor.userId, updatedBy: actor.userId }).returning();
+    const logInput = { organizationId: actor.organizationId, projectId: a.projectId, campaignId: a.id, runId: run.id, sequence: 1, eventType: "native_search", outcome: "success" as const, occurredAt: new Date(), sourceUrl: "https://www.instagram.com/", query: "SYNTHETIC fixture only", message: "Not an actual SNS search", correlationId: randomUUID(), createdBy: actor.userId };
+    const [log] = await database.insert(discoveryLogs).values(logInput).returning();
+    await assert.rejects(database.insert(discoveryLogs).values({ ...logInput, sequence: 2, parentLogId: randomUUID() }), sqlFailure("23503"));
+    const evidenceInput = { organizationId: actor.organizationId, projectId: a.projectId, campaignId: a.id, runId: run.id, creatorAccountId: account.id, platform: "instagram" as const, kind: "profile_observation" as const, observationMethod: "codex_test" as const, sourceUrl: account.canonicalProfileUrl, profileUrl: account.canonicalProfileUrl, observedAt: new Date(), facts: { schema_version: 1 as const, opened_directly: false, metrics: [], note: "Synthetic fixture", audience_country: "unknown" as const }, limitations: ["SYNTHETIC"], searchLogId: log.id, payloadSha256: "d".repeat(64), createdBy: actor.userId };
+    const [evidence] = await database.insert(discoveryEvidence).values(evidenceInput).returning();
+    await assert.rejects(database.insert(discoveryEvidence).values({ ...evidenceInput, organizationId: other.organizationId, projectId: b.projectId, campaignId: b.id }), sqlFailure("23503"));
+    await assert.rejects(database.insert(discoveryEvidence).values({ ...evidenceInput, platform: "tiktok" }), sqlFailure("23503"));
+    await assert.rejects(database.update(discoveryEvidence).set({ sourceUrl: "https://www.instagram.com/changed/" }).where(eq(discoveryEvidence.id, evidence.id)), sqlFailure("23514"));
+    await assert.rejects(database.delete(discoveryEvidence).where(eq(discoveryEvidence.id, evidence.id)), sqlFailure("23514"));
+    await assert.rejects(database.update(discoveryLogs).set({ message: "changed" }).where(eq(discoveryLogs.id, log.id)), sqlFailure("23514"));
+    const aliasInput = { organizationId: actor.organizationId, platform: "instagram" as const, accountId: account.id, normalizedUrl: account.canonicalProfileUrl, evidenceId: evidence.id, createdBy: actor.userId };
+    const [alias] = await database.insert(creatorAccountAliases).values(aliasInput).returning();
+    await assert.rejects(database.insert(creatorAccountAliases).values(aliasInput), sqlFailure("23505"));
+    await assert.rejects(database.insert(creatorAccountAliases).values({ ...aliasInput, organizationId: other.organizationId }), sqlFailure("23503"));
+    await database.update(creatorAccountAliases).set({ validTo: new Date() }).where(eq(creatorAccountAliases.id, alias.id));
+    await assert.rejects(database.update(creatorAccountAliases).set({ validTo: null }).where(eq(creatorAccountAliases.id, alias.id)), sqlFailure("23514"));
+    const link = { organizationId: actor.organizationId, projectId: a.projectId, campaignId: a.id, creatorAccountId: account.id, firstDiscoveryRunId: run.id, firstEvidenceId: evidence.id, createdBy: actor.userId, updatedBy: actor.userId };
+    await database.insert(campaignCreators).values(link);
+    await assert.rejects(database.insert(campaignCreators).values(link), sqlFailure("23505"));
+    await assert.rejects(database.insert(campaignCreators).values({ ...link, campaignId: b.id, projectId: b.projectId }), sqlFailure("23503"));
+    const [review] = await database.insert(discoveryEvidenceReviews).values({ organizationId: actor.organizationId, projectId: a.projectId, campaignId: a.id, runId: run.id, evidenceId: evidence.id, verdict: "needs_review", reason: "Synthetic fixture", reviewedBy: actor.userId }).returning();
+    await assert.rejects(database.update(discoveryEvidenceReviews).set({ verdict: "accepted" }).where(eq(discoveryEvidenceReviews.id, review.id)), sqlFailure("23514"));
+    const [request] = await database.insert(discoveryRequests).values({ organizationId: actor.organizationId, actorId: actor.userId, principalKey: `user:${actor.userId}`, tool: "synthetic", idempotencyKey: randomUUID(), payloadSha256: "f".repeat(64), receipt: { synthetic: true }, requestId: randomUUID() }).returning();
+    await assert.rejects(database.update(discoveryRequests).set({ receipt: { overwritten: true } }).where(eq(discoveryRequests.id, request.id)), sqlFailure("23514"));
+    assert.deepEqual((await client.query("select snapshot from campaign_brief_revisions where campaign_id=$1", [a.id])).rows[0].snapshot, a.briefSnapshot);
+  });
+});
