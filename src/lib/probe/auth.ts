@@ -1,7 +1,7 @@
 import { createRemoteJWKSet, customFetch, jwtVerify } from "jose";
 import type { ProbeConfig } from "./config";
 import { ProbeError, type ProbeIdentity } from "./contracts";
-export function probeAuthenticator(config: ProbeConfig) {
+export function probeAuthenticator(config: Pick<ProbeConfig, "issuer" | "resource" | "jwks">) {
   const keys = createRemoteJWKSet(new URL(config.jwks), {
     timeoutDuration: 3000, cooldownDuration: 30_000, cacheMaxAge: 60_000,
     // Do not follow redirects to a different endpoint or internal network.

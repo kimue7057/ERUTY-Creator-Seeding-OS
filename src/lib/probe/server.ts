@@ -9,8 +9,8 @@ import { probeAuthenticator } from "./auth";
 import { probeService } from "./service";
 import { capabilitiesInput, writeProbeInput, readProbeInput, ProbeError, PROBE_SCOPES, type ProbeIdentity } from "./contracts";
 
-export function createProbeHttpServer(config: ProbeConfig, log: (event: { request_id: string; outcome: string }) => void = () => {}) {
-  const authenticate = probeAuthenticator(config); const service = probeService(config.organizationId, config.build);
+export function createProbeHttpServer(config: ProbeConfig, log: (event: { request_id: string; outcome: string }) => void = () => {}, service = probeService(config.organizationId, config.build)) {
+  const authenticate = probeAuthenticator(config);
   const challenge = (error = "invalid_token") => `Bearer resource_metadata="${config.metadataUrl}", scope="discovery:read discovery:probe", error="${error}", error_description="ERUTY probe authorization required"`;
   const descriptors = [
     { name: "eruty_capabilities", description: "Read the authorized synthetic sandbox scope and server build. Work connectivity remains unverified.", schema: capabilitiesInput, scope: "discovery:read", readOnly: true },

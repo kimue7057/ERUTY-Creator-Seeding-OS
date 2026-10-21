@@ -1,0 +1,115 @@
+name: eruty-probe-staging
+x-common: &common
+  image: eruty-probe-staging:reviewed
+  build:
+    context: ../..
+    dockerfile: staging/probe/Dockerfile
+    args:
+      VCS_REF: ${MCP_BUILD_SHA:?}
+  security_opt: [no-new-privileges:true]
+  cap_drop: [ALL]
+  read_only: true
+  tmpfs: [/tmp:size=16m,mode=1777]
+x-config: &config
+  NODE_ENV: production
+  MCP_RESOURCE_URL: ${MCP_RESOURCE_URL:?Set approved resource URL}
+  MCP_OAUTH_ISSUER: ${MCP_OAUTH_ISSUER:?Set approved issuer}
+  MCP_OAUTH_JWKS_URL: ${MCP_OAUTH_JWKS_URL:?Set approved JWKS}
+  MCP_BUILD_SHA: ${MCP_BUILD_SHA:?Set reviewed build SHA}
+  MCP_ALLOWED_ORIGINS: https://chatgpt.com
+  MCP_PROBE_ORGANIZATION_ID: ${MCP_PROBE_ORGANIZATION_ID:-}
+services:
+  # Dedicated cluster and volume. No host DB port; no existing app DB credentials.
+  db:
+    image: postgres:18-bookworm
+    environment:
+      POSTGRES_USER: probe_owner
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Generate ignored credentials}
+      POSTGRES_DB: eruty_probe_staging
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=scram-sha-256
+    volumes: [probe-data:/var/lib/postgresql]
+    networks: [database]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U probe_owner -d eruty_probe_staging]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  init:
+    <<: *common
+    profiles: [setup]
+    command: [node, .local/build/mcp-staging-init.mjs]
+    environment:
+      <<: *config
+      DATABASE_URL: postgresql://probe_owner:${POSTGRES_PASSWORD:?}@db:5432/eruty_probe_staging
+      MCP_RUNTIME_PASSWORD: ${MCP_RUNTIME_PASSWORD:?}
+      MCP_VERIFIER_PASSWORD: ${MCP_VERIFIER_PASSWORD:?}
+      MCP_PROBE_SUBJECT: ${MCP_PROBE_SUBJECT:?Set verified synthetic subject}
+      MCP_STAGING_INIT_CONFIRM: ${MCP_STAGING_INIT_CONFIRM:?}
+    networks: [database]
+    depends_on:
+      db: {condition: service_healthy}
+  mcp:
+    <<: *common
+    profiles: [private, https]
+    environment:
+      <<: *config
+      DATABASE_URL: postgresql://eruty_probe_runtime:${MCP_RUNTIME_PASSWORD:?}@db:5432/eruty_probe_staging
+      MCP_BIND_HOST: 0.0.0.0
+      MCP_ALLOW_REMOTE_BIND: "true"
+      MCP_PORT: "3100"
+    networks: [database, outbound]
+    depends_on:
+      db: {condition: service_healthy}
+    # No ports, owner credentials, token signing key, dashboard or S3 config.
+  private-gateway:
+    image: caddy:2-alpine
+    profiles: [private]
+    environment:
+      MCP_RESOURCE_HOST: ${MCP_RESOURCE_HOST:?}
+    volumes: [./Caddyfile.private:/etc/caddy/Caddyfile:ro]
+    ports: [127.0.0.1:3310:8080]
+    networks: [outbound]
+    depends_on: [mcp]
+    # Secure MCP Tunnel runs on this host, targets http://127.0.0.1:3310/mcp.
+  https-gateway:
+    image: caddy:2-alpine
+    profiles: [https]
+    environment:
+      MCP_RESOURCE_HOST: ${MCP_RESOURCE_HOST:?}
+    volumes:
+      - ./Caddyfile.https:/etc/caddy/Caddyfile:ro
+      - tls-data:/data
+      - tls-config:/config
+    ports: ["443:443", "80:80"]
+    networks: [outbound]
+    depends_on: [mcp]
+    # Explicit deployment approval + controlled DNS/firewall required before starting.
+  verify:
+    <<: *common
+    profiles: [operator]
+    user: ${MCP_OPERATOR_UID:-1000}:${MCP_OPERATOR_GID:-1000}
+    command: [node, .local/build/mcp-staging-verify.mjs]
+    environment:
+      <<: *config
+      DATABASE_URL: postgresql://eruty_probe_verifier:${MCP_VERIFIER_PASSWORD:?}@db:5432/eruty_probe_staging
+      MCP_PROOF_FILE: /evidence/proof.json
+      MCP_PROBE_GRANT_ID: ${MCP_PROBE_GRANT_ID:-}
+    volumes: [../../.local/mcp-staging:/evidence:ro]
+    networks: [database]
+  revoke:
+    <<: *common
+    profiles: [operator]
+    command: [node, .local/build/mcp-revoke.mjs]
+    environment:
+      <<: *config
+      DATABASE_URL: postgresql://probe_owner:${POSTGRES_PASSWORD:?}@db:5432/eruty_probe_staging
+      MCP_PROBE_GRANT_ID: ${MCP_PROBE_GRANT_ID:-}
+      MCP_PROBE_USER_EMAIL: ${MCP_PROBE_USER_EMAIL:-}
+    networks: [database]
+networks:
+  database: {internal: true}
+  outbound: {}
+volumes:
+  probe-data: {}
+  tls-data: {}
+  tls-config: {}

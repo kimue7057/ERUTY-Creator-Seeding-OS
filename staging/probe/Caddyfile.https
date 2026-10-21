@@ -1,0 +1,17 @@
+{
+  admin off
+}
+{$MCP_RESOURCE_HOST} {
+  # OAuth remains mandatory in MCP. No auth cookies, API keys or bypass headers here.
+  @mcp path /mcp /.well-known/oauth-protected-resource /.well-known/oauth-protected-resource/mcp
+  handle @mcp {
+    reverse_proxy mcp:3100 {
+      header_up Host {$MCP_RESOURCE_HOST}
+      header_up -X-Forwarded-Host
+      header_up -X-Forwarded-Proto
+    }
+  }
+  handle {
+    respond 404
+  }
+}

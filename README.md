@@ -1,5 +1,7 @@
 # ERUTY Creator Seeding OS
 
+MCP 실증 스테이징은 [실행 구성·OAuth 준비·Work 체크리스트](staging/probe/README.md)를 따른다. `pnpm mcp:staging:prepare`는 ignored 로컬 설정/무작위 비밀번호만 만들며 배포하지 않는다. 전용 PostgreSQL·제한된 MCP 계정·독립 read-only 검증 계정을 사용한다. 실제 외부 OAuth/hosted Work 연결은 아직 미검증이고, 배포·Tunnel·plugin 설치는 사용자 승인 후 별도로 수행한다.
+
 기존 Campaign OS와 독립된 Next.js 운영 대시보드. 승인된 제품 기획은 [PRD v1.2](docs/PRD-v1.2.md), 현재 개발 기록과 미구현 범위는 [IMPLEMENTATION](docs/IMPLEMENTATION.md)에 있다.
 
 ## Windows 로컬 실행

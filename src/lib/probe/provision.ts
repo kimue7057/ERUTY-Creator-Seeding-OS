@@ -5,12 +5,12 @@ import { db } from "../db";
 import { organizations, memberships, projects, campaigns, campaignBriefRevisions, discoveryProbeWorkspaces, discoveryProbeGrants, auditEvents, users, type BriefSnapshot } from "../db/schema";
 const setupInput = z.strictObject({ userId: z.uuid(), issuer: z.url().max(500), subject: z.string().min(1).max(255), scopes: z.array(z.enum(["discovery:read", "discovery:probe"])).min(1), expiresAt: z.date() });
 // Operator/CLI only. Always create a new synthetic organization, never enroll an existing one.
-export async function provisionProbeSandbox(input: z.infer<typeof setupInput>) {
+export async function provisionProbeSandbox(input: z.infer<typeof setupInput>, database: Pick<typeof db, "transaction"> = db) {
   const data = setupInput.parse(input);
   if (data.expiresAt <= new Date() || data.expiresAt.getTime() > Date.now() + 24 * 60 * 60_000) throw new Error("Probe grants must expire within 24 hours");
   const issuer = new URL(data.issuer);
   if (issuer.username || issuer.password || issuer.search || issuer.hash || !(issuer.protocol === "https:" || process.env.NODE_ENV !== "production" && issuer.protocol === "http:" && issuer.hostname === "127.0.0.1")) throw new Error("Invalid issuer");
-  return db.transaction(async tx => {
+  return database.transaction(async tx => {
     const [user] = await tx.select({ id: users.id }).from(users).where(eq(users.id, data.userId));
     if (!user) throw new Error("Existing staff user required");
     const [org] = await tx.insert(organizations).values({ name: `[TEST ONLY] MCP Probe ${randomUUID()}` }).returning();

@@ -3,8 +3,8 @@ import { db } from "../db";
 import { auditEvents, discoveryProbeGrants as grants, discoveryProbeWorkspaces as workspaces, discoveryProbes as probes, memberships } from "../db/schema";
 import { ProbeError, PROBE_SCOPES, probeHash, type ProbeIdentity, type ProbeScope, writeProbeInput, readProbeInput, capabilitiesInput } from "./contracts";
 type Transaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
-export function probeService(organizationId: string, build: string) {
-  const transaction = <T>(run: (tx: Transaction) => Promise<T>) => db.transaction(async tx => {
+export function probeService(organizationId: string, build: string, database: Pick<typeof db, "transaction"> = db) {
+  const transaction = <T>(run: (tx: Transaction) => Promise<T>) => database.transaction(async tx => {
     await tx.execute(sql`set local statement_timeout = '5s'`);
     await tx.execute(sql`set local lock_timeout = '3s'`);
     return run(tx);

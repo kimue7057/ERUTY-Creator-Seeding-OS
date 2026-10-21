@@ -1,0 +1,12 @@
+**
+!package.json
+!pnpm-lock.yaml
+!scripts/
+!scripts/**
+!src/
+!src/**
+!drizzle/
+!drizzle/**
+!staging/
+!staging/probe/
+!staging/probe/Dockerfile

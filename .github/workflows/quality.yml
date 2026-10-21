@@ -8,6 +8,44 @@ concurrency:
   group: quality-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 jobs:
+  probe-staging:
+    # Local Docker services in the CI runner only. No push/deploy/tunnel/plugin setup.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm mcp:staging:prepare
+      - name: Configure synthetic container-only test inputs
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync, writeFileSync } from 'node:fs';
+          const file = '.local/mcp-staging/.env';
+          writeFileSync(file, readFileSync(file, 'utf8').replace('REPLACE_WITH_SYNTHETIC_OAUTH_SUBJECT', 'synthetic-ci-subject').replace('REPLACE_WITH_REVIEWED_COMMIT_SHA', process.env.GITHUB_SHA), { mode: 0o600 });
+          NODE
+      - name: Validate and build reviewed MCP container
+        run: |
+          docker compose --env-file .local/mcp-staging/.env -f staging/probe/compose.yaml config --quiet
+          docker compose --env-file .local/mcp-staging/.env -f staging/probe/compose.yaml build init
+      - name: Initialize fresh isolated PostgreSQL and private gateway
+        run: |
+          docker compose --env-file .local/mcp-staging/.env -f staging/probe/compose.yaml up -d --wait db
+          docker compose --env-file .local/mcp-staging/.env -f staging/probe/compose.yaml run --rm init > .local/mcp-staging/sandbox.json
+          pnpm mcp:staging:prepare --sandbox
+          docker compose --env-file .local/mcp-staging/.env -f staging/probe/compose.yaml --profile private up -d mcp private-gateway
+          for attempt in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:3310/.well-known/oauth-protected-resource/mcp > /dev/null; then break; fi
+            sleep 1
+          done
+      - name: Check canonical discovery and unauthenticated rejection through real gateway
+        run: DOTENV_CONFIG_PATH=.local/mcp-staging/.env pnpm mcp:staging:smoke
+      - name: Remove ephemeral runner services
+        if: always()
+        run: docker compose --env-file .local/mcp-staging/.env -f staging/probe/compose.yaml --profile private down --volumes
   verify:
     runs-on: ubuntu-latest
     services:
