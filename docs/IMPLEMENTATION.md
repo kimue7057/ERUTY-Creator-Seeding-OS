@@ -6,7 +6,7 @@
 | --- | --- | --- | --- | --- |
 | foundation-01 | Next.js App Router/TS/Tailwind, 인증 셸, PostgreSQL/Drizzle 초기 마이그레이션, CI. 로그인 없는 접근 차단, 타입/린트/단위/빌드 통과 | 구현/로컬 검사 완료, PR 검토 대기 | feat/foundation-01 | PostgreSQL 18.4 마이그레이션/시드, typecheck/lint/build, 단위 2건 통과 |
 | projects-01 | 프로젝트 목록/생성/수정/상세, 브랜드/USP/URL, 제품 관리. 새로고침 후 유지, 권한/프로젝트 격리 검증 | 구현/로컬 검사 완료, PR 검토 대기 | feat/projects-01 | typecheck/lint/build, 단위 3건, PostgreSQL 통합 1건 통과. 브라우저 검증은 캠페인 통합 후 수행 |
-| campaigns-01 | 캠페인 목록/생성/수정/상세, 다중 국가/플랫폼, 필터 검증, 프로젝트/제품 연결, 불변 브리프. DB 통합/브라우저 스모크 통과 | 구현/로컬 검사 완료, PR/CI 검토 대기 | feat/campaigns-01 | typecheck/lint/build, 단위 4건, PostgreSQL 통합 4건, 실제 브라우저/모바일 확인 |
+| campaigns-01 | 캠페인 목록/생성/수정/상세, 다중 국가/플랫폼, 필터 검증, 프로젝트/제품 연결, 불변 브리프. DB 통합/브라우저 스모크 통과 | 구현/로컬·CI 검사 완료, PR 검토 대기 | feat/campaigns-01 | typecheck/lint/build, 단위 4건, PostgreSQL 통합 4건, Playwright 2건, 실제 브라우저/모바일 확인 |
 | projects-02 | 비공개 S3 호환 스토리지, 업로드 검증/버전/다운로드 권한. 실제 파일 업로드/재조회 확인 | 미구현 | 미정 | object storage 설정 필요 |
 | discovery-00 | 실제 Work의 SNS 방문/내부 검색 및 MCP 쓰기 실증 | 미검증 | 해당 없음 | PHASE-0-SNS-SPIKE; 실제 Work에서 별도 실행 |
 
@@ -22,6 +22,14 @@
 ## 개발 위치
 
 로컬 Git 작업 트리: `C:/Users/user/Projects/ERUTY-Creator-Seeding-OS`. 원본 인계 폴더는 main의 기획 문서를 보존한다. Git PR을 통해 변경을 관리하며 node_modules/DB/비밀값을 Google Drive에 복사하지 않는다.
+
+## PR과 검토 순서
+
+1. [#1 실행 기반/인증/DB](https://github.com/kimue7057/ERUTY-Creator-Seeding-OS/pull/1): main 기준.
+2. [#2 프로젝트/제품 관리](https://github.com/kimue7057/ERUTY-Creator-Seeding-OS/pull/2): feat/foundation-01 기준.
+3. [#3 캠페인/브리프 버전](https://github.com/kimue7057/ERUTY-Creator-Seeding-OS/pull/3): feat/projects-01 기준.
+
+모두 Draft이며 병합/배포하지 않았다. 위 순서로 검토·병합하고, 선행 브랜치가 병합되면 후속 PR의 base를 main으로 변경한다. [최종 기능 CI](https://github.com/kimue7057/ERUTY-Creator-Seeding-OS/actions/runs/39540706755)가 전체 검사를 통과했다.
 
 ## 다음 PR: projects-02 수용 기준
 

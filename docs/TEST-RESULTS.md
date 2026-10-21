@@ -27,7 +27,13 @@
 - 모바일 표의 가로 넘침 원인(스크린리더 텍스트의 절대 위치)을 수정. viewport 390에서 document scrollWidth 375로 문서 가로 넘침 없음. 표 내부는 가로 스크롤.
 - 후속 메뉴는 비활성화. 실제 SNS 탐색/이메일 발송을 실행하지 않음.
 
-캡처는 로컬 `.local/qa/`에 보관하며 Git에서 제외한다. Playwright 회귀 테스트 2건은 `tests/browser/`에 작성했고 GitHub CI 실행 결과는 최종 확인 후 기록한다.
+캡처는 로컬 `.local/qa/`에 보관하며 Git에서 제외한다. Playwright 회귀 테스트 2건은 `tests/browser/`에 작성했다.
+
+## GitHub CI
+
+[검증 실행 39540706755](https://github.com/kimue7057/ERUTY-Creator-Seeding-OS/actions/runs/39540706755)에서 기능 코드 `faf30b9`의 설치/마이그레이션/시드/타입/린트/단위 4건/DB 통합 4건/빌드/**Playwright 2건 전체 통과**를 확인했다. Linux CI는 임시 PostgreSQL 18 서비스와 Chromium을 사용했다.
+
+브라우저 회귀는 비로그인 리다이렉트·로그인 오류와 프로젝트/제품 생성·브랜드 수정·캠페인 독립 타겟팅·다중 선택·검증 오류 후 값 유지·브리프 보존·프로젝트 분리·모바일 넘침을 검사한다. 최초 실행에서 모바일에 숨겨진 예정 메뉴를 조회하던 테스트의 확인 순서를 수정한 후 재실행에 통과했다.
 
 ## 미검증/미완료
 
