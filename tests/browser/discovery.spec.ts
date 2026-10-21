@@ -1,0 +1,104 @@
+import "dotenv/config";
+import { test, expect, type BrowserContext } from "@playwright/test";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { Client, Pool } from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { eq, inArray } from "drizzle-orm";
+import * as schema from "../../src/lib/db/schema";
+import { memberships, sessions } from "../../src/lib/db/schema";
+import { initializeDiscoveryFixture } from "../discovery-fixture";
+import { localDiscoveryActor, prepareSample, logSample, observationSample } from "../discovery-samples";
+import { discoveryService } from "../../src/lib/discovery/service";
+let fixture: Awaited<ReturnType<typeof initializeDiscoveryFixture>>;
+let campaignId: string, emptyId: string, accountId: string, runId: string, blockedId: string;
+const client = new Client({ connectionString: process.env.DATABASE_URL });
+const pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 });
+const db = drizzle(pool, { schema });
+const hashes: string[] = [];
+test.beforeAll(async () => {
+  if (process.env.E2E_ALLOW_WRITES !== "true" || !["127.0.0.1", "localhost"].includes(new URL(process.env.DATABASE_URL!).hostname)) throw new Error("Explicit local synthetic browser database required");
+  await client.connect(); fixture = await initializeDiscoveryFixture(db, client);
+  const a = await fixture.campaign(), empty = await fixture.campaign(); campaignId = a.id; emptyId = empty.id;
+  const who = localDiscoveryActor(fixture.actor), service = discoveryService(db);
+  const run = await service.prepare(who, prepareSample(a.id)); runId = run.run_id;
+  const log = await service.appendLog(who, logSample(runId));
+  const stored = await service.record(who, observationSample(runId, run.context_sha256, log.log_id, `b${randomUUID().slice(0, 6)}`)); accountId = stored.creator_account_id;
+  await service.submit(who, { contract_version: 1, run_id: runId, expected_lock_version: stored.lock_version, outcome: "submitted", limitations: ["SYNTHETIC BROWSER TEST — not actual Work evidence"], idempotency_key: randomUUID() });
+  const failed = await service.prepare(who, { ...prepareSample(a.id), platform: "tiktok" }); blockedId = failed.run_id;
+  const failure = await service.appendLog(who, { ...logSample(blockedId), source_url: "https://www.tiktok.com/", event_type: "login_required", outcome: "blocked", query: null, failure_code: "login_required" });
+  const submitted = await service.submit(who, { contract_version: 1, run_id: blockedId, expected_lock_version: failure.lock_version, outcome: "blocked", limitations: ["Synthetic access restriction"], idempotency_key: randomUUID() });
+  await service.reviewRun(who, { run_id: blockedId, expected_lock_version: submitted.lock_version, verdict: "blocked", reason: "Synthetic test only" });
+});
+test.afterAll(async () => {
+  if (hashes.length) await db.delete(sessions).where(inArray(sessions.tokenHash, hashes));
+  // Append-only synthetic domain history remains in this explicitly opted-in local DB.
+  await client.end(); await pool.end();
+});
+async function signIn(context: BrowserContext, actor: typeof fixture.actor) {
+  const token = randomBytes(32).toString("hex"), hash = createHash("sha256").update(token).digest("hex"); hashes.push(hash);
+  await db.insert(sessions).values({ tokenHash: hash, userId: actor.userId, organizationId: actor.organizationId, expiresAt: new Date(Date.now() + 600000) });
+  await context.addCookies([{ name: "eruty_session", value: token, domain: "127.0.0.1", path: "/", httpOnly: true, sameSite: "Lax" }]);
+}
+test("persisted discovery dashboard filters, original evidence, reviews, failures and mobile layout", async ({ page, context }) => {
+  await signIn(context, fixture.actor);
+  await page.goto(`/campaigns/${campaignId}`);
+  await page.getByRole("link", { name: "발굴 기록 보기 →", exact: true }).click();
+  await expect(page.getByRole("table", { name: "크리에이터 목록" })).toContainText("SYNTHETIC fixture");
+  await expect(page.getByLabel("플랫폼별 Work 실증")).toContainText("실증 미검증");
+  await expect(page.getByRole("table", { name: "발굴 작업 이력" }).getByRole("row").filter({ hasText: "Instagram" })).toContainText("1 / 1명");
+  await expect(page.getByRole("table", { name: "발굴 작업 이력" }).getByRole("row").filter({ hasText: "TikTok" })).toContainText("1건");
+  await expect(page.getByRole("button", { name: /Work.*실행|발굴 시작/ })).toHaveCount(0);
+  await page.reload(); await expect(page.getByRole("table", { name: "크리에이터 목록" })).toContainText("12,345");
+  await page.screenshot({ path: "test-results/discovery-dashboard.png", fullPage: true });
+  await page.getByLabel("플랫폼", { exact: true }).selectOption("tiktok"); await page.getByRole("button", { name: "필터 적용" }).click();
+  await expect(page.getByRole("heading", { name: "조건에 맞는 계정이 없습니다" })).toBeVisible();
+  await page.getByRole("link", { name: "초기화", exact: true }).click();
+  await expect(page.getByLabel("플랫폼", { exact: true })).toHaveValue("");
+  await page.getByLabel("카테고리", { exact: true }).fill("synthetic"); await page.getByLabel("최소 팔로워", { exact: true }).fill("10000");
+  await page.getByLabel("기록 출처", { exact: true }).selectOption("codex_test"); await page.getByRole("button", { name: "필터 적용" }).click();
+  await expect(page.getByRole("table", { name: "크리에이터 목록" })).toContainText("SYNTHETIC fixture");
+  await page.getByLabel("검증 상태", { exact: true }).selectOption("direct_sns_verified"); await page.getByRole("button", { name: "필터 적용" }).click();
+  await expect(page.getByRole("heading", { name: "조건에 맞는 계정이 없습니다" })).toBeVisible();
+  await page.goto(`/campaigns/${campaignId}/discovery/creators/${accountId}`);
+  await expect(page.getByRole("link", { name: "프로필 원본", exact: true }).first()).toHaveAttribute("href", /^https:\/\/www\.instagram\.com\/eruty_synthetic_/);
+  await expect(page.getByRole("link", { name: "게시물 원본", exact: true })).toHaveAttribute("href", /^https:\/\/www\.instagram\.com\/p\/Synthetic_/);
+  const profile = page.locator("article").filter({ has: page.getByRole("heading", { name: "프로필 관찰", exact: true }) });
+  await profile.getByText("이 근거 검토하기", { exact: true }).click();
+  await profile.getByLabel("검토 판정", { exact: true }).selectOption("accepted"); await profile.getByLabel("검토 사유", { exact: true }).fill("Synthetic review only; no real SNS visit");
+  await profile.getByRole("button", { name: "검토 저장", exact: true }).click();
+  await expect(profile.getByRole("status")).toHaveText("검토 기록을 저장했습니다.");
+  await page.reload(); await expect(profile.getByLabel("근거 검토 이력")).toContainText("Synthetic review only");
+  await expect(page.getByText("근거 검토 대기", { exact: true }).first()).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  await page.screenshot({ path: "test-results/discovery-evidence-mobile.png", fullPage: true });
+  await page.goto(`/campaigns/${campaignId}/discovery/runs/${runId}`);
+  await expect(page.getByText("검토 대기", { exact: true })).toBeVisible();
+  await page.getByLabel("검토 판정", { exact: true }).selectOption("completed"); await page.getByLabel("검토 사유", { exact: true }).fill("Try marking synthetic completed");
+  await page.getByRole("button", { name: "검토 저장", exact: true }).click();
+  await expect(page.getByRole("form", { name: "작업 검토", exact: true }).getByRole("alert")).toContainText("충족되지 않았습니다");
+  await page.getByLabel("검토 판정", { exact: true }).selectOption("partial");
+  await page.getByLabel("검토 사유", { exact: true }).fill("Synthetic incomplete result retained");
+  await page.getByRole("button", { name: "검토 저장", exact: true }).click();
+  await expect(page.getByText("일부 확인", { exact: true }).first()).toBeVisible();
+  await page.reload(); await expect(page.getByText("일부 확인", { exact: true }).first()).toBeVisible();
+  await expect(page.getByRole("button", { name: "검토 저장" })).toHaveCount(0);
+  await page.goto(`/campaigns/${campaignId}/discovery`);
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+});
+test("read-only and other organization sessions cannot review or read protected campaign evidence", async ({ browser }) => {
+  const context = await browser.newContext(); const page = await context.newPage();
+  await signIn(context, fixture.reader);
+  await page.goto(`/campaigns/${campaignId}/discovery/creators/${accountId}`);
+  await expect(page.getByText("현재 계정은 조회 전용입니다.", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "검토 저장" })).toHaveCount(0);
+  await page.goto(`/campaigns/${emptyId}/discovery`); await expect(page.getByRole("heading", { name: "아직 저장된 크리에이터가 없습니다" })).toBeVisible();
+  await page.goto(`/campaigns/${campaignId}/discovery/runs/${blockedId}`); await expect(page.getByText("접근 차단", { exact: true })).toBeVisible(); await expect(page.getByText("login_required", { exact: true }).first()).toBeVisible();
+  await signIn(context, fixture.other);
+  for (const path of [`/campaigns/${campaignId}/discovery`, `/campaigns/${campaignId}/discovery/creators/${accountId}`, `/campaigns/${campaignId}/discovery/runs/${runId}`]) {
+    await page.goto(path); await expect(page.getByRole("heading", { name: "항목을 찾을 수 없습니다" })).toBeVisible();
+  }
+  await signIn(context, fixture.reader); await db.delete(memberships).where(eq(memberships.userId, fixture.reader.userId));
+  await page.goto(`/campaigns/${campaignId}/discovery`); await expect(page).toHaveURL(/\/login$/);
+  await context.close();
+});

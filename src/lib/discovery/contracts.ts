@@ -48,8 +48,8 @@ export const observationInput = z.strictObject({
 });
 export const submitRunInput = z.strictObject({ contract_version: z.literal(1), run_id: z.uuid(), expected_lock_version: z.number().int().nonnegative(), outcome: z.enum(["submitted", "partial", "blocked", "failed"]), limitations: z.array(note).max(20), idempotency_key: z.uuid() });
 export const readRunInput = z.strictObject({ contract_version: z.literal(1), run_id: z.uuid(), cursor: z.number().int().nonnegative().default(0), evidence_cursor: z.number().int().min(0).max(100000).default(0), limit: z.number().int().min(1).max(100).default(25) });
-export const reviewEvidenceInput = z.strictObject({ evidence_id: z.uuid(), verdict: z.enum(["accepted", "rejected", "needs_review"]), reason: note.refine(value => value.length > 0) });
-export const reviewRunInput = z.strictObject({ run_id: z.uuid(), expected_lock_version: z.number().int().nonnegative(), verdict: z.enum(["completed", "partial", "blocked", "failed"]), reason: note.refine(value => value.length > 0) });
+export const reviewEvidenceInput = z.strictObject({ evidence_id: z.uuid(), campaign_id: z.uuid().optional(), creator_account_id: z.uuid().optional(), verdict: z.enum(["accepted", "rejected", "needs_review"]), reason: note.refine(value => value.length > 0) });
+export const reviewRunInput = z.strictObject({ run_id: z.uuid(), campaign_id: z.uuid().optional(), expected_lock_version: z.number().int().nonnegative(), verdict: z.enum(["completed", "partial", "blocked", "failed"]), reason: note.refine(value => value.length > 0) });
 
 export function canonicalJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;

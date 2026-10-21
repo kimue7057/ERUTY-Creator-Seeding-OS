@@ -7,7 +7,7 @@ import * as schema from "../src/lib/db/schema";
 import type { ActorScope } from "../src/lib/auth/permissions";
 const createDatabase = (pool: Pool) => drizzle(pool, { schema });
 
-export async function withDiscoveryDatabase<T>(run: (context: Awaited<ReturnType<typeof initialize>>) => Promise<T>) {
+export async function withDiscoveryDatabase<T>(run: (context: Awaited<ReturnType<typeof initializeDiscoveryFixture>>) => Promise<T>) {
   const url = new URL(process.env.DATABASE_URL!);
   const name = `eruty_discovery_test_${randomUUID().replaceAll("-", "")}`;
   const admin = new Client({ connectionString: url.href }); await admin.connect();
@@ -15,7 +15,7 @@ export async function withDiscoveryDatabase<T>(run: (context: Awaited<ReturnType
   url.pathname = `/${name}`;
   const client = new Client({ connectionString: url.href });
   const pool = new Pool({ connectionString: url.href, max: 8 });
-  try { await client.connect(); return await run(await initialize(createDatabase(pool), client)); }
+  try { await client.connect(); return await run(await initializeDiscoveryFixture(createDatabase(pool), client)); }
   finally {
     await pool.end();
     await client.end();
@@ -23,7 +23,7 @@ export async function withDiscoveryDatabase<T>(run: (context: Awaited<ReturnType
     await admin.query(`DROP DATABASE "${name}" WITH (FORCE)`); await admin.end();
   }
 }
-async function initialize(database: ReturnType<typeof createDatabase>, client: Client) {
+export async function initializeDiscoveryFixture(database: ReturnType<typeof createDatabase>, client: Client) {
   await migrate(database, { migrationsFolder: "drizzle" });
   const [user, otherUser, reviewer] = await database.insert(schema.users).values(["operator", "other", "reviewer"].map(name => ({ email: `${randomUUID()}@example.invalid`, name: `Synthetic ${name}`, passwordHash: "disabled-synthetic-fixture" }))).returning();
   const [org, otherOrg] = await database.insert(schema.organizations).values([{ name: "SYNTHETIC discovery A" }, { name: "SYNTHETIC discovery B" }]).returning();
