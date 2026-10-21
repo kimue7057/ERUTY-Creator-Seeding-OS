@@ -1,0 +1,34 @@
+import "dotenv/config";
+import { test, after } from "node:test";
+import assert from "node:assert/strict";
+import { eq } from "drizzle-orm";
+import { pool, db } from "../../src/lib/db";
+import { auditEvents, products } from "../../src/lib/db/schema";
+import { saveProject, saveProduct, getProject, listProjects, projectProducts, archiveProduct } from "../../src/lib/projects/service";
+import { withWorkspace } from "./fixture";
+after(() => pool.end());
+const input = { name: "TEST 프로젝트", website: "https://example.invalid", summary: "Synthetic brief", usp: "test USP", brandStyle: "minimal", referenceUrls: [] };
+test("PostgreSQL persists project edits and isolates organizations / products", async () => {
+  await withWorkspace(async (actor, other) => {
+    const project = await saveProject(actor, input);
+    const second = await saveProject(actor, { ...input, name: "TEST 별도 프로젝트" });
+    const product = await saveProduct(actor, project.id, { name: "Synthetic product", features: "Test-only", url: "" });
+    await saveProject(actor, { ...input, summary: "Updated brief" }, project.id);
+    assert.equal((await getProject(actor, project.id))?.summary, "Updated brief");
+    assert.equal((await getProject(other, project.id)), null);
+    assert.equal((await listProjects(other)).length, 0);
+    assert.equal((await projectProducts(actor, second.id)).length, 0);
+    await assert.rejects(() => saveProject(other, input, project.id));
+    await assert.rejects(() => saveProduct(actor, second.id, { name: "Wrong project", features: "", url: "" }, product.id));
+    await assert.rejects(() => saveProject({ ...actor, role: "reviewer" }, input));
+    await saveProduct(actor, project.id, { name: "Renamed product", features: "Updated", url: "" }, product.id);
+    assert.equal((await projectProducts(actor, project.id))[0].name, "Renamed product");
+    await archiveProduct(actor, project.id, product.id);
+    assert.equal((await projectProducts(actor, project.id)).length, 0);
+    const [archived] = await db.select().from(products).where(eq(products.id, product.id));
+    assert.ok(archived.archivedAt);
+    const audit = await db.select().from(auditEvents).where(eq(auditEvents.organizationId, actor.organizationId));
+    assert.equal(audit.length, 6);
+    assert.ok(audit.every(a => a.actorId === actor.userId));
+  });
+});

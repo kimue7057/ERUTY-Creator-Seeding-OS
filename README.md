@@ -30,6 +30,7 @@ pnpm dev
 pnpm typecheck
 pnpm lint
 pnpm test
+pnpm test:integration
 pnpm build
 ```
 
@@ -37,7 +38,8 @@ pnpm build
 
 ## 경계와 상태
 
-- Phase 1: 인증, 프로젝트 라이브러리와 캠페인 타겟팅을 순차 개발한다.
+- 구현: 로그인/역할, 프로젝트 목록·생성·편집·상세, 브랜드/USP/참고 링크, 제품 추가·수정·보관, 조직 범위 검색 및 감사 기록.
+- 캠페인 타겟팅: 후속 stacked PR에서 연결한다.
 - 파일 업로드: 아직 미구현. 비공개 object storage와 버전 메타데이터 연결이 다음 PR 범위다.
 - STEP 3: Work가 SNS에 직접 접속해 내부 검색해야 한다. 실제 Work 실험, MCP 쓰기 및 외부 대시보드 실행 경로는 **미검증**이다. [Phase 0 실증 명세](docs/PHASE-0-SNS-SPIKE.md)에 따라 별도로 확인한다.
 - STEP 4–7: 미구현. STEP 5는 미리 준비한 이메일 디자인에 AI가 내용을 작성하며, 발송에는 명시적 승인이 필요하다.
