@@ -14,6 +14,7 @@ import { createS3Storage } from "../../src/lib/storage/s3";
 let fixture: Awaited<ReturnType<typeof generateAssetFixtures>>;
 test.beforeAll(async () => { if (process.env.E2E_ALLOW_WRITES !== "true") throw new Error("Dedicated test DB and E2E_ALLOW_WRITES=true required"); fixture = await generateAssetFixtures(resolve(".local/browser-assets")); });
 test.afterAll(() => pool.end());
+test.afterEach(async ({ page }, info) => { if (info.status !== info.expectedStatus) await page.screenshot({ path: "test-results/assets-failure.png", fullPage: true }); });
 test("real browser uploads PDF and a dropped product image, previews/downloads, and preserves a brief's original file after v2", async ({ page }) => {
   await page.goto("/login");
   await page.getByLabel("이메일", { exact: true }).fill(process.env.BOOTSTRAP_EMAIL!);
@@ -28,12 +29,17 @@ test("real browser uploads PDF and a dropped product image, previews/downloads, 
   await page.getByRole("link", { name: "제품 추가", exact: true }).click();
   await page.getByLabel("제품명 *", { exact: true }).fill("SMOKE 제품");
   await page.getByRole("button", { name: "제품 저장", exact: true }).click();
+  await expect(page.getByLabel("자료 파일 선택", { exact: true })).toBeEnabled();
+  const firstPut = page.waitForResponse(r => r.request().method() === "PUT" && r.url().includes("/uploads/"));
   await page.getByLabel("자료 파일 선택", { exact: true }).setInputFiles(fixture.paths.pdf);
+  const pdfResponse = await firstPut; expect(pdfResponse.status(), await pdfResponse.text()).toBe(201);
   await expect(page.getByRole("heading", { name: "brand-test.pdf", exact: true })).toBeVisible();
   await page.getByLabel("파일의 제품 연결", { exact: true }).selectOption({ label: "SMOKE 제품" });
   await page.getByLabel("자료 분류", { exact: true }).selectOption("product_image");
   const transfer = await page.evaluateHandle(({ bytes }) => { const data = new DataTransfer(); data.items.add(new File([new Uint8Array(bytes)], "product-test.png", { type: "image/png" })); return data; }, { bytes: [...fixture.bytes.png] });
+  const imagePut = page.waitForResponse(r => r.request().method() === "PUT" && r.url().includes("/uploads/"));
   await page.locator(".asset-dropzone").dispatchEvent("drop", { dataTransfer: transfer });
+  const imageResponse = await imagePut; expect(imageResponse.status(), await imageResponse.text()).toBe(201);
   await expect(page.getByRole("heading", { name: "product-test.png", exact: true })).toBeVisible();
   await page.reload();
   const png = page.locator(".asset-card").filter({ has: page.getByRole("heading", { name: "product-test.png", exact: true }) });

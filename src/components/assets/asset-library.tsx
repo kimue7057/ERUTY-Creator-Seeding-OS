@@ -5,11 +5,13 @@ import { UploadCloud, FileText, ImageIcon, Film, History, ShieldCheck, X, Plus, 
 import { AssetAccess, assetRequest } from "./asset-access";
 import { ASSET_CATEGORIES, FILE_RULES, categoryLabel, sizeLabel, uploadIntentSchema } from "@/lib/validation/assets";
 import type { listAssets } from "@/lib/assets/service";
+import { useHydrated } from "@/components/use-hydrated";
 type LibraryAsset = Awaited<ReturnType<typeof listAssets>>[number];
 type ProductOption = { id: string; name: string };
 type Props = { projectId: string; assets: LibraryAsset[]; products: ProductOption[]; writable: boolean; configured: boolean };
 export function AssetLibrary({ projectId, assets, products, writable, configured }: Props) {
   const router = useRouter(); const input = useRef<HTMLInputElement>(null);
+  const hydrated = useHydrated();
   const active = useRef<{ xhr?: XMLHttpRequest; id?: string; cancelled: boolean }>({ cancelled: false });
   const target = useRef<LibraryAsset | null>(null);
   const [productId, setProductId] = useState(""); const [category, setCategory] = useState("brand_intro");
@@ -55,9 +57,9 @@ export function AssetLibrary({ projectId, assets, products, writable, configured
   return <section className="surface asset-library"><header className="asset-library-heading"><div><div className="eyebrow mb-2">Private asset library</div><h2>프로젝트 자료 <span className="muted text-sm">{assets.length}</span></h2></div><span className="badge badge-green"><ShieldCheck size={12} />비공개 · 버전 보존</span></header>
     {!configured && <div className="form-error mx-6" role="alert">비공개 저장소가 설정되지 않았습니다. 관리자에게 저장소 연결을 요청하세요.</div>}
     {writable ? <div className="asset-upload-area"><div className="field-grid mb-4"><label className="field">파일의 제품 연결<select className="input" aria-label="파일의 제품 연결" value={productId} disabled={!!busy} onChange={e => setProductId(e.target.value)}><option value="">프로젝트 공통 자료</option>{products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}</select></label><label className="field">자료 분류<select className="input" aria-label="자료 분류" value={category} disabled={!!busy} onChange={e => setCategory(e.target.value)}>{ASSET_CATEGORIES.map(c => <option value={c.value} key={c.value}>{c.label}</option>)}</select></label></div>
-      <input ref={input} type="file" hidden multiple accept=".pdf,.jpg,.jpeg,.png,.webp,.mp4" aria-label="자료 파일 선택" onChange={e => { if (e.target.files) void upload(e.target.files); }} />
+      <input ref={input} type="file" hidden multiple disabled={!hydrated || !!busy || !configured} accept=".pdf,.jpg,.jpeg,.png,.webp,.mp4" aria-label="자료 파일 선택" onChange={e => { if (e.target.files) void upload(e.target.files); }} />
       <div className={`asset-dropzone ${dragging ? "dragging" : ""}`} onDragOver={e => { e.preventDefault(); if (!busy) setDragging(true); }} onDragLeave={() => setDragging(false)} onDrop={e => { e.preventDefault(); setDragging(false); target.current = null; void upload(e.dataTransfer.files); }}>
-        <UploadCloud size={26} className="text-[#648b6d] mb-3" /><strong>자료를 여기에 끌어다 놓으세요</strong><p className="description mt-2 mb-4">PDF 20MB · JPG/PNG/WebP 10MB · MP4 50MB</p><button type="button" className="btn" disabled={!!busy || !configured} onClick={() => choose(null)}><Plus size={14} />파일 선택</button>
+        <UploadCloud size={26} className="text-[#648b6d] mb-3" /><strong>자료를 여기에 끌어다 놓으세요</strong><p className="description mt-2 mb-4">PDF 20MB · JPG/PNG/WebP 10MB · MP4 50MB</p><button type="button" className="btn" disabled={!hydrated || !!busy || !configured} onClick={() => choose(null)}><Plus size={14} />파일 선택</button>
       </div>{busy && <div className="upload-progress" role="status"><div className="flex justify-between items-center gap-3"><span className="flex gap-2 items-center"><LoaderCircle className="animate-spin shrink-0" size={14} />{busy} · {percent < 100 ? `${percent}% 전송` : "유형·무결성 검증 및 저장 중"}</span><button aria-label="업로드 취소" className="btn" onClick={() => void cancel()}><X size={13} />취소</button></div><progress max={100} value={percent} className="w-full mt-3" /></div>}
     </div> : <p className="description px-6 pb-5">조회 전용 계정입니다. 자료 미리보기와 다운로드는 가능하며 업로드·분류 편집에는 권한이 필요합니다.</p>}
     {error && <div role="alert" className="form-error mx-6">{error}</div>}{message && <p role="status" className="asset-success">{message}</p>}
