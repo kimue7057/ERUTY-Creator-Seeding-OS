@@ -9,8 +9,8 @@ import { probeAuthenticator } from "./auth";
 import { probeService } from "./service";
 import { capabilitiesInput, writeProbeInput, readProbeInput, ProbeError, PROBE_SCOPES, type ProbeIdentity } from "./contracts";
 
-export function createProbeHttpServer(config: ProbeConfig, log: (event: { request_id: string; outcome: string }) => void = () => {}) {
-  const authenticate = probeAuthenticator(config); const service = probeService(config.organizationId, config.build);
+export function createProbeHttpServer(config: ProbeConfig, log: (event: { request_id: string; outcome: string }) => void = () => {}, service = probeService(config.organizationId, config.build)) {
+  const authenticate = probeAuthenticator(config);
   const challenge = (error = "invalid_token") => `Bearer resource_metadata="${config.metadataUrl}", scope="discovery:read discovery:probe", error="${error}", error_description="ERUTY probe authorization required"`;
   const descriptors = [
     { name: "eruty_capabilities", description: "Read the authorized synthetic sandbox scope and server build. Work connectivity remains unverified.", schema: capabilitiesInput, scope: "discovery:read", readOnly: true },
@@ -74,7 +74,7 @@ export function createProbeHttpServer(config: ProbeConfig, log: (event: { reques
       if (origin && !config.allowedOrigins.has(origin)) throw new ProbeError(403, "invalid_origin");
       if (origin) { res.setHeader("Access-Control-Allow-Origin", origin); res.setHeader("Vary", "Origin"); }
       const path = req.url;
-      if (path === "/.well-known/oauth-protected-resource/mcp" || path === "/.well-known/oauth-protected-resource") {
+      if (path === new URL(config.metadataUrl).pathname || path === "/.well-known/oauth-protected-resource/mcp" || path === "/.well-known/oauth-protected-resource") {
         if (req.method !== "GET") throw new ProbeError(405, "method_not_allowed");
         json(res, 200, { resource: config.resource, authorization_servers: [config.issuer], scopes_supported: PROBE_SCOPES, bearer_methods_supported: ["header"] }); return;
       }

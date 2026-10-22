@@ -1,4 +1,19 @@
-# PR #1–4 병합 준비 검토
+# PR #1–6 병합 준비 검토
+
+## 스테이징 준비 시 재확인 (2026-10-21)
+
+GitHub를 다시 조회해 **#1–6 모두 OPEN/Draft/CLEAN**, 최신 head CI success를 확인했다. main은 여전히 `b3e5ea2`이며 실제 병합/retarget/ready 전환/설정 변경은 하지 않았다. `git merge-base --is-ancestor` 및 `git merge-tree --write-tree`로 main→#1→#2→#3→#4→#5→#6 인접 6쌍 모두 조상 관계·충돌 없음도 재확인했다. merge-tree는 branch를 병합하지 않는다.
+
+| 추가 순서 | base → head / SHA | 최신 CI | 범위 및 승인 후 재검증 |
+| --- | --- | --- | --- |
+| 5 | feat/projects-02 → docs/discovery-00-prep / c3b3c44 | [39550437070](https://github.com/kimue7057/ERUTY-Creator-Seeding-OS/actions/runs/39550437070) success | Phase 0/STEP 3/운영 준비 문서. #4 병합 후 main retarget, diff·전체 inherited CI 확인 |
+| 6 | docs/discovery-00-prep → feat/discovery-probe-01 / a3f69a2 | [39553917768](https://github.com/kimue7057/ERUTY-Creator-Seeding-OS/actions/runs/39553917768) success | JWT protected resource/3 tools/0003 synthetic grant·immutable probe. #5 다음 main retarget + 0000–0003 신규/legacy 이관·인증/격리/멱등성/CLI·기존 S3/브리프/브라우저 전체 재검증 |
+
+순서는 **#1→#2→#3→#4→#5→#6→스테이징 구성 PR**이다. 각 retarget 후 최신 main을 반영한 새 head/PR merge SHA의 CI와 병합 후 새 main CI를 확인한다. 이전 green 결과나 base 변경만으로 최신 통합을 보증하지 않는다. 현재 변경은 #6 위의 별도 Draft이며 main 정리가 끝나기 전에 코드 준비를 위해 stack을 유지한다. 아래 기존 #1–4 검토 결과와 merge commit/CI 재실행 절차는 계속 적용한다.
+
+보안 재조회: Public, main protection 없음, rulesets 0, secret scanning/push protection enabled, 열린 secret alert 0, Actions secrets/environments/deployments 0, workflow 기본 권한 read/PR 승인 불가. 이 결과만으로 운영 보안을 통과했다고 판정하지 않는다. Private/보호 규칙 변경 및 배포는 별도 승인 대상이다. [스테이징 보안·실험 경계](../staging/probe/README.md)
+
+## 이전 #1–4 상세 검토
 
 확인: 2026-10-21 05:31 UTC / 14:31 KST. 상태: **검토 기록 / 사용자 승인 대기**. 실제 merge, ready-for-review 전환, base 변경, 배포, 저장소 설정 변경은 하지 않았다. STEP 1–2는 로컬 MVP 검증 완료로 유지한다. 운영 출시 승인을 뜻하지 않는다.
 

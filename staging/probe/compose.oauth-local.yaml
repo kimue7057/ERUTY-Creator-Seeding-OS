@@ -1,0 +1,63 @@
+# Local synthetic IdP only. The MCP server continues to use Secure MCP Tunnel.
+name: eruty-probe-oauth-local
+services:
+  oauth-db:
+    image: postgres:18-bookworm
+    environment:
+      POSTGRES_USER: probe_oauth
+      POSTGRES_DB: eruty_probe_oauth
+      POSTGRES_PASSWORD: ${OAUTH_DB_PASSWORD:?Run local OAuth preparation}
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=scram-sha-256
+    volumes: [oauth-data:/var/lib/postgresql]
+    networks: [idp]
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U probe_oauth -d eruty_probe_oauth]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.8.1@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244
+    command: [start, --import-realm, --features=resource-indicators]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://oauth-db:5432/eruty_probe_oauth
+      KC_DB_USERNAME: probe_oauth
+      KC_DB_PASSWORD: ${OAUTH_DB_PASSWORD:?}
+      KC_BOOTSTRAP_ADMIN_USERNAME: eruty-local-bootstrap
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${OAUTH_ADMIN_PASSWORD:?}
+      KC_HOSTNAME: ${OAUTH_PUBLIC_ORIGIN:?}
+      KC_HOSTNAME_STRICT: "true"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: "true"
+      # Keycloak supports public PKCE clients but omits `none` from default discovery.
+      # Use its documented metadata override; never change signing algorithms/validation.
+      KC_SPI_WELL_KNOWN__OPENID_CONFIGURATION__OPENID_CONFIGURATION_OVERRIDE: /opt/keycloak/conf/mcp-discovery.json
+      KC_SPI_WELL_KNOWN__OAUTH_AUTHORIZATION_SERVER__OPENID_CONFIGURATION_OVERRIDE: /opt/keycloak/conf/mcp-discovery.json
+    volumes:
+      - ../../.local/mcp-local-e2e/realm-import:/opt/keycloak/data/import:ro
+      - ./keycloak-discovery-override.json:/opt/keycloak/conf/mcp-discovery.json:ro
+    ports: [127.0.0.1:3380:8080]
+    networks: [idp, administration]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    mem_limit: 1g
+    depends_on:
+      oauth-db: {condition: service_healthy}
+  oauth-gateway:
+    image: caddy:2-alpine
+    environment:
+      OAUTH_PUBLIC_HOST: ${OAUTH_PUBLIC_HOST:?}
+    volumes: [./Caddyfile.oauth-local:/etc/caddy/Caddyfile:ro]
+    ports: [127.0.0.1:3381:8080]
+    networks: [idp, edge]
+    depends_on: [keycloak]
+    security_opt: [no-new-privileges:true]
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+networks:
+  idp: {internal: true}
+  administration: {}
+  edge: {}
+volumes:
+  oauth-data: {}

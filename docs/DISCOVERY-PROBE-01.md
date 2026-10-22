@@ -1,5 +1,7 @@
 # discovery-probe-01 — 최소 원격 MCP 쓰기 검증 서버
 
+후속 스테이징 준비: [실행 가능한 container/전용 DB/OAuth preflight/독립 proof·closeout 구성](../staging/probe/README.md). 기존 로컬/CI 통과와 외부 IdP 로그인·hosted Work 호출 검증을 구분한다. 외부 배포/플러그인 설치는 승인 전 미실행이다.
+
 상태: 구현 및 로컬·CI 검사 완료 / [Draft PR #6](https://github.com/kimue7057/ERUTY-Creator-Seeding-OS/pull/6) 검토 대기 / **스테이징 미배포·실제 Work 연결 미실행**. 기준: [DB/MCP 설계](STEP-3-DATA-MCP-DESIGN.md), [작업 계획](STEP-3-PR-PLAN.md). PR #5 `c3b3c44` 위 별도 Draft PR로 작업한다. 기존 PR은 병합하지 않는다.
 
 ## 범위와 수용 계획

@@ -24,3 +24,14 @@ test("probe deployment configuration fails closed for public HTTP, remote develo
   const production = probeConfig({ ...env, NODE_ENV: "production", MCP_RESOURCE_URL: "https://probe.example.invalid/mcp", MCP_OAUTH_ISSUER: "https://auth.example.invalid/", MCP_OAUTH_JWKS_URL: "https://auth.example.invalid/keys", MCP_BIND_HOST: "0.0.0.0", MCP_ALLOW_REMOTE_BIND: "true" });
   assert.equal(production.bindHost, "0.0.0.0");
 });
+
+test("OAuth resource paths can identify a tunnel independently of the local /mcp transport", () => {
+  const resource = "https://gateway.example.invalid/v1/mcp/tunnel_00000000000000000000000000000000";
+  const config = probeConfig({ ...env, MCP_RESOURCE_URL: resource });
+  assert.equal(config.resource, resource);
+  assert.equal(config.metadataUrl, "https://gateway.example.invalid/.well-known/oauth-protected-resource/v1/mcp/tunnel_00000000000000000000000000000000");
+  assert.equal(config.allowedHost, "gateway.example.invalid");
+  for (const invalid of [resource + "?token=bad", resource + "#fragment", resource.replace("https://", "http://"), resource.replace("https://", "https://user:pass@")]) {
+    assert.throws(() => probeConfig({ ...env, MCP_RESOURCE_URL: invalid }));
+  }
+});
