@@ -33,8 +33,15 @@
     {
       "idx": 4,
       "version": "7",
-      "when": 1792572345619,
-      "tag": "0004_many_madrox",
+      "when": 1792652478152,
+      "tag": "0004_probe_grant_rotation",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792652478153,
+      "tag": "0005_discovery_schema",
       "breakpoints": true
     }
   ]

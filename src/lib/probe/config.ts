@@ -11,7 +11,6 @@ export function probeOAuthConfig(env: Record<string, string | undefined> = proce
   const mode = z.enum(["development", "test", "production"]).parse(env.NODE_ENV ?? "development");
   const development = mode !== "production";
   const resource = endpoint(env.MCP_RESOURCE_URL, "MCP_RESOURCE_URL", development);
-  if (resource.pathname !== "/mcp") throw new Error("MCP_RESOURCE_URL must end with /mcp");
   const issuer = endpoint(env.MCP_OAUTH_ISSUER, "MCP_OAUTH_ISSUER", development);
   const jwks = endpoint(env.MCP_OAUTH_JWKS_URL, "MCP_OAUTH_JWKS_URL", development);
   // A configured URL is trusted operator configuration, never token-controlled discovery.
@@ -35,6 +34,7 @@ export function probeConfig(env: Record<string, string | undefined> = process.en
     allowedHost: resource.host, allowedOrigins, bindHost,
     port: z.coerce.number().int().min(1).max(65535).parse(env.MCP_PORT ?? "3100"),
     build: env.MCP_BUILD_SHA && /^[a-f0-9]{7,40}$/.test(env.MCP_BUILD_SHA) ? env.MCP_BUILD_SHA : "local-unreleased",
-    metadataUrl: `${resource.origin}/.well-known/oauth-protected-resource/mcp`,
+    // The OAuth resource identifies the external target; the local transport stays /mcp.
+    metadataUrl: `${resource.origin}/.well-known/oauth-protected-resource${resource.pathname === "/" ? "" : resource.pathname}`,
   };
 }
