@@ -85,6 +85,8 @@ STEP 1–2 로컬 MVP는 검증 완료이며, 실제 Work SNS 탐색/MCP 쓰기�
 
 `pnpm db:migrate`로 additive `0003`을 적용한다. 통합 테스트 전에 `pnpm mcp:build`가 필요하다. `pnpm mcp:dev`/`mcp:start`는 별도 프로세스이며 유효 설정 없이는 시작하지 않는다. `.env.example`은 주석 처리된 설정 안내만 제공한다. 테스트용 전용 조직은 명시적인 `mcp:provision` CLI로만 만들며 기존 조직을 등록하지 않는다.
 
+`MCP_RESOURCE_URL`은 OAuth 요청의 `resource` 및 JWT `aud`와 정확히 일치해야 하며, 로컬 HTTP 전송 경로 `/mcp`와 다른 경로를 사용할 수 있다. 터널 연결은 실제 요청에서 확인한 해당 테스트 터널의 식별자를 사용하고 IdP의 resource 설정도 같은 값으로 맞춘다. 보호 리소스 메타데이터와 인증 챌린지는 설정한 resource 경로를 반영한다. 다른 대상의 토큰을 함께 허용하거나 요청 파라미터를 재작성하지 않는다.
+
 **실제 hosted Work 플러그인 연결은 아직 미검증**이다. 로컬 OAuth/Tunnel 실행은 Work 호출의 증거가 아니다. 실행/권한/IdP·protocol 제약과 검증 순서는 [MCP 실행 안내](staging/probe/README.md), [DISCOVERY-PROBE-01](docs/DISCOVERY-PROBE-01.md), 검토용 예시는 [work-probe](integrations/work-probe/README.md)에 있다.
 
 ## 마이그레이션/운영 메모

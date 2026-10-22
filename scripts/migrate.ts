@@ -1,5 +1,5 @@
 import "dotenv/config";
-import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { migratePreservingHistory } from "../src/lib/db/migrate";
 import { db, pool } from "../src/lib/db";
-try { await migrate(db, { migrationsFolder: "drizzle" }); console.log("Migrations applied."); }
+try { await migratePreservingHistory(db); console.log("Migrations applied; existing history preserved."); }
 finally { await pool.end(); }
