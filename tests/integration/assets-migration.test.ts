@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { Client } from "pg";
-test("0002/0003 preserve legacy asset IDs/versions and frozen brief JSON without inventing file verification or probe enrollment", async () => {
+test("0002–0004 preserve legacy asset IDs/versions and frozen briefs without inventing discovery or capability records", async () => {
   const originalUrl = new URL(process.env.DATABASE_URL!);
   const database = `eruty_migration_${randomUUID().replaceAll("-", "")}`;
   const admin = new Client({ connectionString: originalUrl.href }); await admin.connect();
@@ -32,6 +32,11 @@ test("0002/0003 preserve legacy asset IDs/versions and frozen brief JSON without
     assert.deepEqual((await client.query("SELECT snapshot FROM campaign_brief_revisions WHERE campaign_id=$1", [campaign])).rows[0].snapshot, snapshot);
     assert.equal((await client.query("SELECT count(*)::int AS count FROM campaign_asset_references")).rows[0].count, 2);
     await client.query(await readFile("drizzle/0003_short_lucky_pierre.sql", "utf8"));
+    await client.query(await readFile("drizzle/0004_probe_grant_rotation.sql", "utf8"));
+    await client.query(await readFile("drizzle/0005_discovery_schema.sql", "utf8"));
+    for (const table of ["discovery_runs", "creator_accounts", "discovery_evidence", "campaign_creators", "discovery_logs", "discovery_capability_receipts"]) {
+      assert.equal((await client.query(`SELECT count(*)::int AS count FROM ${table}`)).rows[0].count, 0);
+    }
     assert.equal((await client.query("SELECT count(*)::int AS count FROM discovery_probe_workspaces")).rows[0].count, 0);
     assert.equal((await client.query("SELECT count(*)::int AS count FROM discovery_probes")).rows[0].count, 0);
     assert.deepEqual((await client.query("SELECT brief_snapshot FROM campaigns WHERE id=$1", [campaign])).rows[0].brief_snapshot, snapshot);

@@ -1,5 +1,7 @@
 # ERUTY Creator Seeding OS
 
+STEP 3은 [구현·실증 상태](docs/DISCOVERY-IMPLEMENTATION.md)를 따른다. `0004`는 독립 discovery 데이터 모델과 불변 이력을 추가하며, 기존 브리프/파일 버전을 유지한다. 실제 SNS 직접 탐색과 hosted Work MCP 쓰기는 아직 미검증이며, 로컬 구현·테스트 통과만으로 완료 표시하지 않는다.
+
 MCP 실증은 [실행 구성·OAuth·Work 체크리스트](staging/probe/README.md)를 따른다. 전용 PostgreSQL·제한된 MCP 계정·독립 read-only 검증 계정을 사용한다. Windows 로컬 E2E용 Secure MCP Tunnel 및 테스트 OAuth 구성도 제공한다. hosted Work 로그인·세 도구 호출·DB 대조·철회 후 차단이 모두 확인되기 전에는 Work 연결 완료로 판정하지 않는다.
 
 기존 Campaign OS와 독립된 Next.js 운영 대시보드. 승인된 제품 기획은 [PRD v1.2](docs/PRD-v1.2.md), 현재 개발 기록과 미구현 범위는 [IMPLEMENTATION](docs/IMPLEMENTATION.md)에 있다.
