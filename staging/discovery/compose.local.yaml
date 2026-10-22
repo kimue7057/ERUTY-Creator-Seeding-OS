@@ -9,7 +9,10 @@ services:
       POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256 --auth-local=scram-sha-256
     ports: [127.0.0.1:55434:5432]
     volumes: [discovery-data:/var/lib/postgresql]
-    networks: [database]
+    # Docker Desktop does not publish ports for an internal-only network.
+    # The separate administration bridge enables loopback-only owner/verifier
+    # access; no DB port is bound to a LAN/public interface.
+    networks: [database, administration]
     healthcheck:
       test: [CMD-SHELL, pg_isready -U discovery_owner -d eruty_discovery_local]
       interval: 3s
@@ -49,6 +52,7 @@ services:
     depends_on: [mcp]
 networks:
   database: {internal: true}
+  administration: {}
   outbound: {}
 volumes:
   discovery-data: {}
