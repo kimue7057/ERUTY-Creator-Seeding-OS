@@ -4,6 +4,8 @@ STEP 3은 [구현·실증 상태](docs/DISCOVERY-IMPLEMENTATION.md)를 따른다
 
 `MCP_SERVER_MODE=discovery`는 기존 probe와 분리된 6개 discovery 도구를 제공한다. `0005`의 캠페인 allowlist grant와 별도 runtime/verifier 계정, explicit operator 명령을 사용한다. [실행 및 실제 Work 수용 절차](docs/DISCOVERY-MCP.md)를 확인한다. 기존 Tunnel·플러그인 연결을 자동 변경하지 않는다.
 
+`/discovery` 또는 캠페인 상세의 **발굴 기록 보기**에서 저장된 run/계정/근거/실패 로그를 조회한다. 플랫폼·카테고리·팔로워·검증 상태·출처 필터와 원본 링크·확인 시각·과거 관찰을 제공한다. 관리자/매니저의 근거 검토는 추가 이력으로 저장하며 reviewer는 조회만 한다. 합성 자료는 검토 후에도 Work 검증 수에 포함되지 않는다. Work 자동 실행 버튼, STEP 4 평가·STEP 5 발송은 제공하지 않는다.
+
 MCP 실증은 [실행 구성·OAuth·Work 체크리스트](staging/probe/README.md)를 따른다. 전용 PostgreSQL·제한된 MCP 계정·독립 read-only 검증 계정을 사용한다. Windows 로컬 E2E용 Secure MCP Tunnel 및 테스트 OAuth 구성도 제공한다. hosted Work 로그인·세 도구 호출·DB 대조·철회 후 차단이 모두 확인되기 전에는 Work 연결 완료로 판정하지 않는다.
 
 기존 Campaign OS와 독립된 Next.js 운영 대시보드. 승인된 제품 기획은 [PRD v1.2](docs/PRD-v1.2.md), 현재 개발 기록과 미구현 범위는 [IMPLEMENTATION](docs/IMPLEMENTATION.md)에 있다.
@@ -43,6 +45,8 @@ pnpm build
 ```
 
 브라우저 회귀 검사는 **별도 테스트 DB**를 마이그레이션/시드한 뒤 실행한다. 테스트가 합성 레코드를 만들므로 운영 DB에서는 실행하지 않는다. CI는 임시 PostgreSQL 서비스에서 실행한다.
+
+discovery 브라우저 검사는 loopback DB만 허용하고 별도 합성 조직/세션을 만든다. 세션은 종료 시 제거하며 불변 관찰/검토 이력은 테스트 DB에 남는다. 임시 DB는 검사 후 폐기하거나 로컬 합성 데이터로 보관한다. 스크린샷에는 합성 데이터만 포함되며 Git에 커밋하지 않는다.
 
 ```powershell
 pnpm exec playwright install chromium

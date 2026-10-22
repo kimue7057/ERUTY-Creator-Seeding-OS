@@ -1,0 +1,1 @@
+export default function DiscoveryLoading() { return <section className="surface panel-body" aria-busy="true" role="status"><h2>발굴 기록을 불러오는 중입니다</h2><p className="description mt-3">저장된 작업 상태와 접근 권한을 확인하고 있습니다.</p></section>; }

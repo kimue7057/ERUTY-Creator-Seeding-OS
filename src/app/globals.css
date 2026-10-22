@@ -1,5 +1,40 @@
 @import "tailwindcss";
 @theme inline { --font-sans: "Pretendard", "Segoe UI", "Malgun Gothic", Arial, sans-serif; }
+
+/* Discovery uses persisted records; no automated Work execution controls. */
+.platform-checks { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; }
+.platform-check { background: white; border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+.discovery-notice { margin: 18px 0 28px; line-height: 1.8; }
+.discovery-notice > svg { flex-shrink: 0; }
+.discovery-filters { display: grid; grid-template-columns: repeat(4,minmax(0,1fr)); gap: 16px; padding: 22px; border-bottom: 1px solid var(--line); align-items: end; }
+.discovery-pagination { display: flex; justify-content: flex-end; align-items: center; gap: 12px; padding: 18px 22px; flex-wrap: wrap; }
+.creator-name { font-weight: 650; color: var(--green); overflow-wrap: anywhere; }
+.creator-name:hover, .source-link:hover { text-decoration: underline; }
+.source-link { display: inline-flex; align-items: center; gap: 5px; color: var(--green); font-size: 12px; }
+.evidence-card-heading { display: flex; justify-content: space-between; gap: 16px; align-items: center; margin-bottom: 22px; }
+.evidence-meta { display: flex; gap: 12px 22px; flex-wrap: wrap; color: var(--muted); font-size: 11px; margin: 16px 0 24px; }
+.evidence-details dd { overflow-wrap: anywhere; }
+.evidence-metrics { display: grid; grid-template-columns: repeat(auto-fit,minmax(145px,1fr)); gap: 12px; margin: 22px 0; }
+.evidence-metrics > div { background: #f6f8f5; border: 1px solid var(--line); border-radius: 7px; padding: 16px; display: flex; flex-direction: column; gap: 9px; }
+.evidence-metrics strong { font-size: 18px; }
+.evidence-limitations { border-left: 3px solid #d7be8b; background: #fcfaf5; border-radius: 3px; padding: 14px 18px; font-size: 12px; line-height: 1.9; margin: 20px 0; overflow-wrap: anywhere; }
+.evidence-limitations ul, .discovery-notice ul { list-style: disc; padding-left: 18px; }
+.evidence-technical { margin-top: 20px; font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
+.evidence-technical summary, .review-disclosure summary { cursor: pointer; }
+.evidence-technical dl { display: grid; grid-template-columns: 130px 1fr; gap: 8px 12px; margin-top: 14px; }
+.evidence-technical dd { margin: 0; font-family: monospace; }
+.evidence-reviews { border-top: 1px solid var(--line); margin-top: 24px; padding-top: 20px; }
+.review-record { margin-top: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.review-record p { flex-basis: 100%; }
+.review-disclosure { margin-top: 20px; border-top: 1px solid var(--line); padding-top: 16px; color: var(--green); font-size: 12px; }
+.review-form { display: grid; gap: 16px; margin-top: 18px; color: var(--ink); }
+.discovery-timeline { list-style: none; margin: 0; padding: 8px 24px; }
+.discovery-timeline li { display: flex; gap: 18px; padding: 22px 0; border-bottom: 1px solid var(--line); }
+.discovery-timeline li:last-child { border-bottom: 0; }
+.timeline-sequence { border: 1px solid var(--line); color: var(--green); border-radius: 50%; background: #f6f8f5; width: 28px; height: 28px; display: grid; place-items: center; font-size: 11px; flex-shrink: 0; }
+.timeline-body { min-width: 0; flex: 1; overflow-wrap: anywhere; }
+@media(max-width:1100px) { .discovery-filters { grid-template-columns: repeat(3,minmax(0,1fr)); } .platform-check { flex-wrap: wrap; } }
+@media(max-width:760px) { .sidebar nav { flex-wrap: wrap; } .platform-checks { grid-template-columns: 1fr; } .discovery-filters { grid-template-columns: repeat(2,minmax(0,1fr)); padding: 16px; } .evidence-card-heading { flex-wrap: wrap; } .evidence-technical dl { grid-template-columns: 1fr; } .discovery-timeline { padding: 8px 16px; } }
 :root { --ink: #202a29; --muted: #75817d; --line: #e4e9e5; --green: #24664f; --paper: #f6f8f5; }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--font-sans); font-size: 14px; -webkit-font-smoothing: antialiased; }

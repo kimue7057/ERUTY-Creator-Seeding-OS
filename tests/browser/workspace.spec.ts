@@ -84,7 +84,9 @@ test("project/product CRUD, independent campaigns, validation and frozen brief s
   await page.getByRole("button", { name: "프로젝트 만들기", exact: true }).click();
   await expect(page.getByRole("cell", { name: product, exact: true })).toHaveCount(0);
   await page.goto("/");
-  await expect(page.getByRole("button", { name: "크리에이터 발굴 예정" })).toBeDisabled();
+  await expect(page.getByRole("link", { name: "발굴 기록", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "평가 및 승인 예정" })).toBeDisabled();
+  await expect(page.getByRole("button", { name: /발굴 시작|Work.*실행/ })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole("link", { name: "프로젝트", exact: true })).toBeVisible();
   const bounds = await page.evaluate(() => ({ scroll: document.documentElement.scrollWidth, width: innerWidth }));

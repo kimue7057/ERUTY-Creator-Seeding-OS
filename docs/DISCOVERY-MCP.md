@@ -21,7 +21,7 @@
 
 기존 `discovery-operator.ts grant`로 캠페인 한정 Work grant를 발급한다. 새 환경의 capabilities가 미검증이면 운영자 전용 `authorize-initial-run` action이 `.local/discovery/initial-run-authorization.json`을 읽어 특정 grant·campaign·platform에 **1개 run, 최대 5명, 최대 4시간**의 초기 실험을 승인할 수 있다. 이는 `initial_validation/partial`이며 통과 attestation이 아니다. run/관찰은 실제 Work trace·검색 log·원본 출처를 요구하고 `work_connection=unverified`, 검증 계정 수 0을 유지한다. blocked capability를 우회하지 않으며 재시도는 같은 run, 다른 키의 두 번째 run은 거절한다. 권한 만료/철회 검사는 계속 적용된다. 검증 완료가 필요하면 실제 증거와 독립 DB read-back을 검토한 뒤 별도 capability 판정을 하고 새 run을 사용한다.
 
-MCP 이미지를 `build`하고 `up -d mcp private-gateway`로 실행한다. `mcp-local-access.ps1 -Mode discovery`는 별도 profile/connection을 사용하면서 기존 DPAPI runtime key를 재사용한다. 대시보드는 `node --env-file=.local/discovery/dashboard.env node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port 3001`로 실행한다. Work의 실제 observation/read 응답으로 기존 verifier→revoke→closed verifier를 수행한다. 원본 증거·자격증명은 ignored private 폴더에만 보관한다.
+MCP 이미지를 `build`하고 `up -d mcp private-gateway`로 실행한다. `mcp-local-access.ps1 -Mode discovery`는 별도 profile/connection을 사용하면서 기존 DPAPI runtime key를 재사용한다. 대시보드는 `pnpm exec tsx scripts/discovery-dashboard.ts`로 실행한다. Next worker가 거부하는 `--env-file` 인자 대신 전용 launcher가 private 환경을 child에 전달한다. Work의 실제 observation/read 응답으로 기존 verifier→revoke→closed verifier를 수행한다. 원본 증거·자격증명은 ignored private 폴더에만 보관한다.
 
 스택 이관은 `0004_probe_grant_rotation → 0005_discovery_schema → 0006_discovery_mcp → 0007_discovery_initial_validation` 순서다. `db:migrate`는 기존 SQL hash를 확인해 이미 적용된 SQL을 재실행하지 않고 필요한 journal marker를 추가한다. 기존 기록은 수정하지 않으며, 알 수 없는 migration hash가 있으면 중단한다. `0000–0003` SQL과 이전 Discovery SQL의 바이트는 유지한다.
 

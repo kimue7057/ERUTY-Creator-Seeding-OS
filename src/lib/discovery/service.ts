@@ -224,7 +224,7 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
         };
         const method: typeof evidence.$inferInsert.observationMethod = run.executionSource === "codex_test" ? "codex_test" : run.executionSource === "manual_import" ? "manual_import" : data.profile.opened_directly ? "sns_browser" : "supplemental_web";
         const common = { ...fields(run), creatorAccountId: account.id, platform: run.platform, observationMethod: method, profileUrl: identity.url, limitations: data.profile.limitations, searchLogId: search.id, workTraceReference: data.work_trace_reference, payloadSha256: discoveryHash(normalized), createdBy: actor.userId };
-        const [profile] = await tx.insert(evidence).values({ ...common, kind: "profile_observation", sourceUrl: identity.url, observedAt: observed, supersedesId: data.supersedes_evidence_id, facts: { schema_version: 1, opened_directly: data.profile.opened_directly, metrics: data.profile.metrics, note: data.profile.match_notes, country: data.profile.country, categories: data.profile.categories, audience_country: "unknown", targeting } }).returning();
+        const [profile] = await tx.insert(evidence).values({ ...common, kind: "profile_observation", sourceUrl: identity.url, observedAt: observed, supersedesId: data.supersedes_evidence_id, facts: { schema_version: 1, opened_directly: data.profile.opened_directly, identity: { handle: data.identity.handle?.replace(/^@/, "") ?? identity.handle, display_name: data.identity.display_name, platform_account_id: stableId }, metrics: data.profile.metrics, note: data.profile.match_notes, country: data.profile.country, categories: data.profile.categories, audience_country: "unknown", targeting } }).returning();
         const ids = [profile.id];
         for (const content of data.contents) {
           const [row] = await tx.insert(evidence).values({ ...common, kind: "content_observation", sourceUrl: content.url, observedAt: new Date(content.observed_at), publishedAt: content.published_at ? new Date(content.published_at) : null, facts: { schema_version: 1, opened_directly: content.opened_directly, metrics: content.metrics, note: content.note, recent_basis: content.recent_basis, audience_country: "unknown" } }).returning();
@@ -262,6 +262,7 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
       if (actor.reauthorize || actor.principalId !== actor.userId) throw new DiscoveryError(403, "staff_review_required");
       const [row] = await tx.select().from(evidence).where(and(eq(evidence.organizationId, actor.organizationId), eq(evidence.id, data.evidence_id)));
       if (!row) return denied();
+      if ((data.campaign_id && data.campaign_id !== row.campaignId) || (data.creator_account_id && data.creator_account_id !== row.creatorAccountId)) return denied();
       const run = await loadRun(tx, actor, row.runId, "discovery:read", true);
       if (!["collecting", "awaiting_review"].includes(run.status)) throw new DiscoveryError(409, "run_closed");
       await authorize(tx, actor, row.campaignId, "discovery:observe");
@@ -274,6 +275,7 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
       const data = reviewRunInput.parse(input);
       if (actor.reauthorize || actor.principalId !== actor.userId) throw new DiscoveryError(403, "staff_review_required");
       const run = await loadRun(tx, actor, data.run_id, "discovery:read", true);
+      if (data.campaign_id && data.campaign_id !== run.campaignId) return denied();
       await authorize(tx, actor, run.campaignId, "discovery:observe");
       if (run.status !== "awaiting_review" || run.lockVersion !== data.expected_lock_version) throw new DiscoveryError(409, "stale_context");
       const counts = await summary(tx, run);
