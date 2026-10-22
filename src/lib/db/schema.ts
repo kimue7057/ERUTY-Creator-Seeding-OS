@@ -174,7 +174,7 @@ export const discoveryProbeGrants = pgTable("discovery_probe_grants", {
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   createdBy: uuid("created_by").notNull().references(() => users.id), ...timestamps(),
 }, t => [
-  unique("probe_principal_identity").on(t.issuer, t.subject),
+  uniqueIndex("probe_principal_identity").on(t.issuer, t.subject).where(sql`${t.revokedAt} is null`),
   unique("probe_grant_scope").on(t.organizationId, t.userId, t.id),
   foreignKey({ columns: [t.organizationId], foreignColumns: [discoveryProbeWorkspaces.organizationId] }),
   foreignKey({ columns: [t.organizationId, t.userId], foreignColumns: [memberships.organizationId, memberships.userId] }),

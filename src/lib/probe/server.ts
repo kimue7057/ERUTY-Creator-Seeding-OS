@@ -91,7 +91,7 @@ export function createAuthorizedMcpHttpServer(config: ProbeConfig, adapter: McpA
       if (origin && !config.allowedOrigins.has(origin)) throw new ProbeError(403, "invalid_origin");
       if (origin) { res.setHeader("Access-Control-Allow-Origin", origin); res.setHeader("Vary", "Origin"); }
       const path = req.url;
-      if (path === "/.well-known/oauth-protected-resource/mcp" || path === "/.well-known/oauth-protected-resource") {
+      if (path === new URL(config.metadataUrl).pathname || path === "/.well-known/oauth-protected-resource/mcp" || path === "/.well-known/oauth-protected-resource") {
         if (req.method !== "GET") throw new ProbeError(405, "method_not_allowed");
         json(res, 200, { resource: config.resource, authorization_servers: [config.issuer], scopes_supported: adapter.scopes, bearer_methods_supported: ["header"] }); return;
       }

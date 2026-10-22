@@ -17,15 +17,16 @@ const enumCheck = (name: string, column: AnyPgColumn, values: readonly string[])
 // Reviewed private experiment references only. No success records are seeded by migration.
 export const discoveryCapabilities = pgTable("discovery_capability_receipts", {
   id: uuid().defaultRandom().primaryKey(), organizationId: uuid("organization_id").notNull().references(() => organizations.id),
-  platform: text({ enum: DISCOVERY_PLATFORMS }).notNull(), kind: text({ enum: ["sns_native_search", "work_mcp_write"] }).notNull(),
+  platform: text({ enum: DISCOVERY_PLATFORMS }).notNull(), kind: text({ enum: ["sns_native_search", "work_mcp_write", "initial_validation"] }).notNull(),
   verdict: text({ enum: ["partial", "verified", "blocked"] }).notNull(),
   environmentSha256: text("environment_sha256").notNull(), privateEvidenceReference: text("private_evidence_reference").notNull(),
-  facts: jsonb().$type<{ native_search: boolean; direct_profiles: number; recent_content_profiles: number; limitations: string[] }>().notNull(),
+  facts: jsonb().$type<{ native_search: boolean; direct_profiles: number; recent_content_profiles: number; limitations: string[]; initial_validation?: { grant_id: string; campaign_id: string; max_creators: number; expires_at: string } }>().notNull(),
   observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
   reviewedBy: uuid("reviewed_by").notNull().references(() => users.id), createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, t => [unique("discovery_capability_scope").on(t.organizationId, t.platform, t.id),
-  enumCheck("discovery_capability_platform", t.platform, DISCOVERY_PLATFORMS), enumCheck("discovery_capability_kind", t.kind, ["sns_native_search", "work_mcp_write"]),
+  enumCheck("discovery_capability_platform", t.platform, DISCOVERY_PLATFORMS), enumCheck("discovery_capability_kind", t.kind, ["sns_native_search", "work_mcp_write", "initial_validation"]),
   enumCheck("discovery_capability_verdict", t.verdict, ["partial", "verified", "blocked"]),
+  check("discovery_initial_validation_unverified", sql`${t.kind} <> 'initial_validation' or ${t.verdict} = 'partial'`),
   check("discovery_capability_hash", sql`${t.environmentSha256} ~ '^[a-f0-9]{64}$'`),
   index("discovery_capability_latest").on(t.organizationId, t.platform, t.kind, t.createdAt),
 ]);
@@ -37,7 +38,7 @@ export const discoveryRuns = pgTable("discovery_runs", {
   contextSha256: text("context_sha256").notNull(), snapshotSchemaVersion: integer("snapshot_schema_version").default(1).notNull(),
   requestedCount: integer("requested_count").notNull(), timeBudgetSeconds: integer("time_budget_seconds").default(1800).notNull(),
   workTaskReference: text("work_task_reference"), capabilityReceiptId: uuid("capability_receipt_id"),
-  environmentSnapshot: jsonb("environment_snapshot").$type<{ environment_sha256: string; work_connection: "unverified" | "reviewed" }>().notNull(),
+  environmentSnapshot: jsonb("environment_snapshot").$type<{ environment_sha256: string; work_connection: "unverified" | "reviewed"; initial_validation?: boolean }>().notNull(),
   startedAt: timestamp("started_at", { withTimezone: true }), submittedAt: timestamp("submitted_at", { withTimezone: true }),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }), endedAt: timestamp("ended_at", { withTimezone: true }),
   outcomeSummary: jsonb("outcome_summary").$type<Record<string, number>>().default({}).notNull(), limitations: text().array().default(sql`'{}'::text[]`).notNull(),

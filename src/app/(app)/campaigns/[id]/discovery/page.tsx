@@ -26,7 +26,8 @@ export default async function CampaignDiscovery({ params, searchParams }: { para
       const rows = data.capabilities.filter(row => row.platform === platform && row.environment === currentEnvironment), native = rows.find(row => row.kind === "sns_native_search"), mcp = rows.find(row => row.kind === "work_mcp_write");
       const verified = native?.verdict === "verified" && mcp?.verdict === "verified" && native.facts.native_search && native.facts.direct_profiles >= 5 && native.facts.recent_content_profiles >= 5;
       const blocked = native?.verdict === "blocked" || mcp?.verdict === "blocked";
-      const label = verified ? "5명 실증 검토" : blocked ? "제한 기록 있음" : native ? "일부 실증 기록" : data.capabilities.some(row => row.platform === platform) ? "환경 재확인 필요" : "실증 미검증";
+      const initial = rows.some(row => row.kind === "initial_validation");
+      const label = verified ? "5명 실증 검토" : blocked ? "제한 기록 있음" : native ? "일부 실증 기록" : initial ? "초기 실증 · 환경 미검증" : data.capabilities.some(row => row.platform === platform) ? "환경 재확인 필요" : "실증 미검증";
       return <div className="platform-check" key={platform}><span className="font-semibold">{platformLabel(platform)}</span><span className={`badge ${verified ? "badge-green" : "badge-amber"}`}>{label}</span></div>;
     })}</section>
     <div className="info-banner discovery-notice"><ScanSearch size={19} aria-hidden="true" /><div>합성 테스트와 수동 입력은 Work 직접 발굴 완료에 포함하지 않습니다. 플랫폼별 검색 안정성은 해당 환경에서 수행한 실증 기록으로 확인합니다.</div></div>

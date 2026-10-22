@@ -13,6 +13,18 @@
 
 ## 로컬 운영자 순서
 
+### 격리된 Windows 로컬 Discovery 실행
+
+`staging/discovery/compose.local.yaml`은 기존 Probe와 별도 DB volume/역할을 사용한다. DB는 loopback 55434, MCP gateway는 3311, 대시보드는 3001이다. 기존 Probe Tunnel에 두 runtime을 동시에 연결하지 않고 별도 Discovery Tunnel을 준비한다. 비공개 `.local/discovery/tunnel-id.txt`에 실제 ID를 저장한 뒤 `pnpm exec tsx scripts/discovery-local.ts prepare`를 실행한다. 현재 사용자 전용 폴더 ACL을 먼저 확인한다. 이 명령은 기존 환경 파일이 있으면 덮어쓰지 않는다.
+
+`docker compose --env-file .local/discovery/compose.env -f staging/discovery/compose.local.yaml up -d --wait db` 후 `node --env-file=.local/discovery/operator.env --import tsx scripts/discovery-local.ts init`으로 **빈 전용 DB만** 초기화한다. 기존 public 테이블이나 setup receipt가 있으면 거부하며, 실제 크리에이터 관찰을 삽입하지 않는다. 같은 operator env로 `discovery-local-oauth.ts prepare`를 실행하면 기존 테스트 realm/user/Probe client를 보존하고 별도 `eruty-work-discovery` public/S256/consent client를 만든다. 정확한 ChatGPT callback은 `.local/discovery/work-callback.txt`를 통해 `callback` action으로 등록한다.
+
+기존 `discovery-operator.ts grant`로 캠페인 한정 Work grant를 발급한다. 새 환경의 capabilities가 미검증이면 운영자 전용 `authorize-initial-run` action이 `.local/discovery/initial-run-authorization.json`을 읽어 특정 grant·campaign·platform에 **1개 run, 최대 5명, 최대 4시간**의 초기 실험을 승인할 수 있다. 이는 `initial_validation/partial`이며 통과 attestation이 아니다. run/관찰은 실제 Work trace·검색 log·원본 출처를 요구하고 `work_connection=unverified`, 검증 계정 수 0을 유지한다. blocked capability를 우회하지 않으며 재시도는 같은 run, 다른 키의 두 번째 run은 거절한다. 권한 만료/철회 검사는 계속 적용된다. 검증 완료가 필요하면 실제 증거와 독립 DB read-back을 검토한 뒤 별도 capability 판정을 하고 새 run을 사용한다.
+
+MCP 이미지를 `build`하고 `up -d mcp private-gateway`로 실행한다. `mcp-local-access.ps1 -Mode discovery`는 별도 profile/connection을 사용하면서 기존 DPAPI runtime key를 재사용한다. 대시보드는 `node --env-file=.local/discovery/dashboard.env node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port 3001`로 실행한다. Work의 실제 observation/read 응답으로 기존 verifier→revoke→closed verifier를 수행한다. 원본 증거·자격증명은 ignored private 폴더에만 보관한다.
+
+스택 이관은 `0004_probe_grant_rotation → 0005_discovery_schema → 0006_discovery_mcp → 0007_discovery_initial_validation` 순서다. `db:migrate`는 기존 SQL hash를 확인해 이미 적용된 SQL을 재실행하지 않고 필요한 journal marker를 추가한다. 기존 기록은 수정하지 않으며, 알 수 없는 migration hash가 있으면 중단한다. `0000–0003` SQL과 이전 Discovery SQL의 바이트는 유지한다.
+
 1. `pnpm db:migrate`, `pnpm mcp:build`. 기존 앱 DB/브리프/파일을 보존한다. 운영 연결 전에는 전용 DB/최소 권한 runtime·별도 read-only verifier 계정을 준비한다. 운영자가 별도 LOGIN role을 만든 뒤 `staging/discovery/runtime-grants.sql`의 제한된 권한을 적용할 수 있다. 비밀번호/DB 자격 증명은 이 파일에 넣지 않는다. production discovery 프로세스는 elevated role, unrelated user/session/asset 읽기, 권한/검토 기록 생성, 과거 증거 수정 권한을 발견하면 시작을 거부한다. 로컬 SDK fixture에서 사용한 owner 연결을 운영 runtime으로 재사용하지 않는다.
 2. 현재 사용자만 읽을 수 있는 ignored `.local/discovery/`와 그 안의 `.env`, `evidence/`를 준비한다. 기존 OAuth 설정·resource를 재사용하되 **별도 discovery 조직/포트/서버 build**를 정확히 지정한다. DB/토큰/원본 후보를 Git·PR·CI 로그로 보내지 않는다. `DOTENV_CONFIG_PATH=.local/discovery/.env`를 선택한 뒤 아래 명령을 실행한다.
 3. `pnpm mcp:discovery:operator environment`로 resource/issuer/JWKS/build에 묶인 환경 hash를 구한다. `.local/discovery/grant.json`에 명시 operator `user_id`, `organization_id`, exact issuer/subject, `environment_sha256`, `execution_source`, allowlisted `campaign_ids`, 필요한 `scopes`, UTC `expires_at`, `confirmation: create-explicit-discovery-campaign-grant`를 준비한다. `MCP_DISCOVERY_OPERATOR_USER_ID`는 현재 writer 사용자 UUID다.
