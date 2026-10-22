@@ -9,7 +9,7 @@ import { db, pool } from "../src/lib/db";
 import { auditEvents, memberships } from "../src/lib/db/schema";
 import { discoveryMcpGrants, discoveryCapabilities } from "../src/lib/db/discovery-schema";
 import { discoveryMcpConfig, discoveryEnvironmentHash } from "../src/lib/discovery/mcp-access";
-import { provisionDiscoveryGrant } from "../src/lib/discovery/provision";
+import { authorizeInitialDiscoveryRun, provisionDiscoveryGrant } from "../src/lib/discovery/provision";
 import { verifyDiscoveryProof } from "../src/lib/discovery/proof";
 import { platformSchema, observedTime, privateReference } from "../src/lib/discovery/contracts";
 const folder = ".local/discovery";
@@ -34,6 +34,12 @@ try {
     mkdirSync(folder, { recursive: true, mode: 0o700 });
     writeFileSync(`${folder}/grant-receipt.json`, JSON.stringify(receipt), { flag: "wx", mode: 0o600 });
     console.log("Explicit campaign-scoped grant created; private receipt saved. Work connectivity remains unverified.");
+  } else if (action === "authorize-initial-run") {
+    const input = read("initial-run-authorization.json");
+    if (input.organization_id !== config.organizationId || input.environment_sha256 !== discoveryEnvironmentHash(config) || input.user_id !== z.uuid().parse(process.env.MCP_DISCOVERY_OPERATOR_USER_ID)) throw new Error("Configured operator/environment mismatch");
+    const receipt = await authorizeInitialDiscoveryRun(input);
+    writeFileSync(`${folder}/initial-run-receipt.json`, JSON.stringify(receipt), { flag: "wx", mode: 0o600 });
+    console.log("One bounded initial Work run authorized; no verified capability was created. Private receipt saved.");
   } else if (action === "revoke") {
     const id = z.uuid().parse(process.env.MCP_DISCOVERY_GRANT_ID);
     await db.transaction(async tx => {
@@ -64,6 +70,6 @@ try {
       await tx.insert(auditEvents).values({ organizationId: config.organizationId, actorId, entityId: row.id, action: "discovery.capability_attested_by_operator" });
     });
     console.log("Operator attestation recorded with a private evidence hash. This command does not independently establish that a Work/SNS experiment occurred.");
-  } else throw new Error("Use environment, grant, revoke, verify or review-capability");
+  } else throw new Error("Use environment, grant, authorize-initial-run, revoke, verify or review-capability");
 } catch { console.error("Discovery operator action failed. Review local configuration/evidence/permissions; no credentials or original evidence are printed."); process.exitCode = 1; }
 finally { await pool.end(); }

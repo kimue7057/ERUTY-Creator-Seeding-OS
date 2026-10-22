@@ -1,4 +1,4 @@
--- Operator applies AFTER creating a dedicated LOGIN role and migrations 0000–0005.
+-- Operator applies AFTER creating a dedicated LOGIN role and migrations 0000–0007.
 -- Supply the role password only through a private operator session, never in this file/CI.
 -- This file creates no role, credentials, memberships, grants or capability attestations.
 DO $$ BEGIN EXECUTE format('GRANT CONNECT ON DATABASE %I TO eruty_discovery_runtime', current_database()); END $$;
