@@ -1,17 +1,22 @@
 param(
   [ValidateSet('Collect', 'Inspect', 'Doctor', 'Connect', 'Status', 'Stop', 'OAuthLogin', 'SelfTest')]
-  [string]$Action = 'Collect'
+  [string]$Action = 'Collect',
+  [ValidateSet('probe', 'discovery')]
+  [string]$Mode = 'probe'
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 if (-not $IsWindows) { throw 'This helper requires Windows user-scoped DPAPI.' }
 $workspace = Split-Path -Parent $PSScriptRoot
-$privateDirectory = Join-Path $workspace '.local/mcp-local-e2e'
+$sharedDirectory = Join-Path $workspace '.local/mcp-local-e2e'
+$privateDirectory = if ($Mode -eq 'discovery') { Join-Path $workspace '.local/discovery' } else { $sharedDirectory }
 $tunnelBinary = Join-Path $workspace '.local/bin/tunnel-client/tunnel-client.exe'
 $metadataFile = Join-Path $privateDirectory 'connection.json'
-$secretFile = Join-Path $privateDirectory 'runtime-key.dpapi'
+$secretFile = Join-Path $sharedDirectory 'runtime-key.dpapi'
 $profileDirectory = Join-Path $privateDirectory 'profiles'
-$profileName = 'eruty-probe-local'
+$profileName = if ($Mode -eq 'discovery') { 'eruty-discovery-local' } else { 'eruty-probe-local' }
+$targetUrl = if ($Mode -eq 'discovery') { 'http://127.0.0.1:3311/mcp' } else { 'http://127.0.0.1:3310/mcp' }
+if ($Mode -eq 'discovery' -and $Action -eq 'Collect') { throw 'Discovery reuses the existing encrypted runtime key. Save its separate tunnel ID through discovery-local prepare; never overwrite Probe credentials.' }
 
 function Test-TunnelId([string]$Value) { return $Value -cmatch '^tunnel_[A-Za-z0-9_-]{8,128}$' }
 function Get-Plaintext([Security.SecureString]$Value) {
@@ -63,7 +68,7 @@ if ($Action -eq 'SelfTest') {
 
 Initialize-PrivateDirectory
 if ($Action -eq 'OAuthLogin') {
-  $userFile = (Join-Path $privateDirectory 'oauth-user.json').Replace("'", "''")
+  $userFile = (Join-Path $sharedDirectory 'oauth-user.json').Replace("'", "''")
   if (-not (Test-Path -LiteralPath $userFile)) { throw 'Prepare the synthetic local IdP first.' }
   # Only the separate interactive console displays the synthetic password. No secret in argv/stdout.
   $displayCode = @"
@@ -103,8 +108,26 @@ if ($Action -eq 'Collect') {
 
 if (-not (Test-Path -LiteralPath $tunnelBinary)) { throw 'Install the verified official tunnel-client first.' }
 $connection = Get-Content -LiteralPath $metadataFile -Raw | ConvertFrom-Json
-if (-not (Test-TunnelId $connection.tunnel_id) -or $connection.target -cne 'http://127.0.0.1:3310/mcp') { throw 'Invalid local connection configuration' }
+if (-not (Test-TunnelId $connection.tunnel_id) -or $connection.target -cne $targetUrl) { throw 'Invalid local connection configuration' }
 $savedEnvironment = $env:CONTROL_PLANE_API_KEY
+$discoveryEnvironment = @{}
+if ($Mode -eq 'discovery') {
+  $operatorConfig = Get-Content -LiteralPath (Join-Path $privateDirectory 'operator.env') -Raw
+  $issuerMatch = [regex]::Match($operatorConfig, '(?m)^MCP_OAUTH_ISSUER=(.+)$')
+  if (-not $issuerMatch.Success) { throw 'Discovery OAuth issuer is required' }
+  $issuerUrl = [Uri]$issuerMatch.Groups[1].Value.Trim()
+  if ($issuerUrl.Scheme -cne 'https' -or $issuerUrl.UserInfo) { throw 'Invalid Discovery OAuth issuer' }
+  $oauthOrigin = $issuerUrl.GetLeftPart([UriPartial]::Authority)
+  $runtimeValues = @{
+    MCP_OAUTH_TRUSTED_ORIGINS = $oauthOrigin
+    HARPOON_ALLOW_PLAINTEXT_HTTP = 'true'
+    HARPOON_TARGETS = "label=eruty-discovery-oauth,url=$oauthOrigin,desc=ERUTY local test OAuth"
+  }
+  foreach ($entry in $runtimeValues.GetEnumerator()) {
+    $discoveryEnvironment[$entry.Key] = [Environment]::GetEnvironmentVariable($entry.Key, 'Process')
+    [Environment]::SetEnvironmentVariable($entry.Key, $entry.Value, 'Process')
+  }
+}
 $runtimeSecret = ConvertTo-SecureString (Get-Content -LiteralPath $secretFile -Raw)
 try {
   $env:CONTROL_PLANE_API_KEY = Get-Plaintext $runtimeSecret
@@ -122,5 +145,6 @@ try {
   }
 } finally {
   $env:CONTROL_PLANE_API_KEY = $savedEnvironment
+  foreach ($entry in $discoveryEnvironment.GetEnumerator()) { [Environment]::SetEnvironmentVariable($entry.Key, $entry.Value, 'Process') }
   $runtimeSecret.Dispose()
 }

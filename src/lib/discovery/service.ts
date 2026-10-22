@@ -12,6 +12,7 @@ export type DiscoveryScope = "discovery:read" | "discovery:observe" | "discovery
 export type DiscoveryActor = ActorScope & {
   principalId: string; executionSource: typeof DISCOVERY_SOURCES[number]; environmentSha256: string;
   campaignIds?: readonly string[];
+  requestId?: string;
   reauthorize?: (tx: DiscoveryTransaction, campaignId: string, scope: DiscoveryScope) => Promise<void>;
 };
 type Run = typeof runs.$inferSelect;
@@ -55,7 +56,7 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
     }
     const [{ count }] = await tx.select({ count: sql<number>`count(*)::int` }).from(requests).where(and(eq(requests.organizationId, actor.organizationId), eq(requests.principalKey, principalKey(actor))));
     if (count >= 10000) throw new DiscoveryError(429, "quota_exceeded");
-    const requestId = randomUUID();
+    const requestId = actor.requestId ?? randomUUID();
     const receipt = { ...await action(), contract_version: 1 as const, actor_id: actor.userId, principal_id: actor.principalId, request_id: requestId, payload_sha256: hash, recorded_at: new Date().toISOString(), replayed: false };
     await tx.insert(requests).values({ organizationId: actor.organizationId, actorId: actor.userId, principalKey: principalKey(actor), tool, idempotencyKey: input.idempotency_key, payloadSha256: hash, requestId, receipt });
     await tx.insert(auditEvents).values({ organizationId: actor.organizationId, actorId: actor.userId, entityId: requestId, action: `discovery.${tool}` });
@@ -119,17 +120,30 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
       return idempotent(tx, actor, "prepare_run", data, async () => {
         if (!campaign.platforms.includes(data.platform) || campaign.status === "archived") throw new DiscoveryError(400, "targeting_platform_mismatch");
         let capabilityId: string | null = null;
+        let initialValidation = false;
         if (actor.executionSource === "work_manual_task") {
           if (!data.work_task_reference) throw new DiscoveryError(400, "work_trace_required");
           const checks = await tx.select().from(capabilities).where(and(eq(capabilities.organizationId, actor.organizationId), eq(capabilities.platform, data.platform), eq(capabilities.environmentSha256, actor.environmentSha256))).orderBy(desc(capabilities.createdAt));
           const native = checks.find(c => c.kind === "sns_native_search"), mcp = checks.find(c => c.kind === "work_mcp_write");
-          if (!native || native.verdict === "blocked" || !native.facts.native_search || native.facts.direct_profiles < 1 || native.facts.recent_content_profiles < 1 || mcp?.verdict !== "verified") throw new DiscoveryError(409, "unverified_capability");
-          capabilityId = native.id;
+          const ready = native && native.verdict !== "blocked" && native.facts.native_search && native.facts.direct_profiles >= 1 && native.facts.recent_content_profiles >= 1 && mcp?.verdict === "verified";
+          if (ready) capabilityId = native.id;
+          else {
+            // A distinct, operator-authorized one-run experiment is not a verified
+            // capability. Its grant/environment/campaign stay pinned and every
+            // observation remains pending even after ordinary evidence review.
+            const permit = checks.find(c => c.kind === "initial_validation" && c.verdict === "partial" && c.facts.initial_validation?.grant_id === actor.principalId && c.facts.initial_validation.campaign_id === campaign.id);
+            const limits = permit?.facts.initial_validation;
+            if (!actor.reauthorize || native?.verdict === "blocked" || mcp?.verdict === "blocked" || !permit || !limits || !Number.isFinite(Date.parse(limits.expires_at)) || Date.parse(limits.expires_at) <= Date.now() || !Number.isInteger(limits.max_creators) || limits.max_creators < 1 || limits.max_creators > 5 || data.requested_count > limits.max_creators) throw new DiscoveryError(409, "unverified_capability");
+            const [{ used }] = await tx.select({ used: sql<number>`count(*)::int` }).from(runs).where(eq(runs.capabilityReceiptId, permit.id));
+            if (used) throw new DiscoveryError(409, "initial_validation_consumed");
+            capabilityId = permit.id;
+            initialValidation = true;
+          }
         }
         const [{ count }] = await tx.select({ count: sql<number>`count(*)::int` }).from(runs).where(and(eq(runs.organizationId, actor.organizationId), eq(runs.campaignId, campaign.id)));
         if (count >= 1000) throw new DiscoveryError(429, "quota_exceeded");
         const current = await context(tx, actor, { contract_version: 1, campaign_id: campaign.id });
-        const [run] = await tx.insert(runs).values({ organizationId: actor.organizationId, projectId: campaign.projectId, campaignId: campaign.id, briefVersion: current.brief_version, platform: data.platform, executionSource: actor.executionSource, targetingSnapshot: current.targeting_snapshot, targetingSha256: current.targeting_sha256, contextSha256: current.context_sha256, requestedCount: data.requested_count, timeBudgetSeconds: data.time_budget_seconds, workTaskReference: data.work_task_reference, capabilityReceiptId: capabilityId, environmentSnapshot: { environment_sha256: actor.environmentSha256, work_connection: actor.executionSource === "work_manual_task" ? "reviewed" : "unverified" }, createdBy: actor.userId, updatedBy: actor.userId }).returning();
+        const [run] = await tx.insert(runs).values({ organizationId: actor.organizationId, projectId: campaign.projectId, campaignId: campaign.id, briefVersion: current.brief_version, platform: data.platform, executionSource: actor.executionSource, targetingSnapshot: current.targeting_snapshot, targetingSha256: current.targeting_sha256, contextSha256: current.context_sha256, requestedCount: data.requested_count, timeBudgetSeconds: data.time_budget_seconds, workTaskReference: data.work_task_reference, capabilityReceiptId: capabilityId, environmentSnapshot: { environment_sha256: actor.environmentSha256, work_connection: actor.executionSource === "work_manual_task" && !initialValidation ? "reviewed" : "unverified", ...(initialValidation ? { initial_validation: true } : {}) }, createdBy: actor.userId, updatedBy: actor.userId }).returning();
         return wireRun(run);
       });
     }),
@@ -144,7 +158,7 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
         }
         const [{ count }] = await tx.select({ count: sql<number>`count(*)::int` }).from(logs).where(eq(logs.runId, run.id));
         if (count >= 10000) throw new DiscoveryError(429, "quota_exceeded");
-        const [log] = await tx.insert(logs).values({ ...fields(run), sequence: count + 1, eventType: data.event_type, outcome: data.outcome, occurredAt: new Date(data.occurred_at), sourceUrl: normalized.source_url, query: data.query, parentLogId: data.parent_log_id, failureCode: data.failure_code, message: data.message, correlationId: randomUUID(), createdBy: actor.userId }).returning();
+        const [log] = await tx.insert(logs).values({ ...fields(run), sequence: count + 1, eventType: data.event_type, outcome: data.outcome, occurredAt: new Date(data.occurred_at), sourceUrl: normalized.source_url, query: data.query, parentLogId: data.parent_log_id, failureCode: data.failure_code, message: data.message, correlationId: actor.requestId ?? randomUUID(), createdBy: actor.userId }).returning();
         const updated = await advance(tx, actor, run);
         return { run_id: run.id, campaign_id: run.campaignId, log_id: log.id, sequence: log.sequence, status: updated.status, lock_version: updated.lockVersion };
       });
@@ -194,6 +208,10 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
         } else {
           [account] = await tx.insert(accounts).values({ organizationId: actor.organizationId, platform: run.platform, platformAccountId: stableId, canonicalProfileUrl: identity.url, currentHandle: identity.handle, displayName: data.identity.display_name, identityState: stableId ? "resolved" : "provisional", firstSeenAt: observed, lastSeenAt: observed, createdBy: actor.userId, updatedBy: actor.userId }).returning();
         }
+        if (run.environmentSnapshot.initial_validation) {
+          const previous = await tx.selectDistinct({ accountId: evidence.creatorAccountId }).from(evidence).where(and(eq(evidence.runId, run.id), eq(evidence.kind, "profile_observation")));
+          if (!previous.some(row => row.accountId === account.id) && previous.length >= run.requestedCount) throw new DiscoveryError(429, "quota_exceeded");
+        }
         if (data.supersedes_evidence_id) {
           const [old] = await tx.select().from(evidence).where(and(eq(evidence.organizationId, actor.organizationId), eq(evidence.campaignId, run.campaignId), eq(evidence.creatorAccountId, account.id), eq(evidence.id, data.supersedes_evidence_id)));
           if (!old) return denied();
@@ -236,6 +254,7 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
       const data = readRunInput.parse(input), run = await loadRun(tx, actor, data.run_id, "discovery:read");
       const entries = await tx.select().from(logs).where(and(eq(logs.organizationId, actor.organizationId), eq(logs.runId, run.id), sql`${logs.sequence} > ${data.cursor}`)).orderBy(logs.sequence).limit(data.limit + 1);
       const facts = await tx.select().from(evidence).where(and(eq(evidence.organizationId, actor.organizationId), eq(evidence.runId, run.id))).orderBy(evidence.recordedAt, evidence.id).limit(data.limit + 1).offset(data.evidence_cursor);
+      await tx.insert(auditEvents).values({ organizationId: actor.organizationId, actorId: actor.userId, entityId: run.id, action: "discovery.run_read" });
       return { ...wireRun(run), counts: await summary(tx, run), logs: entries.slice(0, data.limit), next_cursor: entries.length > data.limit ? entries[data.limit - 1].sequence : null, evidence: facts.slice(0, data.limit), next_evidence_cursor: facts.length > data.limit ? data.evidence_cursor + data.limit : null, work_connection: "unverified" };
     }),
     reviewEvidence: (actor: DiscoveryActor, input: unknown) => transaction(async tx => {

@@ -43,6 +43,20 @@
       "when": 1792652478153,
       "tag": "0005_discovery_schema",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792652478154,
+      "tag": "0006_discovery_mcp",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792657827274,
+      "tag": "0007_discovery_initial_validation",
+      "breakpoints": true
     }
   ]
 }

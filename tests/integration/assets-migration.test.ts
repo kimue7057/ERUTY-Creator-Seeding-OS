@@ -34,7 +34,8 @@ test("0002–0004 preserve legacy asset IDs/versions and frozen briefs without i
     await client.query(await readFile("drizzle/0003_short_lucky_pierre.sql", "utf8"));
     await client.query(await readFile("drizzle/0004_probe_grant_rotation.sql", "utf8"));
     await client.query(await readFile("drizzle/0005_discovery_schema.sql", "utf8"));
-    for (const table of ["discovery_runs", "creator_accounts", "discovery_evidence", "campaign_creators", "discovery_logs", "discovery_capability_receipts"]) {
+    await client.query(await readFile("drizzle/0006_discovery_mcp.sql", "utf8"));
+    for (const table of ["discovery_runs", "creator_accounts", "discovery_evidence", "campaign_creators", "discovery_logs", "discovery_capability_receipts", "discovery_mcp_grants", "discovery_grant_campaigns"]) {
       assert.equal((await client.query(`SELECT count(*)::int AS count FROM ${table}`)).rows[0].count, 0);
     }
     assert.equal((await client.query("SELECT count(*)::int AS count FROM discovery_probe_workspaces")).rows[0].count, 0);

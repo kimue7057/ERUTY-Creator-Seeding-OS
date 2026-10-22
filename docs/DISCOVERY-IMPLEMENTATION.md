@@ -10,7 +10,7 @@
 | --- | --- | --- |
 | Phase A / discovery-schema-01 | additive 0004: runs/accounts/evidence/campaign links/logs, aliases/reviews/requests/capability receipts. DB 조직·플랫폼·캠페인 scoped FK, 불변 이력/context, 안정 ID/활성 별칭 unique | 미충족. migration은 기존 캠페인/브리프/파일을 바꾸거나 실제 발견/실증 성공 행을 만들지 않는다 |
 | Phase B / discovery-core-01 | context/prepare/log/observation/submit/read 및 내부 staff review 서비스. 계정 재사용·별칭 충돌 거절, 타겟팅 사본/근거/미확인 지표, 원자적 멱등성·감사, live membership 검증 | 실제 관찰 형태/플랫폼별 제약 추가 검증 필요. 테스트의 Work-source fixture는 합성 계약 검증이며 실제 Work 결과가 아님 |
-| Phase C / discovery-mcp-01 | 후속 PR | hosted Work 원본 SNS 검색 1명→인증 MCP→독립 PostgreSQL 검증 미완료 |
+| Phase C / discovery-mcp-01 | 기존 JWT/HTTP 보호를 재사용한 별도 6도구 discovery 모드, 캠페인 allowlist grant, private operator grant/revoke/proof 검증. probe 모드 3도구 유지 | 로컬 synthetic SDK 왕복과 별도 read-only DB 검증/철회 차단 통과. hosted Work 원본 SNS 검색 1명→인증 MCP→독립 PostgreSQL 검증 미완료. [실행·수용 체크리스트](DISCOVERY-MCP.md) |
 | Phase D / discovery-ui-01 | 후속 PR | 실제 Work 데이터 표시 검증 미완료 |
 
 0004는 Drizzle 모델에 더해 scoped self-FK 및 이력/상태 변경 trigger를 명시 SQL로 관리한다. 과거 evidence/log/review/request/capability는 UPDATE/DELETE를 거절한다. run은 context 수정/삭제/종료 후 재쓰기를 거절하고 lock_version 증가와 상태 전이를 검사한다. 별칭은 폐쇄(valid_to 최초 설정)만 허용한다. 별도 보존/삭제 정책은 이번 범위가 아니다.

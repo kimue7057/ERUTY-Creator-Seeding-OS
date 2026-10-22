@@ -17,15 +17,16 @@ const enumCheck = (name: string, column: AnyPgColumn, values: readonly string[])
 // Reviewed private experiment references only. No success records are seeded by migration.
 export const discoveryCapabilities = pgTable("discovery_capability_receipts", {
   id: uuid().defaultRandom().primaryKey(), organizationId: uuid("organization_id").notNull().references(() => organizations.id),
-  platform: text({ enum: DISCOVERY_PLATFORMS }).notNull(), kind: text({ enum: ["sns_native_search", "work_mcp_write"] }).notNull(),
+  platform: text({ enum: DISCOVERY_PLATFORMS }).notNull(), kind: text({ enum: ["sns_native_search", "work_mcp_write", "initial_validation"] }).notNull(),
   verdict: text({ enum: ["partial", "verified", "blocked"] }).notNull(),
   environmentSha256: text("environment_sha256").notNull(), privateEvidenceReference: text("private_evidence_reference").notNull(),
-  facts: jsonb().$type<{ native_search: boolean; direct_profiles: number; recent_content_profiles: number; limitations: string[] }>().notNull(),
+  facts: jsonb().$type<{ native_search: boolean; direct_profiles: number; recent_content_profiles: number; limitations: string[]; initial_validation?: { grant_id: string; campaign_id: string; max_creators: number; expires_at: string } }>().notNull(),
   observedAt: timestamp("observed_at", { withTimezone: true }).notNull(),
   reviewedBy: uuid("reviewed_by").notNull().references(() => users.id), createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, t => [unique("discovery_capability_scope").on(t.organizationId, t.platform, t.id),
-  enumCheck("discovery_capability_platform", t.platform, DISCOVERY_PLATFORMS), enumCheck("discovery_capability_kind", t.kind, ["sns_native_search", "work_mcp_write"]),
+  enumCheck("discovery_capability_platform", t.platform, DISCOVERY_PLATFORMS), enumCheck("discovery_capability_kind", t.kind, ["sns_native_search", "work_mcp_write", "initial_validation"]),
   enumCheck("discovery_capability_verdict", t.verdict, ["partial", "verified", "blocked"]),
+  check("discovery_initial_validation_unverified", sql`${t.kind} <> 'initial_validation' or ${t.verdict} = 'partial'`),
   check("discovery_capability_hash", sql`${t.environmentSha256} ~ '^[a-f0-9]{64}$'`),
   index("discovery_capability_latest").on(t.organizationId, t.platform, t.kind, t.createdAt),
 ]);
@@ -37,7 +38,7 @@ export const discoveryRuns = pgTable("discovery_runs", {
   contextSha256: text("context_sha256").notNull(), snapshotSchemaVersion: integer("snapshot_schema_version").default(1).notNull(),
   requestedCount: integer("requested_count").notNull(), timeBudgetSeconds: integer("time_budget_seconds").default(1800).notNull(),
   workTaskReference: text("work_task_reference"), capabilityReceiptId: uuid("capability_receipt_id"),
-  environmentSnapshot: jsonb("environment_snapshot").$type<{ environment_sha256: string; work_connection: "unverified" | "reviewed" }>().notNull(),
+  environmentSnapshot: jsonb("environment_snapshot").$type<{ environment_sha256: string; work_connection: "unverified" | "reviewed"; initial_validation?: boolean }>().notNull(),
   startedAt: timestamp("started_at", { withTimezone: true }), submittedAt: timestamp("submitted_at", { withTimezone: true }),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }), endedAt: timestamp("ended_at", { withTimezone: true }),
   outcomeSummary: jsonb("outcome_summary").$type<Record<string, number>>().default({}).notNull(), limitations: text().array().default(sql`'{}'::text[]`).notNull(),
@@ -132,4 +133,25 @@ export const discoveryRequests = pgTable("discovery_requests", {
 }, t => [unique("discovery_request_idempotency").on(t.organizationId, t.principalKey, t.tool, t.idempotencyKey),
   foreignKey({ name: "discovery_request_member_fk", columns: [t.organizationId, t.actorId], foreignColumns: [memberships.organizationId, memberships.userId] }),
   check("discovery_request_hash", sql`${t.payloadSha256} ~ '^[a-f0-9]{64}$'`),
+]);
+
+// Separate from synthetic probe grants. No memberships or grants are auto-enrolled.
+export const discoveryMcpGrants = pgTable("discovery_mcp_grants", {
+  id: uuid().defaultRandom().primaryKey(), organizationId: uuid("organization_id").notNull(), userId: uuid("user_id").notNull(),
+  issuer: text().notNull(), subject: text().notNull(), environmentSha256: text("environment_sha256").notNull(),
+  executionSource: text("execution_source", { enum: ["work_manual_task", "codex_test"] }).notNull(), scopes: text().array().notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  createdBy: uuid("created_by").notNull().references(() => users.id), ...times(),
+}, t => [uniqueIndex("discovery_mcp_principal").on(t.organizationId, t.issuer, t.subject).where(sql`${t.revokedAt} is null`), unique("discovery_mcp_grant_scope").on(t.organizationId, t.id),
+  foreignKey({ name: "discovery_mcp_member_fk", columns: [t.organizationId, t.userId], foreignColumns: [memberships.organizationId, memberships.userId] }),
+  enumCheck("discovery_mcp_source", t.executionSource, ["work_manual_task", "codex_test"]),
+  check("discovery_mcp_scopes", sql`cardinality(${t.scopes}) > 0 and ${t.scopes} <@ ARRAY['discovery:read','discovery:observe','discovery:submit']::text[] and ${t.scopes} @> ARRAY['discovery:read']::text[]`),
+  check("discovery_mcp_environment_hash", sql`${t.environmentSha256} ~ '^[a-f0-9]{64}$'`),
+  check("discovery_mcp_expiry", sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.createdAt} + interval '24 hours'`),
+]);
+export const discoveryGrantCampaigns = pgTable("discovery_grant_campaigns", {
+  ...scope(), grantId: uuid("grant_id").notNull(),
+}, t => [unique("discovery_grant_campaign_identity").on(t.grantId, t.campaignId),
+  foreignKey({ name: "discovery_grant_campaign_fk", columns: [t.organizationId, t.projectId, t.campaignId], foreignColumns: [campaigns.organizationId, campaigns.projectId, campaigns.id] }),
+  foreignKey({ name: "discovery_grant_identity_fk", columns: [t.organizationId, t.grantId], foreignColumns: [discoveryMcpGrants.organizationId, discoveryMcpGrants.id] }),
 ]);
