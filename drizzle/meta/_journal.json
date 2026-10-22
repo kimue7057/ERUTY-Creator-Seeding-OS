@@ -29,6 +29,13 @@
       "when": 1792561572994,
       "tag": "0003_short_lucky_pierre",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1792652478152,
+      "tag": "0004_probe_grant_rotation",
+      "breakpoints": true
     }
   ]
 }

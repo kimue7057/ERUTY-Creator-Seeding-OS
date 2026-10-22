@@ -210,4 +210,22 @@ test("operator CLIs explicitly provision a new sandbox, independently verify a r
   const [event] = await db.select().from(auditEvents).where(and(eq(auditEvents.entityId, workspace.grant_id), eq(auditEvents.action, "discovery.probe_grant_revoked_by_operator_cli")));
   assert.equal(event.actorId, userId);
   assert.ok((await db.select().from(grants).where(eq(grants.id, workspace.grant_id)))[0].revokedAt);
+
+  const [revokedGrant] = await db.select().from(grants).where(eq(grants.id, workspace.grant_id));
+  const [originalProbe] = await db.select().from(probes).where(eq(probes.id, result.probe_id));
+  const replacement = JSON.parse((await run("scripts/mcp-provision.ts")).stdout) as typeof sandbox;
+  extraSandboxes.push(replacement);
+  assert.notEqual(replacement.organization_id, workspace.organization_id);
+  assert.notEqual(replacement.grant_id, workspace.grant_id);
+  assert.deepEqual((await db.select().from(grants).where(eq(grants.id, workspace.grant_id)))[0], revokedGrant);
+  assert.deepEqual((await db.select().from(probes).where(eq(probes.id, result.probe_id)))[0], originalProbe);
+  await assert.rejects(() => run("scripts/mcp-provision.ts"));
+  const oldService = probeService(workspace.organization_id, "local-cli-test");
+  const identity = { issuer, subject, scopes: ["discovery:read", "discovery:probe"], expiresAt: Math.floor(Date.now() / 1000) + 300 };
+  await assert.rejects(() => oldService.capabilities(identity, { contract_version: 1 }));
+  const replacementService = probeService(replacement.organization_id, "local-cli-test");
+  assert.equal((await replacementService.capabilities(identity, { contract_version: 1 })).principal_id, replacement.grant_id);
+  const replacementWrite = await replacementService.write(identity, { contract_version: 1, nonce: randomUUID(), idempotency_key: randomUUID() }, randomUUID());
+  assert.equal(replacementWrite.organization_id, replacement.organization_id);
+  await assert.rejects(() => replacementService.read(identity, { contract_version: 1, probe_id: result.probe_id }));
 });
