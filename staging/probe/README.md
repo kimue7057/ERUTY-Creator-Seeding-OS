@@ -122,6 +122,8 @@ docker compose @composeArgs run --rm verify node .local/build/mcp-staging-verify
 
 사용자가 로컬 E2E/Tunnel/OAuth 설정을 승인한 경우에만 실행한다. 기존 `compose.yaml`의 전용 PostgreSQL·MCP·private gateway를 그대로 재사용한다. 운영 조직/DB는 연결하지 않는다.
 
+철회 후 같은 OAuth 계정으로 다시 실험할 때는 기존 DB에 `mcp-staging-init`을 재실행하지 않는다. 운영자 전용 `migrate.mjs`로 증분 마이그레이션을 적용한 후 기존 `mcp-provision.mjs` 경로와 `MCP_PROBE_SETUP_CONFIRM=create-new-synthetic-organization`으로 새 합성 조직·grant를 발급한다. 철회된 grant와 기존 receipt·감사 기록은 보존되며, 같은 issuer/subject의 철회되지 않은 grant는 하나만 허용한다. 새 organization ID로 MCP 설정을 갱신하고 OAuth 재로그인을 별도로 확인한다.
+
 1. 검증한 공식 `tunnel-client.exe`와 번들 `cloudflared.exe`를 ignored `.local/bin/tunnel-client/`에 둔다. PowerShell 7에서 `./scripts/mcp-local-access.ps1 -Action Collect`를 직접 실행하여 Tunnel ID와 전용 Read + Use runtime key를 입력한다. 키는 Windows 사용자 DPAPI로 암호화하고 `.local/mcp-local-e2e` ACL을 현재 사용자로 제한한다. `Inspect`는 실제 org/workspace 연결을 조회한다. 키/응답 원문을 Git·채팅·CI에 복사하지 않는다.
 2. Auth0 테스트 tenant 관리자 권한이 없으면 `compose.oauth-local.yaml`의 독립 Keycloak 26.8.1 + 별도 PostgreSQL을 테스트 IdP로 사용할 수 있다. **RFC 8707 `resource-indicators`는 Keycloak의 experimental 기능**이며 운영 준비 완료를 뜻하지 않는다. MCP는 Secure MCP Tunnel을 사용하고, OAuth 로그인·discovery/JWKS만 개발용 HTTPS로 연결한다.
 3. 번들 `cloudflared.exe tunnel --no-autoupdate --url http://127.0.0.1:3381 --metrics 127.0.0.1:3382 --loglevel info --management-diagnostics=false`를 실행하고 로그를 private 디렉터리에만 저장한다. 출력된 실제 origin을 `.local/mcp-local-e2e/oauth-origin.json`의 `{"origin":"https://실제할당호스트.trycloudflare.com"}`에 기록한다. Quick Tunnel은 개발 전용이며 재시작하면 hostname이 바뀐다. 기존 identity를 자동 덮어쓰지 않는다.

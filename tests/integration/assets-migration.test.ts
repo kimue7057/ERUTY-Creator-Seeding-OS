@@ -32,7 +32,8 @@ test("0002–0004 preserve legacy asset IDs/versions and frozen briefs without i
     assert.deepEqual((await client.query("SELECT snapshot FROM campaign_brief_revisions WHERE campaign_id=$1", [campaign])).rows[0].snapshot, snapshot);
     assert.equal((await client.query("SELECT count(*)::int AS count FROM campaign_asset_references")).rows[0].count, 2);
     await client.query(await readFile("drizzle/0003_short_lucky_pierre.sql", "utf8"));
-    await client.query(await readFile("drizzle/0004_many_madrox.sql", "utf8"));
+    await client.query(await readFile("drizzle/0004_probe_grant_rotation.sql", "utf8"));
+    await client.query(await readFile("drizzle/0005_discovery_schema.sql", "utf8"));
     for (const table of ["discovery_runs", "creator_accounts", "discovery_evidence", "campaign_creators", "discovery_logs", "discovery_capability_receipts"]) {
       assert.equal((await client.query(`SELECT count(*)::int AS count FROM ${table}`)).rows[0].count, 0);
     }

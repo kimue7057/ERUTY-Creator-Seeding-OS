@@ -63,12 +63,22 @@ test("fresh staging PostgreSQL: least-privilege MCP write/read, independent proo
       const config = probeConfig({ NODE_ENV: "test", MCP_RESOURCE_URL: "http://127.0.0.1:3100/mcp", MCP_OAUTH_ISSUER: issuer, MCP_OAUTH_JWKS_URL: `${issuer}jwks`, MCP_PROBE_ORGANIZATION_ID: sandbox.organization_id, MCP_BUILD_SHA: "a3f69a2" });
       server = createProbeHttpServer(config, undefined, probeService(sandbox.organization_id, config.build, scoped)); server.listen(0, "127.0.0.1"); await once(server, "listening");
       const origin = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
-      config.resource = `${origin}/mcp`; config.allowedHost = new URL(origin).host; config.metadataUrl = `${origin}/.well-known/oauth-protected-resource/mcp`;
+      config.resource = `${origin}/v1/mcp/tunnel_00000000000000000000000000000000`;
+      config.allowedHost = new URL(origin).host;
+      config.metadataUrl = `${origin}/.well-known/oauth-protected-resource/v1/mcp/tunnel_00000000000000000000000000000000`;
+      const metadataResponse = await fetch(config.metadataUrl);
+      assert.equal(metadataResponse.status, 200);
+      assert.equal((await metadataResponse.json()).resource, config.resource);
+      const challengeResponse = await fetch(`${origin}/mcp`, { method: "POST" });
+      assert.equal(challengeResponse.status, 401);
+      assert.ok(challengeResponse.headers.get("www-authenticate")?.includes(config.metadataUrl));
       const now = Math.floor(Date.now() / 1000);
       const token = await new SignJWT({ scope: "discovery:read discovery:probe" }).setProtectedHeader({ alg: "ES256", kid: "staging-test" }).setSubject(input.subject).setIssuer(issuer).setAudience(config.resource).setIssuedAt(now).setExpirationTime(now + 300).sign(keys.privateKey);
+      const wrongAudience = await new SignJWT({ scope: "discovery:read discovery:probe" }).setProtectedHeader({ alg: "ES256", kid: "staging-test" }).setSubject(input.subject).setIssuer(issuer).setAudience(`${origin}/mcp`).setIssuedAt(now).setExpirationTime(now + 300).sign(keys.privateKey);
+      assert.equal((await fetch(`${origin}/mcp`, { method: "POST", headers: { Authorization: `Bearer ${wrongAudience}` } })).status, 401);
       assert.equal((await inspectProbeOAuth(config, `${issuer}metadata`, token)).token_validation, "signature_issuer_audience_lifetime_scopes_verified");
       const call = async (name: string, args: object) => {
-        const response = await fetch(config.resource, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: "2.0", id: randomUUID(), method: "tools/call", params: { name, arguments: args } }) });
+        const response = await fetch(`${origin}/mcp`, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream", Authorization: `Bearer ${token}` }, body: JSON.stringify({ jsonrpc: "2.0", id: randomUUID(), method: "tools/call", params: { name, arguments: args } }) });
         return { status: response.status, body: await response.json() };
       };
       const capabilities = (await call("eruty_capabilities", { contract_version: 1 })).body.result.structuredContent;
