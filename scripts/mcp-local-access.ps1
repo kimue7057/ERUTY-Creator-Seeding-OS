@@ -110,6 +110,24 @@ if (-not (Test-Path -LiteralPath $tunnelBinary)) { throw 'Install the verified o
 $connection = Get-Content -LiteralPath $metadataFile -Raw | ConvertFrom-Json
 if (-not (Test-TunnelId $connection.tunnel_id) -or $connection.target -cne $targetUrl) { throw 'Invalid local connection configuration' }
 $savedEnvironment = $env:CONTROL_PLANE_API_KEY
+$discoveryEnvironment = @{}
+if ($Mode -eq 'discovery') {
+  $operatorConfig = Get-Content -LiteralPath (Join-Path $privateDirectory 'operator.env') -Raw
+  $issuerMatch = [regex]::Match($operatorConfig, '(?m)^MCP_OAUTH_ISSUER=(.+)$')
+  if (-not $issuerMatch.Success) { throw 'Discovery OAuth issuer is required' }
+  $issuerUrl = [Uri]$issuerMatch.Groups[1].Value.Trim()
+  if ($issuerUrl.Scheme -cne 'https' -or $issuerUrl.UserInfo) { throw 'Invalid Discovery OAuth issuer' }
+  $oauthOrigin = $issuerUrl.GetLeftPart([UriPartial]::Authority)
+  $runtimeValues = @{
+    MCP_OAUTH_TRUSTED_ORIGINS = $oauthOrigin
+    HARPOON_ALLOW_PLAINTEXT_HTTP = 'true'
+    HARPOON_TARGETS = "label=eruty-discovery-oauth,url=$oauthOrigin,desc=ERUTY local test OAuth"
+  }
+  foreach ($entry in $runtimeValues.GetEnumerator()) {
+    $discoveryEnvironment[$entry.Key] = [Environment]::GetEnvironmentVariable($entry.Key, 'Process')
+    [Environment]::SetEnvironmentVariable($entry.Key, $entry.Value, 'Process')
+  }
+}
 $runtimeSecret = ConvertTo-SecureString (Get-Content -LiteralPath $secretFile -Raw)
 try {
   $env:CONTROL_PLANE_API_KEY = Get-Plaintext $runtimeSecret
@@ -127,5 +145,6 @@ try {
   }
 } finally {
   $env:CONTROL_PLANE_API_KEY = $savedEnvironment
+  foreach ($entry in $discoveryEnvironment.GetEnumerator()) { [Environment]::SetEnvironmentVariable($entry.Key, $entry.Value, 'Process') }
   $runtimeSecret.Dispose()
 }
