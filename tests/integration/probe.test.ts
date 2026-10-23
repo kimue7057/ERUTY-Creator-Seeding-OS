@@ -121,7 +121,7 @@ test("tokens require valid signature, issuer, exact audience, expiry and scope; 
   assert.equal((await fetch(`${resource}?access_token=${await token()}`, { method: "POST", headers, body: payload })).status, 404);
   assert.equal(await count(), beforeCount);
   assert.ok(events.length);
-  const allowed = new Set(["at", "request_id", "correlation_id", "layer", "outcome", "rpc_method", "tool", "duration_ms", "status", "error"]);
+  const allowed = new Set(["at", "request_id", "correlation_id", "layer", "outcome", "rpc_method", "protocol_version", "tool", "duration_ms", "status", "error"]);
   assert.ok(events.every(e => Object.keys(e).every(key => allowed.has(key))));
   assert.ok(events.some(e => "layer" in e && e.layer === "authentication"));
   assert.equal(/Bearer |eyJ[A-Za-z0-9_-]+\.|access_token=|eruty_session=/.test(JSON.stringify(events)), false);

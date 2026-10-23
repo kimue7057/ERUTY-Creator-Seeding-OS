@@ -1,8 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { privateError, redactDiagnostic, safeFailure } from "../src/lib/probe/diagnostics";
+import { diagnosticProtocolVersion, privateError, redactDiagnostic, safeFailure } from "../src/lib/probe/diagnostics";
 import { DiscoveryError } from "../src/lib/discovery/contracts";
 import { managedOAuthEnvironment, persistentOAuthRouting } from "../scripts/lib/tunnel-profile";
+
+test("protocol telemetry accepts version identifiers without logging arbitrary header text", () => {
+  assert.equal(diagnosticProtocolVersion(undefined), undefined);
+  assert.equal(diagnosticProtocolVersion("2026-07-28"), "2026-07-28");
+  for (const input of ["Bearer SECRET", "person@example.invalid", "2026-07-28,SECRET", ["2026-07-28", "SECRET"]]) assert.equal(diagnosticProtocolVersion(input), "invalid");
+});
 
 test("private diagnostics retain actual frames and driver causes without SQL, parameters, credentials or PII", () => {
   const secrets = ["private-query-value", "person@example.invalid", "Bearer TOPSECRET", "postgres://u:password@db/private", "sk-SECRETKEYVALUE"];

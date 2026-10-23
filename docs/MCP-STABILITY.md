@@ -19,6 +19,28 @@ Authenticated `tools/call` domain/DB failures use HTTP 200 with MCP `isError: tr
 | `invalid_input`, `idempotency_conflict`, `run_closed`, quota errors | Correct the request; no automatic retry. |
 | `server_busy` / HTTP 503 | Respect Retry-After and bounded backoff. |
 
+### Protocol negotiation versus a failed tool call
+
+The pinned SDK remains 1.32.1. A newer client can probe `server/discover` with protocol `2026-07-28` before using the legacy `initialize` handshake. The existing SDK rejects unsupported versions with HTTP 400. The server records an authenticated, well-formed probe's rejection as `protocol_probe_rejected`, with its safe version identifier, method, request/correlation IDs and private SDK stack. Only a subsequent successful initialize/call establishes recovery; this label alone is not success. Unsupported `tools/call` versions and other SDK errors remain errors. Do not rewrite request headers, disable validation, count the probe as a DB failure, or retry a denied grant. This behavior is exercised through the real SDK and HTTP gateway; original historical requests without version/method telemetry remain unclassified. See the [SDK version-negotiation contract](https://ts.sdk.modelcontextprotocol.io/v2/protocol-versions).
+
+### Explicit authority replacement
+
+OAuth access-token expiry, OAuth offline-session expiry and the DB grant's `expires_at` are independent. Increasing an OAuth lifetime does not grant campaign access. Start the bounded DB authority shortly before the actual task, after infrastructure checks. A DB grant is never renewed by the supervisor, a tool, a timer or a login.
+
+`provisionDiscoveryGrant` returns `grant_already_active` or `grant_expired_requires_rotation` rather than an opaque duplicate-index exception. The single-unrevoked-principal index is retained. To replace a genuinely expired, unrevoked grant, prepare private `.local/discovery/grant-rotation.json` with all normal explicit grant fields plus `previous_grant_id`, a fresh UUID `idempotency_key`, and `confirmation: rotate-expired-discovery-campaign-grant`. Specify the current environment hash, exact campaign allowlist, minimum scopes and a new bounded expiry. The exact prior principal/user/source must match; another organization's or revoked grant cannot be rotated.
+
+```powershell
+node --env-file=.local/discovery/operator.env --import tsx scripts/discovery-operator.ts rotate-expired-grant
+```
+
+The operator must still be a current writer. One transaction closes only that expired grant with an audit, validates and creates its replacement, and saves a durable request receipt. Invalid campaigns/expiry roll back the closure. Concurrent identical requests issue once; reusing the key with different input returns `idempotency_conflict`. Retrying identical input returns the original expiry and receipt, including after the replacement is revoked; it never reactivates authority. Private receipt files are immutable and a failed CLI call reports a safe error/request ID with redacted stack frames saved privately. This path does not create a run, initial validation permit, observation or capability pass.
+
+### Reviewed offline-session policy
+
+The existing operational realm and both clients were inspected with an offline idle/max of one hour, independent of 5-minute access tokens. `scripts/lib/discovery-oauth-policy.ts` prepares a partial update for Discovery's offline idle of 24 hours and absolute max of 7 days, preserving refresh rotation/reuse=0, access-token/SSO lifetimes, issuer, callbacks, scopes and audience. Since the realm maximum is shared, every other existing OIDC login client's effective old offline limits are pinned before raising that ceiling; Probe stays at one hour. New clients require explicit lifetime review. This changes how long an authorized client can refresh without a login, so operational application is a separately reviewed step. The helper itself performs no network mutation. See [Keycloak session policy](https://www.keycloak.org/docs/latest/server_admin/index.html#_offline-access).
+
+The isolated Keycloak test mints an offline token first, applies the proposed partial policy to that disposable realm, confirms the same offline session still exists, expires the access token, refreshes into the longer bound, and rejects reuse of the old refresh token. It does not prove that a hosted client's token cache saved the new token. Operational changes require private before/after snapshots, read-back and an exact rollback plan; preserve existing users and sessions, then verify a real client refresh.
+
 Read retry guidance: at most three attempts for transient network/503 failures, with jittered backoff. Writes never use a fresh key after an uncertain acknowledgement. Replay the identical body/key and read back the receipt. Revoked grants and submitted runs stay closed. Admission defaults to 32 requests/64 connections; pools cap at 8, with a 3-second connection budget and an idle-error handler. Discovery retains 8-second statement/5-second lock budgets. JWT clock tolerance remains zero; measure clocks before proposing a policy change.
 
 ## Local validation
@@ -37,7 +59,7 @@ Run write regression tests on a disposable DB with synthetic bootstrap credentia
 
 The reliability integration test covers 20 successful context calls, six-tool discovery, same-key prepare/log replay, concurrent logging, lost observation acknowledgement, DB deduplication, receipt IDs, payload conflict, get/submit, cross-tenant/campaign denial, token expiry, grant denial, DB loss/recovery, restart and bounded concurrency. Set `MCP_VENDOR_TUNNEL_BIN` to the verified official binary and run `tests/integration/mcp-stability.test.ts` for another 20 calls through the vendor's local control-plane/dispatcher. `tests/integration/tunnel-managed-profile.test.ts` uses isolated vendor state and a local control plane to exercise actual generated-profile replacement and two fresh managed processes with the configured issuer route and payload capture disabled. Without the optional binary this one vendor-specific test is explicitly skipped. These are not hosted Work.
 
-`pnpm test:oauth:stability` requires a loopback Keycloak and explicit `KEYCLOAK_STABILITY_ADMIN` / `KEYCLOAK_STABILITY_PASSWORD`. It creates only a random synthetic realm, tests S256, expiry, offline-session existence, normal rotated refresh and rejection of old-token reuse, then removes only that realm. Existing users/clients/sessions are untouched. CI supplies its own disposable Keycloak container.
+`pnpm test:oauth:stability` requires a loopback Keycloak and explicit `KEYCLOAK_STABILITY_ADMIN` / `KEYCLOAK_STABILITY_PASSWORD`. It creates only a random synthetic realm, tests S256, expiry, offline-session policy migration with the existing synthetic session, normal rotated refresh and rejection of old-token reuse, then removes only that realm. Operational users/clients/sessions are untouched. CI supplies its own disposable Keycloak container.
 
 ## Environment inspection and local restart
 

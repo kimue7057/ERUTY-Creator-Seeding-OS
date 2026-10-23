@@ -3,7 +3,11 @@ import { ProbeError } from "./contracts";
 import { DiscoveryError } from "../discovery/contracts";
 
 export type McpLayer = "http" | "authentication" | "authorization" | "transport" | "tool" | "serialization" | "database" | "lifecycle";
-export type McpLogEvent = { request_id: string; outcome: string; at: string; layer: McpLayer; correlation_id?: string; rpc_method?: string; tool?: string; duration_ms?: number; status?: number; error?: ReturnType<typeof privateError> };
+export type McpLogEvent = { request_id: string; outcome: string; at: string; layer: McpLayer; correlation_id?: string; rpc_method?: string; protocol_version?: string; tool?: string; duration_ms?: number; status?: number; error?: ReturnType<typeof privateError> };
+// Only a version identifier is diagnostic data. Never echo arbitrary header text.
+export function diagnosticProtocolVersion(value: string | string[] | undefined) {
+  return value === undefined ? undefined : typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : "invalid";
+}
 export type McpLogger = (event: McpLogEvent) => void;
 export function redactDiagnostic(value: string) {
   return value.replace(/Bearer\s+\S+/gi, "Bearer [REDACTED]")

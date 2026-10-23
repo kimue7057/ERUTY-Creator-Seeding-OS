@@ -73,6 +73,14 @@ test("Discovery stability: 20 real DB calls, gateway, idempotency, failures, bou
     const raw = async (access = bearer, extra: Record<string, string> = {}) => fetch(resource, { method: "POST", headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream", ...extra }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "get_campaign_discovery_context", arguments: { contract_version: 1, campaign_id: a.id } } }) });
     const failingPool = new pg.Pool({ connectionString: "postgresql://synthetic:synthetic@127.0.0.1:1/unavailable", connectionTimeoutMillis: 300 }); failingPool.on("error", () => {});
     try {
+      // Current clients can probe the newer protocol and then select the legacy SDK.
+      // Reject unsupported versions normally; do not rewrite headers or bypass auth.
+      const probe = await fetch(gatewayUrl, { method: "POST", headers: { Authorization: `Bearer ${bearer}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream", "MCP-Protocol-Version": "2026-07-28" }, body: JSON.stringify({ jsonrpc: "2.0", id: "modern-probe", method: "server/discover", params: {} }) });
+      assert.equal(probe.status, 400); await probe.text();
+      assert.ok(events.some(e => e.rpc_method === "server/discover" && e.protocol_version === "2026-07-28" && e.outcome === "protocol_probe_rejected" && e.error?.stack.length));
+      const unsupportedCall = await raw(bearer, { "MCP-Protocol-Version": "2026-07-28" });
+      assert.equal(unsupportedCall.status, 400); await unsupportedCall.text();
+      assert.ok(events.some(e => e.rpc_method === "tools/call" && e.protocol_version === "2026-07-28" && e.outcome === "sdk_error"));
       const sdk = await connect(); assert.equal((await sdk.listTools()).tools.length, 6);
       for (let i = 0; i < 20; i++) assert.equal(good(await call(sdk, "get_campaign_discovery_context", { contract_version: 1, campaign_id: a.id })).campaign_id, a.id);
       if (process.env.MCP_VENDOR_TUNNEL_BIN) {

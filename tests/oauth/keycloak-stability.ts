@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { randomBytes, randomUUID, createHash } from "node:crypto";
 import { probeAuthenticator } from "../../src/lib/probe/auth";
 import { privateError } from "../../src/lib/probe/diagnostics";
+import { discoveryOfflinePolicy } from "../../scripts/lib/discovery-oauth-policy";
 const base = process.env.KEYCLOAK_STABILITY_BASE ?? "http://127.0.0.1:3380";
 const origin = new URL(base);
 if (origin.protocol !== "http:" || origin.hostname !== "127.0.0.1" || origin.pathname !== "/" || origin.username || origin.password || origin.search || origin.hash) throw new Error("Use the isolated loopback test IdP");
@@ -47,12 +48,24 @@ try {
   await authenticate(`Bearer ${tokens.access_token}`);
   const offline = await (await request(api + `/users/${users[0].id}/offline-sessions/${(await (await request(api + `/clients?clientId=${clientId}`, { headers })).json())[0].id}`, { headers })).json();
   assert.equal(offline.length, 1);
+  // Change only the disposable realm after login: prove an existing offline session survives.
+  const before = await (await request(api, { headers })).json();
+  const beforeClients = await (await request(api + "/clients", { headers })).json();
+  const policy = discoveryOfflinePolicy(before, beforeClients, clientId);
+  for (const c of policy.clients) await request(api + "/clients/" + c.id, { method: "PUT", headers, body: JSON.stringify({ attributes: c.attributes }) });
+  await request(api, { method: "PUT", headers, body: JSON.stringify(policy.realm) });
+  const after = await (await request(api, { headers })).json();
+  for (const key of ["revokeRefreshToken", "refreshTokenMaxReuse", "accessTokenLifespan", "ssoSessionIdleTimeout", "ssoSessionMaxLifespan"]) assert.equal(after[key], before[key]);
+  assert.equal(after.offlineSessionMaxLifespan, 604800);
+  const afterSessions = await (await request(api + `/users/${users[0].id}/offline-sessions/${beforeClients.find((c: {clientId: string}) => c.clientId === clientId).id}`, { headers })).json();
+  assert.deepEqual(afterSessions.map((s: {id: string}) => s.id), offline.map((s: {id: string}) => s.id));
   await new Promise(resolve => setTimeout(resolve, 6000));
   await assert.rejects(authenticate(`Bearer ${tokens.access_token}`), (e: unknown) => !!e && typeof e === "object" && "code" in e && e.code === "token_expired");
   const refreshed = await (await request(endpoint + "/token", { method: "POST", body: new URLSearchParams({ grant_type: "refresh_token", client_id: clientId, refresh_token: tokens.refresh_token, resource }) })).json();
   assert.notEqual(refreshed.refresh_token, tokens.refresh_token); await authenticate(`Bearer ${refreshed.access_token}`);
+  assert.ok(refreshed.refresh_expires_in > 3600, "Existing session refresh must adopt the reviewed offline bound");
   const reused = await fetch(base + endpoint + "/token", { method: "POST", body: new URLSearchParams({ grant_type: "refresh_token", client_id: clientId, refresh_token: tokens.refresh_token, resource }), signal: AbortSignal.timeout(10000) });
   assert.equal(reused.status, 400); assert.equal((await reused.json()).error, "invalid_grant");
-  console.log(JSON.stringify({ synthetic_only: true, hosted_work: "not_tested", pkce: "passed", issuer_audience_signature: "passed", offline_session: "passed", expired_access_token: "token_expired", rotated_refresh: "passed", old_refresh_reuse: "invalid_grant", existing_sessions_changed: false }));
+  console.log(JSON.stringify({ synthetic_only: true, hosted_work: "not_tested", pkce: "passed", issuer_audience_signature: "passed", offline_session: "passed", policy_update_preserves_synthetic_session: true, offline_max_seconds: after.offlineSessionMaxLifespan, expired_access_token: "token_expired", rotated_refresh: "passed", old_refresh_reuse: "invalid_grant", operational_sessions_changed: false }));
 } catch (error) { console.error(JSON.stringify({ outcome: "oauth_stability_failed", error: privateError(error) })); process.exitCode = 1; }
 finally { if (created) { const r = await fetch(`${base}/admin/realms/${realm}`, { method: "DELETE", headers, signal: AbortSignal.timeout(10000) }); if (!r.ok) { console.error("Synthetic realm cleanup failed; preserve it for inspection."); process.exitCode = 1; } } }

@@ -8,7 +8,7 @@ import type { ProbeConfig } from "./config";
 import { probeAuthenticator } from "./auth";
 import { probeService } from "./service";
 import { capabilitiesInput, writeProbeInput, readProbeInput, ProbeError, PROBE_SCOPES, type ProbeIdentity } from "./contracts";
-import { privateError, safeFailure, type McpLayer, type McpLogger } from "./diagnostics";
+import { diagnosticProtocolVersion, privateError, safeFailure, type McpLayer, type McpLogger } from "./diagnostics";
 
 export function createProbeHttpServer(config: ProbeConfig, log: McpLogger = () => {}, service = probeService(config.organizationId, config.build)) {
   return createAuthorizedMcpHttpServer(config, {
@@ -132,18 +132,24 @@ export function createAuthorizedMcpHttpServer(config: ProbeConfig, adapter: McpA
       if (Number(req.headers["content-length"] ?? 0) > adapter.bodyLimit) throw new ProbeError(413, "body_too_large");
       const parsed = await body(req);
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new ProbeError(400, "single_request_required");
-      rpcMethod = typeof parsed.method === "string" && ["initialize", "notifications/initialized", "tools/list", "tools/call", "ping"].includes(parsed.method) ? parsed.method : undefined;
+      rpcMethod = typeof parsed.method === "string" && ["initialize", "notifications/initialized", "tools/list", "tools/call", "ping", "server/discover"].includes(parsed.method) ? parsed.method : undefined;
       // A valid tools/call gets a protocol-level isError result for grant/DB/domain failures.
       // Initialize and discovery still require a current grant before revealing the tool list.
       if (rpcMethod !== "tools/call") { layer = "authorization"; await adapter.check(identity); }
       layer = "transport";
       const server = mcp(identity, requestId, correlationId);
-      server.onerror = error => emit({ at: new Date().toISOString(), request_id: requestId, correlation_id: correlationId, layer: "transport", outcome: "sdk_error", error: privateError(error) });
+      const protocolVersion = diagnosticProtocolVersion(req.headers["mcp-protocol-version"]);
+      // Modern clients may probe before selecting our supported legacy handshake.
+      // Keep the SDK's HTTP/version validation intact; this is not support for MCP 2.0.
+      const legacyProbe = parsed.jsonrpc === "2.0" && ["string", "number"].includes(typeof parsed.id) && rpcMethod === "server/discover" && protocolVersion !== undefined && protocolVersion !== "invalid" && !SUPPORTED_PROTOCOL_VERSIONS.includes(protocolVersion);
+      let rejectedProbe = false;
+      server.onerror = error => emit({ at: new Date().toISOString(), request_id: requestId, correlation_id: correlationId, layer: "transport", rpc_method: rpcMethod, protocol_version: protocolVersion,
+        outcome: (rejectedProbe = legacyProbe && error.message.startsWith("Bad Request: Unsupported protocol version:")) ? "protocol_probe_rejected" : "sdk_error", error: privateError(error) });
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true, enableDnsRebindingProtection: true, allowedHosts: [config.allowedHost], allowedOrigins: [...config.allowedOrigins] });
       res.on("close", () => { void server.close().catch(() => {}); });
       await server.connect(transport);
       await transport.handleRequest(req, res, parsed);
-      emit({ at: new Date().toISOString(), request_id: requestId, correlation_id: correlationId, layer, rpc_method: rpcMethod, outcome: "handled", status: res.statusCode, duration_ms: Math.round(performance.now() - started) });
+      emit({ at: new Date().toISOString(), request_id: requestId, correlation_id: correlationId, layer, rpc_method: rpcMethod, protocol_version: protocolVersion, outcome: rejectedProbe && res.statusCode === 400 ? "protocol_probe_rejected" : "handled", status: res.statusCode, duration_ms: Math.round(performance.now() - started) });
     } catch (error) {
       const failure = safeFailure(error), { code, status } = failure;
       if (failure.layer === "database") layer = "database";
