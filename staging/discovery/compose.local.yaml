@@ -1,6 +1,10 @@
 name: eruty-discovery-local
+x-runtime: &runtime
+  restart: unless-stopped
+  logging: {driver: json-file, options: {max-size: 10m, max-file: "3"}}
 services:
   db:
+    <<: *runtime
     image: postgres:18-bookworm
     environment:
       POSTGRES_USER: discovery_owner
@@ -19,6 +23,7 @@ services:
       timeout: 3s
       retries: 20
   mcp:
+    <<: *runtime
     image: eruty-discovery-local:${MCP_BUILD_SHA:?}
     build:
       context: ../..
@@ -43,13 +48,21 @@ services:
     tmpfs: ["/tmp:size=16m,mode=1777"]
     networks: [database, outbound]
     depends_on: {db: {condition: service_healthy}}
+    healthcheck:
+      test: [CMD, node, -e, "require('node:http').get({host:'127.0.0.1',port:3100,path:'/healthz',headers:{Host:new URL(process.env.MCP_RESOURCE_URL).host}},r=>{r.resume();process.exitCode=r.statusCode===200?0:1}).on('error',()=>process.exit(1)).setTimeout(2000,function(){this.destroy();process.exit(1)})"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 20s
   private-gateway:
+    <<: *runtime
     image: caddy:2-alpine
     environment: {MCP_RESOURCE_HOST: "${MCP_RESOURCE_HOST:?}"}
     volumes: [../probe/Caddyfile.private:/etc/caddy/Caddyfile:ro]
     ports: [127.0.0.1:3311:8080]
     networks: [outbound]
-    depends_on: [mcp]
+    depends_on: {mcp: {condition: service_healthy}}
 networks:
   database: {internal: true}
   administration: {}

@@ -1,5 +1,7 @@
 import type { NextConfig } from "next";
 const config: NextConfig = {
+  // Keep a regression server independent of an already running local dashboard.
+  distDir: process.env.ERUTY_TEST_DIST_DIR ?? ".next",
   poweredByHeader: false,
   agentRules: false,
   serverExternalPackages: ["pg"],

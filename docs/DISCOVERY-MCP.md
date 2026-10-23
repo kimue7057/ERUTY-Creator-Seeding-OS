@@ -1,6 +1,8 @@
 # STEP 3 discovery MCP 실행
 
-상태: 로컬 코드/SDK 통합 검증. **실제 hosted Work SNS→MCP→DB 검증은 미완료**. 기존 probe 실행 환경과 연결된 플러그인을 자동 변경하지 않는다.
+연결 오류, 재인증 반복, grant 만료, DB/Tunnel 복구는 [MCP 진단·복구](MCP-STABILITY.md)를 따른다. 도구 실행 오류는 안전한 structuredContent와 request_id를 제공하며, grant 거절을 OAuth 갱신으로 해결하려고 반복하지 않는다.
+
+상태: 로컬 코드/SDK 통합 검증 및 2026-10-24 실제 hosted Work 캠페인 조회·서버 로그·DB hash 대조 완료. **실제 hosted Work SNS→관찰 저장→DB→대시보드 검증은 미완료**. 기존 probe 실행 환경과 연결된 플러그인을 자동 변경하지 않는다.
 
 ## 서버와 권한
 
@@ -40,7 +42,9 @@ MCP 이미지를 `build`하고 `up -d mcp private-gateway`로 실행한다. `mcp
 
 `pnpm mcp:discovery:operator review-capability`는 현재 writer와 파일 범위/존재·크기를 확인하고 내용 대신 hash를 저장한다. 이 명령은 파일 내용이 실제 Work 수행임을 독립적으로 증명하지 않는다. 생성된 template/fixture를 성공 증거로 입력하지 않는다. 코드·SDK 결과만으로 이 명령을 실행하지 않는다. 환경/build가 달라지면 적용 가능성을 재검토한다.
 
-## 실제 Work 실증 체크리스트 (현재 전부 미완료)
+## 실제 Work 실증 체크리스트
+
+실제 Work의 캠페인 조회는 확인했다. 아래 목록은 쓰기·SNS·종료까지 포함한 수용 기준이며, 조회 성공만으로 체크하지 않는다.
 
 - [ ] 승인된 discovery grant/OAuth/Tunnel 연결, 실제 Work의 6개 도구 발견
 - [ ] 한 플랫폼 원본 방문·SNS 내부 검색·실제 계정 프로필·최근 콘텐츠·공개 수치와 관찰 시각

@@ -115,11 +115,16 @@ test("tokens require valid signature, issuer, exact audience, expiry and scope; 
   const payload = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "write_discovery_probe", arguments: { contract_version: 1, nonce, idempotency_key: randomUUID() } } });
   const missing = await fetch(resource, { method: "POST", headers, body: payload }); assert.equal(missing.status, 401); assert.match(missing.headers.get("www-authenticate")!, /resource_metadata=.*oauth-protected-resource\/mcp/);
   for (const access of [await token({ wrongKey: true }), await token({ expired: true }), await signedClaims({ aud: "oauth-client-id" }), await signedClaims({ iss: "https://wrong.invalid/" }), await signedClaims({ iat: Math.floor(Date.now() / 1000) + 30 }), await signedClaims({ scope: undefined }), await signedClaims({ exp: undefined }), "invalid.jwt.token"]) assert.equal((await fetch(resource, { method: "POST", headers: { ...headers, Authorization: `Bearer ${access}` }, body: payload })).status, 401);
-  assert.equal((await fetch(resource, { method: "POST", headers: { ...headers, Authorization: `Bearer ${await token({ scope: "unrelated" })}` }, body: payload })).status, 403);
+  const missingScope = await fetch(resource, { method: "POST", headers: { ...headers, Authorization: `Bearer ${await token({ scope: "unrelated" })}` }, body: payload });
+  assert.equal(missingScope.status, 200); const scopeResult = (await missingScope.json()).result; assert.equal(scopeResult.isError, true); assert.equal(scopeResult.structuredContent.error, "insufficient_scope");
   assert.equal((await fetch(resource, { method: "POST", headers: { ...headers, Cookie: `eruty_session=${randomUUID()}` }, body: payload })).status, 401);
   assert.equal((await fetch(`${resource}?access_token=${await token()}`, { method: "POST", headers, body: payload })).status, 404);
   assert.equal(await count(), beforeCount);
-  assert.ok(events.length); assert.ok(events.every(e => Object.keys(e).sort().join() === "outcome,request_id"));
+  assert.ok(events.length);
+  const allowed = new Set(["at", "request_id", "correlation_id", "layer", "outcome", "rpc_method", "protocol_version", "tool", "duration_ms", "status", "error"]);
+  assert.ok(events.every(e => Object.keys(e).every(key => allowed.has(key))));
+  assert.ok(events.some(e => "layer" in e && e.layer === "authentication"));
+  assert.equal(/Bearer |eyJ[A-Za-z0-9_-]+\.|access_token=|eruty_session=/.test(JSON.stringify(events)), false);
 });
 test("organization, principal, live membership, scope, expiry and revocation constrain every request", async () => {
   const beforeCount = await count();
@@ -136,7 +141,7 @@ test("organization, principal, live membership, scope, expiry and revocation con
   await db.update(grants).set({ scopes: ["discovery:read"] }).where(eq(grants.id, sandbox.grant_id));
   assert.equal((await callWrite(client, { idempotency_key: randomUUID() })).isError, true);
   await db.update(grants).set({ scopes: ["discovery:read", "discovery:probe"], expiresAt: new Date(Date.now() - 1) }).where(eq(grants.id, sandbox.grant_id));
-  await assert.rejects(() => client.callTool({ name: "eruty_capabilities", arguments: { contract_version: 1 } }));
+  assert.equal((await client.callTool({ name: "eruty_capabilities", arguments: { contract_version: 1 } })).isError, true);
   await db.update(grants).set({ expiresAt: new Date(Date.now() + 60000), revokedAt: new Date() }).where(eq(grants.id, sandbox.grant_id));
   await assert.rejects(() => connect()); assert.equal(await count(), beforeCount);
   await db.update(grants).set({ revokedAt: null }).where(eq(grants.id, sandbox.grant_id));

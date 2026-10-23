@@ -18,7 +18,9 @@ export function probeService(organizationId: string, build: string, database: Pi
       .for("share", { of: [grants, workspaces, memberships] });
     if (!actor) throw new ProbeError(403, "principal_not_allowed");
     const scopes = PROBE_SCOPES.filter(s => identity.scopes.includes(s) && actor.scopes.includes(s) && (s !== "discovery:probe" || actor.role !== "reviewer"));
-    if (!scopes.includes(scope)) throw new ProbeError(403, "insufficient_scope");
+    if (!identity.scopes.includes(scope)) throw new ProbeError(403, "insufficient_scope");
+    if (!actor.scopes.includes(scope)) throw new ProbeError(403, "grant_scope_denied");
+    if (!scopes.includes(scope)) throw new ProbeError(403, "role_forbidden");
     return { ...actor, scopes };
   }
   const receipt = (row: typeof probes.$inferSelect, replayed: boolean) => ({ contract_version: 1, probe_id: row.id, nonce: row.nonce, payload_sha256: row.payloadSha256, request_id: row.requestId, recorded_at: row.createdAt.toISOString(), organization_id: row.organizationId, project_id: row.projectId, campaign_id: row.campaignId, principal_id: row.principalId, actor_id: row.actorId, replayed });

@@ -6,6 +6,17 @@
   }
 }
 :8080 {
+  log {
+    output stdout
+    format filter {
+      wrap json
+      fields {
+        request delete
+        resp_headers delete
+      }
+    }
+  }
+  log_append gateway oauth
   # RFC 8414/OIDC discovery for an issuer with a realm path.
   @discovery path /.well-known/oauth-authorization-server/realms/eruty-probe /.well-known/openid-configuration/realms/eruty-probe
   rewrite @discovery /realms/eruty-probe/.well-known/openid-configuration

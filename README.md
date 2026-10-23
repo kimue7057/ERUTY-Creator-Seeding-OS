@@ -1,5 +1,7 @@
 # ERUTY Creator Seeding OS
 
+MCP 연결 장애는 [요청 추적·오류 코드·격리 회귀·OAuth/Tunnel 복구 절차](docs/MCP-STABILITY.md)로 진단한다. 로컬 테스트 성공과 실제 hosted Work 성공을 구분한다.
+
 STEP 3은 [구현·실증 상태](docs/DISCOVERY-IMPLEMENTATION.md)를 따른다. `0004`는 독립 discovery 데이터 모델과 불변 이력을 추가하며, 기존 브리프/파일 버전을 유지한다. 실제 SNS 직접 탐색과 hosted Work MCP 쓰기는 아직 미검증이며, 로컬 구현·테스트 통과만으로 완료 표시하지 않는다.
 
 `MCP_SERVER_MODE=discovery`는 기존 probe와 분리된 6개 discovery 도구를 제공한다. `0005`의 캠페인 allowlist grant와 별도 runtime/verifier 계정, explicit operator 명령을 사용한다. [실행 및 실제 Work 수용 절차](docs/DISCOVERY-MCP.md)를 확인한다. 기존 Tunnel·플러그인 연결을 자동 변경하지 않는다.
@@ -91,7 +93,7 @@ STEP 1–2 로컬 MVP는 검증 완료이며, 실제 Work SNS 탐색/MCP 쓰기�
 
 `MCP_RESOURCE_URL`은 OAuth 요청의 `resource` 및 JWT `aud`와 정확히 일치해야 하며, 로컬 HTTP 전송 경로 `/mcp`와 다른 경로를 사용할 수 있다. 터널 연결은 실제 요청에서 확인한 해당 테스트 터널의 식별자를 사용하고 IdP의 resource 설정도 같은 값으로 맞춘다. 보호 리소스 메타데이터와 인증 챌린지는 설정한 resource 경로를 반영한다. 다른 대상의 토큰을 함께 허용하거나 요청 파라미터를 재작성하지 않는다.
 
-**실제 hosted Work 플러그인 연결은 아직 미검증**이다. 로컬 OAuth/Tunnel 실행은 Work 호출의 증거가 아니다. 실행/권한/IdP·protocol 제약과 검증 순서는 [MCP 실행 안내](staging/probe/README.md), [DISCOVERY-PROBE-01](docs/DISCOVERY-PROBE-01.md), 검토용 예시는 [work-probe](integrations/work-probe/README.md)에 있다.
+2026-10-24 실제 hosted Work의 Discovery 캠페인 조회 응답을 실행 기록·서버 요청 시각·독립 DB hash와 대조했다. **실제 SNS 관찰 저장→재조회→대시보드 검증은 아직 미완료**이며, 조회 성공으로 전체 STEP 3를 완료 처리하지 않는다. 실행/권한/IdP·protocol 제약과 검증 순서는 [MCP 실행 안내](staging/probe/README.md), [DISCOVERY-PROBE-01](docs/DISCOVERY-PROBE-01.md), 검토용 예시는 [work-probe](integrations/work-probe/README.md)에 있다.
 
 ## 마이그레이션/운영 메모
 

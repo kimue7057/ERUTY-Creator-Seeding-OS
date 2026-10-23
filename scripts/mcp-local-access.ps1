@@ -110,24 +110,6 @@ if (-not (Test-Path -LiteralPath $tunnelBinary)) { throw 'Install the verified o
 $connection = Get-Content -LiteralPath $metadataFile -Raw | ConvertFrom-Json
 if (-not (Test-TunnelId $connection.tunnel_id) -or $connection.target -cne $targetUrl) { throw 'Invalid local connection configuration' }
 $savedEnvironment = $env:CONTROL_PLANE_API_KEY
-$discoveryEnvironment = @{}
-if ($Mode -eq 'discovery') {
-  $operatorConfig = Get-Content -LiteralPath (Join-Path $privateDirectory 'operator.env') -Raw
-  $issuerMatch = [regex]::Match($operatorConfig, '(?m)^MCP_OAUTH_ISSUER=(.+)$')
-  if (-not $issuerMatch.Success) { throw 'Discovery OAuth issuer is required' }
-  $issuerUrl = [Uri]$issuerMatch.Groups[1].Value.Trim()
-  if ($issuerUrl.Scheme -cne 'https' -or $issuerUrl.UserInfo) { throw 'Invalid Discovery OAuth issuer' }
-  $oauthOrigin = $issuerUrl.GetLeftPart([UriPartial]::Authority)
-  $runtimeValues = @{
-    MCP_OAUTH_TRUSTED_ORIGINS = $oauthOrigin
-    HARPOON_ALLOW_PLAINTEXT_HTTP = 'true'
-    HARPOON_TARGETS = "label=eruty-discovery-oauth,url=$oauthOrigin,desc=ERUTY local test OAuth"
-  }
-  foreach ($entry in $runtimeValues.GetEnumerator()) {
-    $discoveryEnvironment[$entry.Key] = [Environment]::GetEnvironmentVariable($entry.Key, 'Process')
-    [Environment]::SetEnvironmentVariable($entry.Key, $entry.Value, 'Process')
-  }
-}
 $runtimeSecret = ConvertTo-SecureString (Get-Content -LiteralPath $secretFile -Raw)
 try {
   $env:CONTROL_PLANE_API_KEY = Get-Plaintext $runtimeSecret
@@ -137,14 +119,39 @@ try {
       if (-not (Test-Path -LiteralPath (Join-Path $profileDirectory "$profileName.yaml"))) {
         Invoke-PrivateTunnel @('init', '--profile', $profileName, '--profile-dir', $profileDirectory, '--tunnel-id', $connection.tunnel_id, '--mcp-server-url', $connection.target, '--health-listen-addr', '127.0.0.1:3320') 'tunnel-init.log'
       }
+      & node --import tsx (Join-Path $PSScriptRoot 'mcp-tunnel-profile.ts') $Mode
+      if ($LASTEXITCODE -ne 0) { throw 'Persistent OAuth routing validation failed' }
       Invoke-PrivateTunnel @('doctor', '--profile', $profileName, '--profile-dir', $profileDirectory, '--explain', '--json') 'tunnel-doctor.json'
     }
-    'Connect' { Invoke-PrivateTunnel @('runtimes', '--json', 'connect', '--alias', $profileName, '--profile', $profileName, '--profile-dir', $profileDirectory, '--tunnel-id', $connection.tunnel_id, '--mcp-server-url', $connection.target, '--runtime-api-key', 'env:CONTROL_PLANE_API_KEY') 'tunnel-connect.json' }
+    'Connect' {
+      $routingJson = & node --import tsx (Join-Path $PSScriptRoot 'mcp-tunnel-profile.ts') $Mode '--runtime-environment'
+      if ($LASTEXITCODE -ne 0) { throw 'Persistent OAuth routing validation failed' }
+      $routing = $routingJson | ConvertFrom-Json -AsHashtable
+      $routingKeys = @('MCP_OAUTH_TRUSTED_ORIGINS', 'HARPOON_TARGETS', 'HARPOON_ALLOW_PLAINTEXT_HTTP', 'HARPOON_CAPTURE_PAYLOADS', 'LOG_HTTP_RAW_UNSAFE')
+      if ($routing.Count -ne $routingKeys.Count -or @($routing.Keys | Where-Object { $_ -cnotin $routingKeys }).Count -ne 0) { throw 'Unexpected managed runtime environment' }
+      $previousRouting = @{}
+      try {
+        foreach ($key in $routingKeys) {
+          $previousRouting[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
+          [Environment]::SetEnvironmentVariable($key, $routing[$key], 'Process')
+        }
+        # connect rewrites YAML and reuses an existing PID. A fresh managed child
+        # is required to inherit validated routing. Preserve alias, key and ID.
+        Invoke-PrivateTunnel @('runtimes', '--json', 'stop', $profileName) 'tunnel-before-connect-stop.json'
+        Invoke-PrivateTunnel @('runtimes', '--json', 'connect', '--alias', $profileName, '--profile', $profileName, '--profile-dir', $profileDirectory, '--tunnel-id', $connection.tunnel_id, '--mcp-server-url', $connection.target, '--runtime-api-key', 'env:CONTROL_PLANE_API_KEY') 'tunnel-connect.json'
+        # Mirror the effective overrides back into YAML for offline Doctor.
+        & node --import tsx (Join-Path $PSScriptRoot 'mcp-tunnel-profile.ts') $Mode
+        if ($LASTEXITCODE -ne 0) { throw 'Managed profile verification failed' }
+        & node --import tsx (Join-Path $PSScriptRoot 'mcp-tunnel-profile.ts') $Mode '--verify-runtime'
+        if ($LASTEXITCODE -ne 0) { throw 'Managed runtime is not ready with the expected OAuth issuer and routing; inspect private diagnostics' }
+      } finally {
+        foreach ($key in $previousRouting.Keys) { [Environment]::SetEnvironmentVariable($key, $previousRouting[$key], 'Process') }
+      }
+    }
     'Status' { Invoke-PrivateTunnel @('runtimes', '--json', 'status', $profileName) 'tunnel-status.json' }
     'Stop' { Invoke-PrivateTunnel @('runtimes', '--json', 'stop', $profileName) 'tunnel-stop.json' }
   }
 } finally {
   $env:CONTROL_PLANE_API_KEY = $savedEnvironment
-  foreach ($entry in $discoveryEnvironment.GetEnumerator()) { [Environment]::SetEnvironmentVariable($entry.Key, $entry.Value, 'Process') }
   $runtimeSecret.Dispose()
 }

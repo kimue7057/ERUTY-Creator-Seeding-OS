@@ -1,7 +1,7 @@
 import "dotenv/config";
-import { mkdirSync, readFileSync, writeFileSync, realpathSync, existsSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync, realpathSync, existsSync, appendFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Client } from "pg";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -9,7 +9,8 @@ import { db, pool } from "../src/lib/db";
 import { auditEvents, memberships } from "../src/lib/db/schema";
 import { discoveryMcpGrants, discoveryCapabilities } from "../src/lib/db/discovery-schema";
 import { discoveryMcpConfig, discoveryEnvironmentHash } from "../src/lib/discovery/mcp-access";
-import { authorizeInitialDiscoveryRun, provisionDiscoveryGrant } from "../src/lib/discovery/provision";
+import { authorizeInitialDiscoveryRun, provisionDiscoveryGrant, rotateExpiredDiscoveryGrant } from "../src/lib/discovery/provision";
+import { privateError, safeFailure } from "../src/lib/probe/diagnostics";
 import { verifyDiscoveryProof } from "../src/lib/discovery/proof";
 import { platformSchema, observedTime, privateReference } from "../src/lib/discovery/contracts";
 const folder = ".local/discovery";
@@ -34,6 +35,20 @@ try {
     mkdirSync(folder, { recursive: true, mode: 0o700 });
     writeFileSync(`${folder}/grant-receipt.json`, JSON.stringify(receipt), { flag: "wx", mode: 0o600 });
     console.log("Explicit campaign-scoped grant created; private receipt saved. Work connectivity remains unverified.");
+  } else if (action === "rotate-expired-grant") {
+    const input = read("grant-rotation.json");
+    if (input.organization_id !== config.organizationId || input.issuer !== config.issuer || input.environment_sha256 !== discoveryEnvironmentHash(config) || input.user_id !== z.uuid().parse(process.env.MCP_DISCOVERY_OPERATOR_USER_ID)) throw new Error("Configured operator/environment mismatch");
+    const key = z.uuid().parse(input.idempotency_key);
+    const receipt = await rotateExpiredDiscoveryGrant(input);
+    mkdirSync(folder, { recursive: true, mode: 0o700 });
+    const path = `${folder}/grant-rotation-${key}.json`;
+    try { writeFileSync(path, JSON.stringify(receipt), { flag: "wx", mode: 0o600 }); }
+    catch (error) {
+      if (!(error && typeof error === "object" && "code" in error && error.code === "EEXIST")) throw error;
+      const saved = JSON.parse(readFileSync(path, "utf8"));
+      if (saved.grant_id !== receipt.grant_id || saved.request_id !== receipt.request_id || saved.expires_at !== receipt.expires_at) throw new Error("Preserved rotation receipt mismatch");
+    }
+    console.log(JSON.stringify({ action: "rotate-expired-grant", receipt_file: path, ...receipt }));
   } else if (action === "authorize-initial-run") {
     const input = read("initial-run-authorization.json");
     if (input.organization_id !== config.organizationId || input.environment_sha256 !== discoveryEnvironmentHash(config) || input.user_id !== z.uuid().parse(process.env.MCP_DISCOVERY_OPERATOR_USER_ID)) throw new Error("Configured operator/environment mismatch");
@@ -70,6 +85,10 @@ try {
       await tx.insert(auditEvents).values({ organizationId: config.organizationId, actorId, entityId: row.id, action: "discovery.capability_attested_by_operator" });
     });
     console.log("Operator attestation recorded with a private evidence hash. This command does not independently establish that a Work/SNS experiment occurred.");
-  } else throw new Error("Use environment, grant, authorize-initial-run, revoke, verify or review-capability");
-} catch { console.error("Discovery operator action failed. Review local configuration/evidence/permissions; no credentials or original evidence are printed."); process.exitCode = 1; }
+  } else throw new Error("Use environment, grant, rotate-expired-grant, authorize-initial-run, revoke, verify or review-capability");
+} catch (error) {
+  const failure = safeFailure(error), requestId = randomUUID();
+  try { mkdirSync(folder, { recursive: true, mode: 0o700 }); appendFileSync(`${folder}/operator-failures.private.jsonl`, JSON.stringify({ at: new Date().toISOString(), request_id: requestId, code: failure.code, error: privateError(error) }) + "\n", { mode: 0o600 }); } catch { /* A logging failure must not obscure the original safe result. */ }
+  console.error(JSON.stringify({ error: failure.code, request_id: requestId, retryable: false, recovery: failure.recovery })); process.exitCode = 1;
+}
 finally { await pool.end(); }
