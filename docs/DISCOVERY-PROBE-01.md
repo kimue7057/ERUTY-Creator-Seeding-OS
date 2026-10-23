@@ -25,7 +25,7 @@
 - Host 정확 일치/Origin allowlist, HTTPS 설정(개발 loopback 예외), 4KiB JSON·단일 JSON-RPC 요청·synthetic UUID nonce/idempotency key 제한을 적용한다. body/headers/socket/DB statement·lock 시간과 연결 수를 제한한다. 프록시는 public Host를 보존해야 하며 Forwarded 헤더를 권한 근거로 쓰지 않는다.
 - schema `0003`은 sandbox/grant/probe 3개 테이블만 추가한다. migration은 기존 조직을 등록하거나 가짜 run/후보를 만들지 않는다. 기존 0000–0002/브리프·파일 트리거/JSON을 유지한다.
 - probe 행의 UPDATE를 DB trigger로 막고 scoped FK와 unique `(principal_id, idempotency_key)`로 격리·중복 방지를 보장한다. 같은 nonce/키 재시도는 같은 receipt, 다른 nonce는 conflict다. 동일 transaction의 최초 write audit 1건과 read/replay 감사가 남는다. principal당 probe 100행 상한이며 replay는 허용한다.
-- stdout은 request UUID/짧은 outcome만 기록한다. token·쿠키·raw body·subject·DB 자격증명은 출력하지 않는다. DB read receipt의 nonce/IDs는 synthetic 정보이며 비공개 실증 기록으로 관리한다. 실제 Work 성공 문장/echo만으로 검증하지 않는다.
+- stdout은 시각/request·correlation UUID/처리 계층/outcome과 마스킹된 실제 stack frame·driver code를 기록한다. token·쿠키·raw body·subject·SQL parameter·DB 자격증명은 출력하지 않는다. 도구 실행 오류는 MCP isError와 안전한 structuredContent를 반환하며 전송 실패와 구분한다. 상세 복구는 [MCP-STABILITY](MCP-STABILITY.md)를 따른다. DB read receipt의 nonce/IDs는 synthetic 정보이며 비공개 실증 기록으로 관리한다. 실제 Work 성공 문장/echo만으로 검증하지 않는다.
 
 ## 도구 계약
 

@@ -3,7 +3,8 @@ import { z } from "zod";
 import { DISCOVERY_PLATFORMS, DISCOVERY_SOURCES } from "../db/discovery-schema";
 
 export class DiscoveryError extends Error {
-  constructor(public status: number, public code: string) { super(code); }
+  readonly oauthChallenge: boolean;
+  constructor(public status: number, public code: string, options?: ErrorOptions & { oauthChallenge?: boolean }) { super(code, options); this.oauthChallenge = options?.oauthChallenge ?? false; }
 }
 export const platformSchema = z.enum(DISCOVERY_PLATFORMS);
 const note = z.string().trim().max(2000).refine(value => !/\bBearer\s+\S+|\bsk-[A-Za-z0-9_-]{20,}|(?:access_token|refresh_token|client_secret|password)\s*[:=]/i.test(value), "Do not store credentials");

@@ -100,8 +100,10 @@ test("fresh staging PostgreSQL: least-privilege MCP write/read, independent proo
       await assert.rejects(() => runtime!.query("update discovery_probes set nonce=$1 where id=$2", [randomUUID(), write.probe_id]));
       await runtime.query("rollback");
       await promisify(execFile)(process.execPath, [".local/build/mcp-revoke.mjs"], { env: { ...process.env, DATABASE_URL: ownerUrl.href, MCP_PROBE_ORGANIZATION_ID: sandbox.organization_id, MCP_PROBE_GRANT_ID: sandbox.grant_id, MCP_PROBE_USER_EMAIL: sandbox.operator_email } });
-      assert.equal((await call("write_discovery_probe", { contract_version: 1, nonce: randomUUID(), idempotency_key: randomUUID() })).status, 403);
-      assert.equal((await call("read_discovery_probe", { contract_version: 1, probe_id: write.probe_id })).status, 403);
+      for (const denial of [await call("write_discovery_probe", { contract_version: 1, nonce: randomUUID(), idempotency_key: randomUUID() }), await call("read_discovery_probe", { contract_version: 1, probe_id: write.probe_id })]) {
+        assert.equal(denial.status, 200); assert.equal(denial.body.result.isError, true);
+        assert.equal(denial.body.result.structuredContent.status, 403); assert.equal(denial.body.result._meta["mcp/www_authenticate"], undefined);
+      }
       const closed = await verifyProbeProof(verifier, evidence, { ...expected, closed: true });
       assert.equal(JSON.parse((await promisify(execFile)(process.execPath, [".local/build/mcp-staging-verify.mjs", "--closed"], { env: verifyEnv })).stdout).grant_revoked, true);
       assert.equal(closed.grant_revoked, true); assert.equal(closed.no_active_grants, true); assert.equal(closed.work_connection, "unverified");

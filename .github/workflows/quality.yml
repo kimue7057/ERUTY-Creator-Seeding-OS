@@ -8,6 +8,30 @@ concurrency:
   group: quality-${{ github.head_ref || github.ref }}
   cancel-in-progress: true
 jobs:
+  oauth-stability:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with: {node-version: 24, cache: pnpm}
+      - run: pnpm install --frozen-lockfile
+      - name: Start disposable loopback Keycloak with a fresh synthetic admin credential
+        run: |
+          node -e "const key = require('crypto').randomBytes(32).toString('hex'); console.log('::add-mask::' + key); require('fs').appendFileSync(process.env.GITHUB_ENV, 'KEYCLOAK_STABILITY_PASSWORD=' + key + '\n')"
+      - name: Start isolated test IdP
+        env:
+          KEYCLOAK_STABILITY_ADMIN: eruty-stability-admin
+        run: |
+          docker run -d --name eruty-stability-keycloak -p 127.0.0.1:3380:8080 -e KC_BOOTSTRAP_ADMIN_USERNAME=eruty-stability-admin -e KC_BOOTSTRAP_ADMIN_PASSWORD="$KEYCLOAK_STABILITY_PASSWORD" quay.io/keycloak/keycloak:26.8.1@sha256:79c623a22abacf3fe6c00a5fb30f5b7843d717b234033b80995891c06116d244 start-dev --features=resource-indicators
+          for attempt in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3380/realms/master/.well-known/openid-configuration > /dev/null; then break; fi
+            sleep 2
+          done
+          pnpm test:oauth:stability
+      - name: Remove only this job's disposable IdP
+        if: always()
+        run: docker rm -f eruty-stability-keycloak
   probe-staging:
     # Local Docker services in the CI runner only. No push/deploy/tunnel/plugin setup.
     runs-on: ubuntu-latest

@@ -95,8 +95,8 @@ test("six authenticated discovery MCP tools: synthetic SDK flow, independent rea
       assert.equal((await sdk.callTool({ name: "prepare_discovery_run", arguments: prepareSample(a.id) })).isError, true);
       await database.update(discoveryMcpGrants).set({ revokedAt: new Date(), updatedAt: new Date() }).where(eq(discoveryMcpGrants.id, grant.grant_id));
       await database.insert(auditEvents).values({ organizationId: actor.organizationId, actorId: actor.userId, entityId: grant.grant_id, action: "discovery.mcp_grant_revoked_by_operator" });
-      await assert.rejects(sdk.callTool({ name: "get_discovery_run", arguments: { contract_version: 1, run_id: prepare.run_id } }));
-      await assert.rejects(sdk.callTool({ name: "prepare_discovery_run", arguments: prepareSample(a.id) }));
+      assert.equal((await sdk.callTool({ name: "get_discovery_run", arguments: { contract_version: 1, run_id: prepare.run_id } })).isError, true);
+      assert.equal((await sdk.callTool({ name: "prepare_discovery_run", arguments: prepareSample(a.id) })).isError, true);
       assert.equal((await owner.query("select count(*)::int n from discovery_runs")).rows[0].n, 1);
       assert.equal((await verifyDiscoveryProof(verifier, { observation, read }, { organizationId: actor.organizationId, closed: true })).grant_revoked, true);
     } finally {

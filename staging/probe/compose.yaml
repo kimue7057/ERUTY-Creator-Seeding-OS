@@ -50,6 +50,8 @@ services:
       db: {condition: service_healthy}
   mcp:
     <<: *common
+    restart: unless-stopped
+    logging: {driver: json-file, options: {max-size: 10m, max-file: "3"}}
     profiles: [private, https]
     environment:
       <<: *config
@@ -60,8 +62,16 @@ services:
     networks: [database, outbound]
     depends_on:
       db: {condition: service_healthy}
+    healthcheck:
+      test: [CMD, node, -e, "require('node:http').get({host:'127.0.0.1',port:3100,path:'/healthz',headers:{Host:new URL(process.env.MCP_RESOURCE_URL).host}},r=>{r.resume();process.exitCode=r.statusCode===200?0:1}).on('error',()=>process.exit(1)).setTimeout(2000,function(){this.destroy();process.exit(1)})"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    stop_grace_period: 20s
     # No ports, owner credentials, token signing key, dashboard or S3 config.
   private-gateway:
+    restart: unless-stopped
     image: caddy:2-alpine
     profiles: [private]
     environment:

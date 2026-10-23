@@ -12,7 +12,7 @@ const metadataSchema = z.object({
   revocation_endpoint: z.string().optional(),
 });
 
-export async function inspectProbeOAuth(config: Pick<ProbeConfig, "issuer" | "resource" | "jwks">, metadataUrl: string, accessToken?: string, request: typeof fetch = fetch) {
+export async function inspectProbeOAuth(config: Pick<ProbeConfig, "issuer" | "resource" | "jwks">, metadataUrl: string, accessToken?: string, request: typeof fetch = fetch, scopes: readonly string[] = PROBE_SCOPES) {
   const clean = (value: string) => {
     const url = new URL(value);
     const issuer = new URL(config.issuer);
@@ -34,11 +34,11 @@ export async function inspectProbeOAuth(config: Pick<ProbeConfig, "issuer" | "re
   if (!metadata.response_types_supported.includes("code") || !metadata.grant_types_supported.includes("authorization_code") || !metadata.code_challenge_methods_supported.includes("S256") || !metadata.token_endpoint_auth_methods_supported.includes("none")) throw new Error("oauth_client_contract_incompatible");
   // Discovery cannot prove that a real provider actually enforces PKCE, consent or audience.
   const identity = accessToken ? await probeAuthenticator(config)(`Bearer ${accessToken}`) : undefined;
-  if (identity && !PROBE_SCOPES.every(scope => identity.scopes.includes(scope))) throw new Error("oauth_token_scopes_missing");
+  if (identity && !scopes.every(scope => identity.scopes.includes(scope))) throw new Error("oauth_token_scopes_missing");
   return {
     issuer: config.issuer, resource: config.resource, metadata_contract: "compatible",
-    client_mode: "provided", token_endpoint_auth_method: "none", scopes: PROBE_SCOPES,
-    api_scopes_advertised: PROBE_SCOPES.every(scope => metadata.scopes_supported.includes(scope)),
+    client_mode: "provided", token_endpoint_auth_method: "none", scopes,
+    api_scopes_advertised: scopes.every(scope => metadata.scopes_supported.includes(scope)),
     issuer_identification_advertised: metadata.authorization_response_iss_parameter_supported === true,
     revocation_endpoint_advertised: !!metadata.revocation_endpoint,
     token_validation: identity ? "signature_issuer_audience_lifetime_scopes_verified" : "not_tested",

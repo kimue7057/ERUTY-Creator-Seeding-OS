@@ -1,8 +1,24 @@
 {
   admin off
   auto_https off
+  log default {
+    exclude http.log.error
+  }
 }
 :8080 {
+  log {
+    output stdout
+    format filter {
+      wrap json
+      fields {
+        request delete
+        resp_headers delete
+      }
+    }
+  }
+  log_append gateway mcp
+  log_append request_id {http.response.header.X-Request-Id}
+  log_append correlation_id {http.response.header.X-Correlation-Id}
   handle /mcp {
     reverse_proxy mcp:3100 {
       header_up Host {$MCP_RESOURCE_HOST}

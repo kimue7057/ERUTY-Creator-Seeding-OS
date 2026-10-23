@@ -46,6 +46,6 @@ test("one initial Work-source run is grant/campaign/environment bound, audited, 
     assert.equal((await database.select().from(discoveryRuns)).length, 1);
     assert.equal((await client.query("select count(*)::int n from audit_events where action='discovery.initial_validation_authorized_by_operator'")).rows[0].n, 1);
     await database.update(discoveryMcpGrants).set({ revokedAt: new Date(), updatedAt: new Date() }).where(eq(discoveryMcpGrants.id, grant.grant_id));
-    await assert.rejects(service.getRun(who, { contract_version: 1, run_id: run.run_id }), code("principal_not_allowed"));
+    await assert.rejects(service.getRun(who, { contract_version: 1, run_id: run.run_id }), code("grant_revoked"));
   });
 });

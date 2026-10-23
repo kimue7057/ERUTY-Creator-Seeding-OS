@@ -33,6 +33,7 @@ export function probeConfig(env: Record<string, string | undefined> = process.en
     organizationId: z.uuid().parse(env.MCP_PROBE_ORGANIZATION_ID),
     allowedHost: resource.host, allowedOrigins, bindHost,
     port: z.coerce.number().int().min(1).max(65535).parse(env.MCP_PORT ?? "3100"),
+    maxInFlight: z.coerce.number().int().min(1).max(32).parse(env.MCP_MAX_IN_FLIGHT ?? "32"),
     build: env.MCP_BUILD_SHA && /^[a-f0-9]{7,40}$/.test(env.MCP_BUILD_SHA) ? env.MCP_BUILD_SHA : "local-unreleased",
     // The OAuth resource identifies the external target; the local transport stays /mcp.
     metadataUrl: `${resource.origin}/.well-known/oauth-protected-resource${resource.pathname === "/" ? "" : resource.pathname}`,

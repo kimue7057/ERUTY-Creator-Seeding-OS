@@ -1,8 +1,10 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "./schema";
+import { privateError } from "../probe/diagnostics";
 const globalDb = globalThis as unknown as { erutyPool?: Pool };
 if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required. Configure .env before starting the server or DB commands.");
-export const pool = globalDb.erutyPool ?? new Pool({ connectionString: process.env.DATABASE_URL, max: 8 });
+export const pool = globalDb.erutyPool ?? new Pool({ connectionString: process.env.DATABASE_URL, max: 8, connectionTimeoutMillis: 3000, idleTimeoutMillis: 30000 });
+if (!globalDb.erutyPool) pool.on("error", error => console.error(JSON.stringify({ at: new Date().toISOString(), layer: "database", outcome: "idle_connection_error", error: privateError(error) })));
 if (process.env.NODE_ENV !== "production") globalDb.erutyPool = pool;
 export const db = drizzle(pool, { schema });

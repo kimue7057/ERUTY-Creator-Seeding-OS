@@ -8,5 +8,5 @@ export const writeProbeInput = z.strictObject({ contract_version: z.literal(1), 
 export const readProbeInput = z.strictObject({ contract_version: z.literal(1), probe_id: z.uuid() });
 export function probeHash(nonce: string) { return createHash("sha256").update(JSON.stringify({ contract_version: 1, nonce: nonce.toLowerCase() })).digest("hex"); }
 export class ProbeError extends Error {
-  constructor(public status: number, public code: string) { super(code); }
+  constructor(public status: number, public code: string, options?: ErrorOptions) { super(code, options); }
 }

@@ -3,6 +3,7 @@ import { createAuthorizedMcpHttpServer, type McpAdapter } from "../probe/server"
 import { appendLogInput, contextInput, observationInput, prepareRunInput, readRunInput, submitRunInput, DiscoveryError } from "./contracts";
 import { discoveryAccess, DISCOVERY_SCOPES, type DiscoveryMcpConfig } from "./mcp-access";
 import { discoveryService } from "./service";
+import type { McpLogger } from "../probe/diagnostics";
 
 export function discoveryMcpAdapter(config: DiscoveryMcpConfig, database: Pick<typeof db, "transaction"> = db): McpAdapter {
   const service = discoveryService(database), access = discoveryAccess(config, database);
@@ -28,6 +29,6 @@ export function discoveryMcpAdapter(config: DiscoveryMcpConfig, database: Pick<t
     },
   };
 }
-export function createDiscoveryHttpServer(config: DiscoveryMcpConfig, log: (event: { request_id: string; outcome: string }) => void = () => {}, database: Pick<typeof db, "transaction"> = db) {
+export function createDiscoveryHttpServer(config: DiscoveryMcpConfig, log: McpLogger = () => {}, database: Pick<typeof db, "transaction"> = db) {
   return createAuthorizedMcpHttpServer(config, discoveryMcpAdapter(config, database), log);
 }
