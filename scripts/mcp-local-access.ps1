@@ -124,9 +124,29 @@ try {
       Invoke-PrivateTunnel @('doctor', '--profile', $profileName, '--profile-dir', $profileDirectory, '--explain', '--json') 'tunnel-doctor.json'
     }
     'Connect' {
-      & node --import tsx (Join-Path $PSScriptRoot 'mcp-tunnel-profile.ts') $Mode
+      $routingJson = & node --import tsx (Join-Path $PSScriptRoot 'mcp-tunnel-profile.ts') $Mode '--runtime-environment'
       if ($LASTEXITCODE -ne 0) { throw 'Persistent OAuth routing validation failed' }
-      Invoke-PrivateTunnel @('runtimes', '--json', 'connect', '--alias', $profileName, '--profile', $profileName, '--profile-dir', $profileDirectory, '--tunnel-id', $connection.tunnel_id, '--mcp-server-url', $connection.target, '--runtime-api-key', 'env:CONTROL_PLANE_API_KEY') 'tunnel-connect.json'
+      $routing = $routingJson | ConvertFrom-Json -AsHashtable
+      $routingKeys = @('MCP_OAUTH_TRUSTED_ORIGINS', 'HARPOON_TARGETS', 'HARPOON_ALLOW_PLAINTEXT_HTTP', 'HARPOON_CAPTURE_PAYLOADS', 'LOG_HTTP_RAW_UNSAFE')
+      if ($routing.Count -ne $routingKeys.Count -or @($routing.Keys | Where-Object { $_ -cnotin $routingKeys }).Count -ne 0) { throw 'Unexpected managed runtime environment' }
+      $previousRouting = @{}
+      try {
+        foreach ($key in $routingKeys) {
+          $previousRouting[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
+          [Environment]::SetEnvironmentVariable($key, $routing[$key], 'Process')
+        }
+        # connect rewrites YAML and reuses an existing PID. A fresh managed child
+        # is required to inherit validated routing. Preserve alias, key and ID.
+        Invoke-PrivateTunnel @('runtimes', '--json', 'stop', $profileName) 'tunnel-before-connect-stop.json'
+        Invoke-PrivateTunnel @('runtimes', '--json', 'connect', '--alias', $profileName, '--profile', $profileName, '--profile-dir', $profileDirectory, '--tunnel-id', $connection.tunnel_id, '--mcp-server-url', $connection.target, '--runtime-api-key', 'env:CONTROL_PLANE_API_KEY') 'tunnel-connect.json'
+        # Mirror the effective overrides back into YAML for offline Doctor.
+        & node --import tsx (Join-Path $PSScriptRoot 'mcp-tunnel-profile.ts') $Mode
+        if ($LASTEXITCODE -ne 0) { throw 'Managed profile verification failed' }
+        & node --import tsx (Join-Path $PSScriptRoot 'mcp-tunnel-profile.ts') $Mode '--verify-runtime'
+        if ($LASTEXITCODE -ne 0) { throw 'Managed runtime is not ready with the expected OAuth issuer and routing; inspect private diagnostics' }
+      } finally {
+        foreach ($key in $previousRouting.Keys) { [Environment]::SetEnvironmentVariable($key, $previousRouting[$key], 'Process') }
+      }
     }
     'Status' { Invoke-PrivateTunnel @('runtimes', '--json', 'status', $profileName) 'tunnel-status.json' }
     'Stop' { Invoke-PrivateTunnel @('runtimes', '--json', 'stop', $profileName) 'tunnel-stop.json' }
