@@ -1,5 +1,5 @@
 import type { Pool } from "pg";
-export async function assertDiscoveryRuntimeRole(database: Pick<Pool, "query">) {
+export async function assertDiscoveryRuntimeRole(database: Pick<Pool, "query">, operatingApprovalsEnabled = false) {
   const { rows: [permissions] } = await database.query(`select
     (select rolsuper or rolcreatedb or rolcreaterole or rolbypassrls from pg_roles where rolname=current_user) as elevated,
     has_schema_privilege(current_user,'public','CREATE') as can_create,
@@ -10,4 +10,11 @@ export async function assertDiscoveryRuntimeRole(database: Pick<Pool, "query">) 
     has_table_privilege(current_user,'discovery_evidence','UPDATE,DELETE,TRUNCATE') or has_table_privilege(current_user,'discovery_requests','UPDATE,DELETE,TRUNCATE') as can_overwrite_history,
     has_table_privilege(current_user,'discovery_runs','INSERT') and has_table_privilege(current_user,'discovery_evidence','INSERT') and has_table_privilege(current_user,'discovery_requests','INSERT') and has_table_privilege(current_user,'audit_events','INSERT') as can_record`);
   if (!permissions?.can_record || Object.entries(permissions).some(([key, value]) => key !== "can_record" && value === true)) throw new Error("Dedicated least-privilege discovery runtime role required");
+  if (operatingApprovalsEnabled) {
+    const { rows: [approval] } = await database.query(`select
+      has_table_privilege(current_user,'discovery_operating_approvals','SELECT') and has_table_privilege(current_user,'discovery_operating_campaigns','SELECT') as can_read,
+      has_table_privilege(current_user,'discovery_operating_approvals','INSERT,DELETE,TRUNCATE') or has_table_privilege(current_user,'discovery_operating_campaigns','INSERT,UPDATE,DELETE,TRUNCATE')
+      or exists(select 1 from unnest(array['user_id','organization_id','approved_by','issuer','subject','resource','environment_sha256','scopes','reason','idempotency_key','payload_sha256','expires_at','revoked_at','created_at']) name where has_column_privilege(current_user,'discovery_operating_approvals',name,'UPDATE')) as can_authorize`);
+    if (!approval?.can_read || approval.can_authorize) throw new Error("Operating approvals must be readable but administrator-managed by a separate role");
+  }
 }

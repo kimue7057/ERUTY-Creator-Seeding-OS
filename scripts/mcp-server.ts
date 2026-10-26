@@ -10,7 +10,7 @@ try {
   const mode = process.env.MCP_SERVER_MODE ?? "probe";
   if (!["probe", "discovery"].includes(mode)) throw new Error("Invalid MCP mode");
   const config = mode === "discovery" ? discoveryMcpConfig() : probeConfig();
-  if (mode === "discovery" && process.env.NODE_ENV === "production") await assertDiscoveryRuntimeRole(pool);
+  if (mode === "discovery" && process.env.NODE_ENV === "production") await assertDiscoveryRuntimeRole(pool, discoveryMcpConfig().operatingApprovalsEnabled);
   const log: McpLogger = event => console.log(JSON.stringify(event));
   const server = mode === "discovery" ? createDiscoveryHttpServer(discoveryMcpConfig(), log) : createProbeHttpServer(config, log);
   server.listen(config.port, config.bindHost, () => console.log(`ERUTY ${mode} MCP listening; hosted Work/SNS connection remains unverified.`));

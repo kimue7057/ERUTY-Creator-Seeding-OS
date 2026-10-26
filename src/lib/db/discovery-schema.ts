@@ -155,3 +155,28 @@ export const discoveryGrantCampaigns = pgTable("discovery_grant_campaigns", {
   foreignKey({ name: "discovery_grant_campaign_fk", columns: [t.organizationId, t.projectId, t.campaignId], foreignColumns: [campaigns.organizationId, campaigns.projectId, campaigns.id] }),
   foreignKey({ name: "discovery_grant_identity_fk", columns: [t.organizationId, t.grantId], foreignColumns: [discoveryMcpGrants.organizationId, discoveryMcpGrants.id] }),
 ]);
+
+// Explicit, bounded operating approval; existing experiment grants stay unchanged.
+// OAuth access tokens remain short lived and are checked on every request.
+export const discoveryOperatingApprovals = pgTable("discovery_operating_approvals", {
+  id: uuid().defaultRandom().primaryKey(), organizationId: uuid("organization_id").notNull(), userId: uuid("user_id").notNull(),
+  approvedBy: uuid("approved_by").notNull(), issuer: text().notNull(), subject: text().notNull(), resource: text().notNull(),
+  environmentSha256: text("environment_sha256").notNull(), scopes: text().array().notNull(),
+  reason: text().notNull(), idempotencyKey: uuid("idempotency_key").notNull(), payloadSha256: text("payload_sha256").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), revokedAt: timestamp("revoked_at", { withTimezone: true }), ...times(),
+}, t => [unique("discovery_operating_scope").on(t.organizationId, t.id),
+  unique("discovery_operating_idempotency").on(t.organizationId, t.approvedBy, t.idempotencyKey),
+  foreignKey({ name: "discovery_operating_member_fk", columns: [t.organizationId, t.userId], foreignColumns: [memberships.organizationId, memberships.userId] }),
+  foreignKey({ name: "discovery_operating_admin_fk", columns: [t.organizationId, t.approvedBy], foreignColumns: [memberships.organizationId, memberships.userId] }),
+  check("discovery_operating_scopes", sql`cardinality(${t.scopes}) > 0 and ${t.scopes} <@ ARRAY['discovery:read','discovery:observe','discovery:submit']::text[] and ${t.scopes} @> ARRAY['discovery:read']::text[]`),
+  check("discovery_operating_hashes", sql`${t.environmentSha256} ~ '^[a-f0-9]{64}$' and ${t.payloadSha256} ~ '^[a-f0-9]{64}$'`),
+  check("discovery_operating_reason", sql`length(trim(${t.reason})) between 1 and 2000`),
+  check("discovery_operating_expiry", sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.createdAt} + interval '7 days'`),
+  index("discovery_operating_principal").on(t.organizationId, t.issuer, t.subject, t.createdAt),
+]);
+export const discoveryOperatingCampaigns = pgTable("discovery_operating_campaigns", {
+  ...scope(), approvalId: uuid("approval_id").notNull(),
+}, t => [unique("discovery_operating_campaign_identity").on(t.approvalId, t.campaignId),
+  foreignKey({ name: "discovery_operating_campaign_fk", columns: [t.organizationId, t.projectId, t.campaignId], foreignColumns: [campaigns.organizationId, campaigns.projectId, campaigns.id] }),
+  foreignKey({ name: "discovery_operating_approval_fk", columns: [t.organizationId, t.approvalId], foreignColumns: [discoveryOperatingApprovals.organizationId, discoveryOperatingApprovals.id] }),
+]);

@@ -10,6 +10,7 @@ import { auditEvents, memberships } from "../src/lib/db/schema";
 import { discoveryMcpGrants, discoveryCapabilities } from "../src/lib/db/discovery-schema";
 import { discoveryMcpConfig, discoveryEnvironmentHash } from "../src/lib/discovery/mcp-access";
 import { authorizeInitialDiscoveryRun, provisionDiscoveryGrant, rotateExpiredDiscoveryGrant } from "../src/lib/discovery/provision";
+import { approveDiscoveryOperation, revokeDiscoveryOperation } from "../src/lib/discovery/operating-approval";
 import { privateError, safeFailure } from "../src/lib/probe/diagnostics";
 import { verifyDiscoveryProof } from "../src/lib/discovery/proof";
 import { platformSchema, observedTime, privateReference } from "../src/lib/discovery/contracts";
@@ -26,6 +27,21 @@ try {
   const action = process.argv[2];
   if (action === "environment") {
     console.log(JSON.stringify({ environment_sha256: discoveryEnvironmentHash(config), build: config.build, work_connection: "unverified" }));
+  } else if (action === "approve-operation") {
+    const input = read("operating-approval.json");
+    if (input.approved_by !== z.uuid().parse(process.env.MCP_DISCOVERY_OPERATOR_USER_ID)) throw new Error("Explicit administrator operator required");
+    const receipt = await approveDiscoveryOperation(input, config);
+    const path = `${folder}/operating-approval-${receipt.approval_id}.json`;
+    try { writeFileSync(path, JSON.stringify(receipt), { flag: "wx", mode: 0o600 }); }
+    catch (error) {
+      if (!(error && typeof error === "object" && "code" in error && error.code === "EEXIST")) throw error;
+      const saved = JSON.parse(readFileSync(path, "utf8"));
+      if (saved.approval_id !== receipt.approval_id || saved.expires_at !== receipt.expires_at) throw new Error("Preserved operating approval receipt mismatch");
+    }
+    console.log(JSON.stringify({ action, receipt_file: path, ...receipt, capability_attested: false }));
+  } else if (action === "revoke-operation") {
+    const receipt = await revokeDiscoveryOperation({ organizationId: config.organizationId, approvalId: z.uuid().parse(process.env.MCP_DISCOVERY_OPERATING_APPROVAL_ID), actorId: z.uuid().parse(process.env.MCP_DISCOVERY_OPERATOR_USER_ID) });
+    console.log(JSON.stringify({ action, ...receipt }));
   } else if (action === "grant") {
     if (existsSync(`${folder}/grant-receipt.json`)) throw new Error("Preserve/archive the existing private grant receipt before provisioning another");
     const input = read("grant.json");
@@ -85,7 +101,7 @@ try {
       await tx.insert(auditEvents).values({ organizationId: config.organizationId, actorId, entityId: row.id, action: "discovery.capability_attested_by_operator" });
     });
     console.log("Operator attestation recorded with a private evidence hash. This command does not independently establish that a Work/SNS experiment occurred.");
-  } else throw new Error("Use environment, grant, rotate-expired-grant, authorize-initial-run, revoke, verify or review-capability");
+  } else throw new Error("Use environment, approve-operation, revoke-operation, grant, rotate-expired-grant, authorize-initial-run, revoke, verify or review-capability");
 } catch (error) {
   const failure = safeFailure(error), requestId = randomUUID();
   try { mkdirSync(folder, { recursive: true, mode: 0o700 }); appendFileSync(`${folder}/operator-failures.private.jsonl`, JSON.stringify({ at: new Date().toISOString(), request_id: requestId, code: failure.code, error: privateError(error) }) + "\n", { mode: 0o600 }); } catch { /* A logging failure must not obscure the original safe result. */ }

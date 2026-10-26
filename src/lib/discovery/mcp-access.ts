@@ -6,12 +6,17 @@ import type { ProbeIdentity } from "../probe/contracts";
 import { DiscoveryError } from "./contracts";
 import type { DiscoveryActor, DiscoveryScope, DiscoveryTransaction } from "./service";
 import { discoveryEnvironmentHash, type DiscoveryMcpConfig } from "./mcp-config";
+import { authorizeDiscoveryOperation } from "./operating-approval";
 export { discoveryEnvironmentHash, discoveryMcpConfig, DISCOVERY_SCOPES, type DiscoveryMcpConfig } from "./mcp-config";
 export function discoveryAccess(config: DiscoveryMcpConfig, database: Pick<typeof db, "transaction"> = db) {
-  async function authorize(tx: DiscoveryTransaction, identity: ProbeIdentity, scope: DiscoveryScope, campaignId?: string) {
+  async function authorize(tx: DiscoveryTransaction, identity: ProbeIdentity, scope: DiscoveryScope, campaignId?: string, operatingId?: string) {
     if (identity.expiresAt <= Date.now() / 1000) throw new DiscoveryError(401, "invalid_token");
     await tx.execute(sql`set local statement_timeout = '8s'`);
     await tx.execute(sql`set local lock_timeout = '5s'`);
+    if (config.operatingApprovalsEnabled) {
+      const approval = await authorizeDiscoveryOperation(tx, config, identity, scope, campaignId, operatingId);
+      if (approval) return approval;
+    }
     const candidates = await tx.select({ id: grants.id, userId: grants.userId, organizationId: grants.organizationId, scopes: grants.scopes, source: grants.executionSource, role: memberships.role, expiresAt: grants.expiresAt, revokedAt: grants.revokedAt, environment: grants.environmentSha256 })
       .from(grants).innerJoin(memberships, and(eq(memberships.organizationId, grants.organizationId), eq(memberships.userId, grants.userId)))
       .where(and(eq(grants.organizationId, config.organizationId), eq(grants.issuer, identity.issuer), eq(grants.subject, identity.subject)))
@@ -36,7 +41,7 @@ export function discoveryAccess(config: DiscoveryMcpConfig, database: Pick<typeo
     async actor(identity: ProbeIdentity): Promise<DiscoveryActor> {
       const grant = await database.transaction(tx => authorize(tx, identity, "discovery:read"));
       return { userId: grant.userId, organizationId: grant.organizationId, role: grant.role, principalId: grant.id, executionSource: grant.source, environmentSha256: discoveryEnvironmentHash(config), campaignIds: grant.campaigns.map(c => c.campaignId),
-        reauthorize: async (tx, campaignId, scope) => { await authorize(tx, identity, scope, campaignId); },
+        reauthorize: async (tx, campaignId, scope) => { await authorize(tx, identity, scope, campaignId, "approvalKind" in grant ? grant.id : undefined); },
       };
     },
   };
