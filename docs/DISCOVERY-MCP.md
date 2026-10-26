@@ -4,6 +4,8 @@
 
 상태: 로컬 코드/SDK 통합 검증 및 2026-10-24 실제 hosted Work 캠페인 조회·서버 로그·DB hash 대조 완료. **실제 hosted Work SNS→관찰 저장→DB→대시보드 검증은 미완료**. 기존 probe 실행 환경과 연결된 플러그인을 자동 변경하지 않는다.
 
+후속 확인(2026-10-26): 기존 Work 성공 보고와 독립 PostgreSQL에서 계정 1명·증거 2건·제출 run·원본 링크·저장 응답 hash 일치를 확인했다. 기존 상태는 검토 대기로 보존했고 추가 실증은 반복하지 않았다. 새 환경의 업무 호출과 전체 STEP 3 완료는 별개다. 반복 grant 재발급과 분리한 선택적 [최대 7일 관리자 운영 승인](DISCOVERY-OPERATING-APPROVALS.md)은 기본 비활성화이며, `0008` 및 runtime 제한 권한 적용 후 승인된 환경에서만 켠다.
+
 ## 서버와 권한
 
 - 기본 `MCP_SERVER_MODE=probe`: 기존 synthetic 3도구/권한/4KiB 제한 유지.

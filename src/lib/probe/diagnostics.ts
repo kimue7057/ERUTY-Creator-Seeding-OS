@@ -44,6 +44,7 @@ export function safeFailure(error: unknown) {
   if (["server_busy", "jwks_unavailable"].includes(code)) retryable = true;
   const reauthenticate = status === 401 || code === "insufficient_scope" && (!(error instanceof DiscoveryError) || error.oauthChallenge);
   const recovery = status === 401 ? "Refresh the access token; if refresh is rejected, sign in to the existing connection."
+    : code.startsWith("approval_") ? "Ask an administrator to inspect the operating approval, expiry, revocation and environment. Signing in does not extend approval; do not retry automatically."
     : code.startsWith("grant_") || code === "principal_not_allowed" ? "Ask the operator to inspect the grant expiry, revocation and environment. Reauthentication does not renew a DB grant."
     : reauthenticate ? "Authorize the required OAuth scopes."
     : status === 403 || status === 404 ? "Check the permitted organization, campaign and role; do not retry automatically."

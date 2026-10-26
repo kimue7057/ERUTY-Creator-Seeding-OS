@@ -37,9 +37,14 @@ if (mode === "discovery" && process.env.MCP_DISCOVERY_VERIFIER_DATABASE_URL) awa
   const client = new Client({ connectionString: process.env.MCP_DISCOVERY_VERIFIER_DATABASE_URL, connectionTimeoutMillis: 3000 });
   await client.connect();
   try {
+    await client.query("begin read only");
     const time = (await client.query("select now() as utc")).rows[0].utc;
     const rows = (await client.query("select expires_at,revoked_at,environment_sha256,scopes from discovery_mcp_grants where organization_id=$1", [config.organizationId])).rows;
-    return { clock_offset_ms: new Date(time).getTime() - Date.now(), environment_sha256: discoveryEnvironmentHash(config), grants: rows.map(r => ({ expired: new Date(r.expires_at).getTime() <= Date.now(), revoked: !!r.revoked_at, environment_matches: r.environment_sha256 === discoveryEnvironmentHash(config), scopes: r.scopes, expires_at: r.expires_at })) };
+    const enabled = "operatingApprovalsEnabled" in config && config.operatingApprovalsEnabled;
+    const approvals = enabled ? (await client.query("select expires_at,revoked_at,environment_sha256,resource,scopes,(select count(*)::int from discovery_operating_campaigns c where c.organization_id=a.organization_id and c.approval_id=a.id) campaign_count from discovery_operating_approvals a where organization_id=$1", [config.organizationId])).rows : [];
+    await client.query("commit");
+    const state = (r: { expires_at: string; revoked_at: unknown; environment_sha256: string; scopes: string[] }) => ({ expired: new Date(r.expires_at).getTime() <= Date.now(), revoked: !!r.revoked_at, environment_matches: r.environment_sha256 === discoveryEnvironmentHash(config), scopes: r.scopes, expires_at: r.expires_at });
+    return { clock_offset_ms: new Date(time).getTime() - Date.now(), environment_sha256: discoveryEnvironmentHash(config), operating_approvals_enabled: enabled, grants: rows.map(state), operating_approvals: approvals.map(r => ({ ...state(r), resource_matches: r.resource === config.resource, campaign_count: r.campaign_count })) };
   } finally { await client.end(); }
 });
 console.log(JSON.stringify(report, null, 2)); process.exitCode = failed ? 1 : 0;

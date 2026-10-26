@@ -6,6 +6,8 @@ const env = { NODE_ENV: "production", MCP_RESOURCE_URL: "https://discovery.examp
 test("discovery mode needs a dedicated organization and reviewed build; production never accepts synthetic source", () => {
   const config = discoveryMcpConfig(env);
   assert.equal(config.allowSyntheticDiscovery, false);
+  assert.equal(config.operatingApprovalsEnabled, false);
+  assert.notEqual(discoveryEnvironmentHash(config), discoveryEnvironmentHash(discoveryMcpConfig({ ...env, MCP_DISCOVERY_OPERATING_APPROVALS: "true" })));
   assert.throws(() => discoveryMcpConfig({ ...env, MCP_DISCOVERY_ORGANIZATION_ID: undefined }));
   assert.throws(() => discoveryMcpConfig({ ...env, MCP_BUILD_SHA: undefined }));
   assert.notEqual(discoveryEnvironmentHash(config), discoveryEnvironmentHash({ ...config, build: "d15c0a2" }));

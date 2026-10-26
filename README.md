@@ -2,7 +2,11 @@
 
 MCP 연결 장애는 [요청 추적·오류 코드·격리 회귀·OAuth/Tunnel 복구 절차](docs/MCP-STABILITY.md)로 진단한다. 로컬 테스트 성공과 실제 hosted Work 성공을 구분한다.
 
-STEP 3은 [구현·실증 상태](docs/DISCOVERY-IMPLEMENTATION.md)를 따른다. `0004`는 독립 discovery 데이터 모델과 불변 이력을 추가하며, 기존 브리프/파일 버전을 유지한다. 실제 SNS 직접 탐색과 hosted Work MCP 쓰기는 아직 미검증이며, 로컬 구현·테스트 통과만으로 완료 표시하지 않는다.
+현재는 PC를 켜두는 임시 운영을 선택했다. [로컬 PC 운영·재개 안내](docs/LOCAL-PC-OPERATIONS.md)를 따른다. [상시 Linux 서버 전환 구성·비용·보존 및 승인 절차](docs/ALWAYS-ON-MIGRATION.md)는 추후 전환용으로 보관한다.
+
+반복 실증 grant와 분리한 [관리자 운영 승인 정책](docs/DISCOVERY-OPERATING-APPROVALS.md)을 추가했다. 기본값은 비활성화이며, 최대 7일·캠페인 allowlist·scope·환경 hash를 제한한다. 운영 환경 적용은 별도 승인 후 진행하며 기존 만료·철회 grant를 되살리지 않는다.
+
+STEP 3은 [구현·실증 상태](docs/DISCOVERY-IMPLEMENTATION.md)를 따른다. `0004`는 독립 discovery 데이터 모델과 불변 이력을 추가하며, 기존 브리프/파일 버전을 유지한다. 2026-10-26 기존 Work 성공 보고와 독립 PostgreSQL을 대조해 크리에이터 1명·증거 2건·제출 run 및 원본 링크·저장 응답 해시 일치를 확인했다. 상태는 검토 대기이며 기존 기록을 변경하지 않았다. 새 OAuth/권한 환경의 실제 업무 호출이나 전체 STEP 3 완료로 확대 해석하지 않는다.
 
 `MCP_SERVER_MODE=discovery`는 기존 probe와 분리된 6개 discovery 도구를 제공한다. `0005`의 캠페인 allowlist grant와 별도 runtime/verifier 계정, explicit operator 명령을 사용한다. [실행 및 실제 Work 수용 절차](docs/DISCOVERY-MCP.md)를 확인한다. 기존 Tunnel·플러그인 연결을 자동 변경하지 않는다.
 
