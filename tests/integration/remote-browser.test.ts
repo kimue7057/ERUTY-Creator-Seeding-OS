@@ -64,6 +64,7 @@ test("remote collection validates originals before writes, isolates requests, pr
     await assert.rejects(remote.execute("collect", token, { authorization, payload: { ...payload, batch: { ...payload.batch, logs: payload.batch.logs.map((l, i) => i ? l : { ...l, message: "changed same key" }) } } }), code("idempotency_conflict"));
     assert.equal((await f.client.query("select count(*)::int n from discovery_browser_captures")).rows[0].n, 1);
     assert.equal((await f.client.query("select count(*)::int n from discovery_evidence")).rows[0].n, 2);
+    await assert.rejects(f.client.query("insert into discovery_browser_captures(organization_id,request_id,run_id,batch_key,payload_sha256,originals,created_by) values($1,$2,$3,$4,$5,'[]'::jsonb,$6)", [f.other.organizationId, job.id, first.run_id, randomUUID(), "0".repeat(64), f.other.userId]), sqlFailure("23503"));
     await assert.rejects(f.client.query("delete from discovery_browser_captures"), sqlFailure("23514"));
     const manifest = { prepare_key: job.id, submit_key: randomUUID(), expected_lock_version: first.lock_version, outcome: "submitted", limitations: ["SYNTHETIC remote service test, no real browsing"] };
     const submitted = await remote.execute("submit", token, { authorization, payload: manifest }); assert.ok("status" in submitted); assert.equal(submitted.status, "awaiting_review");

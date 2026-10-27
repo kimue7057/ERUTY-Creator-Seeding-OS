@@ -28,7 +28,7 @@ export function remoteBrowserService(database: typeof db = db) {
       if (action === "claim") return queue.claim(actor, input);
       const request = z.strictObject({ authorization: z.unknown(), payload: z.unknown().optional() }).parse(input);
       const { auth, who } = await scoped(actor, request.authorization);
-      if (action === "context") return service.getContext(who, { contract_version: 1, campaign_id: auth.campaign_id });
+      if (action === "context") return { ...await service.getContext(who, { contract_version: 1, campaign_id: auth.campaign_id }), remote_execution: "codex_desktop_https_worker", browser_launched: false, hosted_work_called: false };
       if (action === "collect") {
         let data: ReturnType<typeof verifyRemoteCollection>;
         try { data = verifyRemoteCollection(request.payload, auth.platform, auth.issued_at, auth.expires_at); }

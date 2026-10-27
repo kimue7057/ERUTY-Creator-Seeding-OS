@@ -1,4 +1,4 @@
--- Apply as the migration owner to the dedicated cloud DB, migrations 0000–0012.
+-- Apply as the migration owner to the dedicated cloud DB, migrations 0000–0013.
 -- The web app can administer its product flows; workers receive only API tokens.
 GRANT CONNECT ON DATABASE neondb TO eruty_seeding_app;
 GRANT USAGE ON SCHEMA public TO eruty_seeding_app;
