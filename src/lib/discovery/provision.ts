@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { db } from "../db";
 import { campaigns, memberships, auditEvents, discoveryProbeWorkspaces } from "../db/schema";
-import { discoveryMcpGrants, discoveryGrantCampaigns, discoveryCapabilities, discoveryRequests } from "../db/discovery-schema";
+import { discoveryMcpGrants, discoveryGrantCampaigns, discoveryCapabilities, discoveryRequests, discoveryOperatingApprovals, discoveryOperatingCampaigns } from "../db/discovery-schema";
 import { DiscoveryError, discoveryHash, platformSchema } from "./contracts";
 import { DISCOVERY_SCOPES } from "./mcp-access";
 const grantInput = z.strictObject({ organization_id: z.uuid(), user_id: z.uuid(), issuer: z.url().max(500), subject: z.string().min(1).max(255), environment_sha256: z.string().regex(/^[a-f0-9]{64}$/), execution_source: z.enum(["work_manual_task", "codex_test"]), campaign_ids: z.array(z.uuid()).min(1).max(100).refine(ids => new Set(ids).size === ids.length), scopes: z.array(z.enum(DISCOVERY_SCOPES)).min(1).max(3).refine(scopes => scopes.includes("discovery:read")), expires_at: z.iso.datetime({ offset: true }), confirmation: z.literal("create-explicit-discovery-campaign-grant") });
@@ -21,14 +21,20 @@ export async function authorizeInitialDiscoveryRun(input: unknown, database: Pic
   return database.transaction(async tx => {
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${data.organization_id}), hashtext(${data.grant_id}))`);
     const [member] = await tx.select().from(memberships).where(and(eq(memberships.organizationId, data.organization_id), eq(memberships.userId, data.user_id))).for("share");
-    const [grant] = await tx.select().from(discoveryMcpGrants).where(and(eq(discoveryMcpGrants.organizationId, data.organization_id), eq(discoveryMcpGrants.id, data.grant_id))).for("share");
-    const [campaign] = await tx.select().from(discoveryGrantCampaigns).where(and(eq(discoveryGrantCampaigns.organizationId, data.organization_id), eq(discoveryGrantCampaigns.grantId, data.grant_id), eq(discoveryGrantCampaigns.campaignId, data.campaign_id)));
+    const [legacy] = await tx.select().from(discoveryMcpGrants).where(and(eq(discoveryMcpGrants.organizationId, data.organization_id), eq(discoveryMcpGrants.id, data.grant_id))).for("share");
+    const [operating] = legacy ? [] : await tx.select().from(discoveryOperatingApprovals).where(and(eq(discoveryOperatingApprovals.organizationId, data.organization_id), eq(discoveryOperatingApprovals.id, data.grant_id))).for("share");
+    const grant=legacy??(operating?{...operating,executionSource:"work_manual_task" as const}:undefined);
+    const [campaign] = operating ? await tx.select().from(discoveryOperatingCampaigns).where(and(eq(discoveryOperatingCampaigns.organizationId,data.organization_id),eq(discoveryOperatingCampaigns.approvalId,data.grant_id),eq(discoveryOperatingCampaigns.campaignId,data.campaign_id))) : await tx.select().from(discoveryGrantCampaigns).where(and(eq(discoveryGrantCampaigns.organizationId, data.organization_id), eq(discoveryGrantCampaigns.grantId, data.grant_id), eq(discoveryGrantCampaigns.campaignId, data.campaign_id)));
+    const [target]=await tx.select().from(campaigns).where(and(eq(campaigns.organizationId,data.organization_id),eq(campaigns.id,data.campaign_id)));
+    if(operating&&(member?.role!=="admin"||!target||target.status==="archived"||!target.platforms.includes(data.platform)))throw new DiscoveryError(403,"initial_operating_authorization_forbidden");
     if (!member || member.role === "reviewer" || !grant || !campaign || grant.userId !== data.user_id || grant.executionSource !== "work_manual_task" || grant.revokedAt || grant.expiresAt < expires || grant.environmentSha256 !== data.environment_sha256 || !DISCOVERY_SCOPES.every(scope => grant.scopes.includes(scope))) throw new Error("Current allowlisted Work grant and writer required");
     const existing = await tx.select().from(discoveryCapabilities).where(and(eq(discoveryCapabilities.organizationId, data.organization_id), eq(discoveryCapabilities.kind, "initial_validation"), eq(discoveryCapabilities.platform, data.platform)));
-    if (existing.some(row => row.facts.initial_validation?.grant_id === grant.id && row.facts.initial_validation.campaign_id === data.campaign_id)) throw new Error("Initial authorization already exists; preserve it and rotate the grant explicitly");
+    const prior=existing.find(row => row.facts.initial_validation?.grant_id === grant.id && row.facts.initial_validation.campaign_id === data.campaign_id);
+    if(prior&&operating&&prior.environmentSha256===data.environment_sha256&&prior.privateEvidenceReference===`private-file-sha256:${data.private_evidence_sha256}`&&prior.facts.initial_validation?.expires_at===expires.toISOString()&&prior.facts.initial_validation.max_creators===data.max_creators)return {authorization_id:prior.id,expires_at:expires.toISOString(),work_connection:"unverified",replayed:true};
+    if(prior)throw new Error("Initial authorization already exists; preserve it and rotate the grant explicitly");
     const [permit] = await tx.insert(discoveryCapabilities).values({ organizationId: data.organization_id, platform: data.platform, kind: "initial_validation", verdict: "partial", environmentSha256: data.environment_sha256,
       privateEvidenceReference: `private-file-sha256:${data.private_evidence_sha256}`, observedAt: new Date(), reviewedBy: data.user_id,
-      facts: { native_search: false, direct_profiles: 0, recent_content_profiles: 0, limitations: ["Operator authorized a single experiment; hosted Work, SNS visits and DB read-back in this environment remain unverified"], initial_validation: { grant_id: grant.id, campaign_id: data.campaign_id, max_creators: data.max_creators, expires_at: expires.toISOString() } } }).returning();
+      facts: { native_search: false, direct_profiles: 0, recent_content_profiles: 0, limitations: [operating?"Administrator authorized one bounded initial operating observation; this is permission, not a successful Work/SNS receipt":"Operator authorized a single experiment; hosted Work, SNS visits and DB read-back in this environment remain unverified"], initial_validation: { grant_id: grant.id, campaign_id: data.campaign_id, max_creators: data.max_creators, expires_at: expires.toISOString() } } }).returning();
     await tx.insert(auditEvents).values({ organizationId: data.organization_id, actorId: data.user_id, entityId: permit.id, action: "discovery.initial_validation_authorized_by_operator" });
     return { authorization_id: permit.id, expires_at: expires.toISOString(), work_connection: "unverified" };
   });

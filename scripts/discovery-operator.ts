@@ -66,11 +66,14 @@ try {
     }
     console.log(JSON.stringify({ action: "rotate-expired-grant", receipt_file: path, ...receipt }));
   } else if (action === "authorize-initial-run") {
-    const input = read("initial-run-authorization.json");
+    const filename=process.env.MCP_DISCOVERY_INITIAL_AUTHORIZATION_FILE;
+    if(filename&&!/^[A-Za-z0-9_-]+\.json$/.test(filename))throw new Error("Use a private authorization file basename");
+    const input = read(filename??"initial-run-authorization.json");
     if (input.organization_id !== config.organizationId || input.environment_sha256 !== discoveryEnvironmentHash(config) || input.user_id !== z.uuid().parse(process.env.MCP_DISCOVERY_OPERATOR_USER_ID)) throw new Error("Configured operator/environment mismatch");
     const receipt = await authorizeInitialDiscoveryRun(input);
-    writeFileSync(`${folder}/initial-run-receipt.json`, JSON.stringify(receipt), { flag: "wx", mode: 0o600 });
-    console.log("One bounded initial Work run authorized; no verified capability was created. Private receipt saved.");
+    const receiptFile=filename?`${folder}/initial-run-${receipt.authorization_id}.json`:`${folder}/initial-run-receipt.json`;
+    if(!existsSync(receiptFile))writeFileSync(receiptFile, JSON.stringify(receipt), { flag: "wx", mode: 0o600 });
+    console.log(JSON.stringify({action:"authorize-initial-run",...receipt,receipt_file:receiptFile,verified_capability_created:false}));
   } else if (action === "revoke") {
     const id = z.uuid().parse(process.env.MCP_DISCOVERY_GRANT_ID);
     await db.transaction(async tx => {

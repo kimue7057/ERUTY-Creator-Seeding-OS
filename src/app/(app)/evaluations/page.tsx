@@ -1,0 +1,6 @@
+import Link from "next/link";
+import {requireActor} from "@/lib/auth/session";
+import {evaluationService} from "@/lib/evaluation/service";
+import {PageHeading,Empty} from "@/components/ui";
+import {platformLabel} from "@/lib/validation/campaigns";
+export default async function Evaluations(){const actor=await requireActor();if(process.env.EVALUATION_ENABLED!=="true")return <Empty title="평가 기능 준비 중" text="운영 설정이 완료되면 평가와 검토를 시작할 수 있습니다."/>;const rows=await evaluationService().list(actor);return <><PageHeading eyebrow="Step 04 · Evaluation" title="크리에이터 평가 · 승인" description="캠페인별 근거와 100점 배점을 바탕으로 평가하고 담당자가 최종 판단합니다."/><p className="info-banner">미확인 정보는 점수와 구분합니다. 승인 이력은 발송 실행이 아니며, 이 화면에서 이메일·DM을 보내지 않습니다.</p>{rows.length?<div className="project-grid mt-7">{rows.map(r=><Link key={r.campaignId+r.accountId} className="project-card" href={`/evaluations/${r.campaignId}/${r.accountId}`}><div className="eyebrow mb-4">{r.title}</div><h2>{r.name??r.handle??"이름 미확인"}</h2><p className="description">{platformLabel(r.platform)} · {r.state==="direct_sns_verified"?"SNS 근거 검토됨":"SNS 근거 검토 대기"}</p><div className="card-footer">평가·이력 보기 →</div></Link>)}</div>:<Empty title="평가할 크리에이터가 없습니다" text="실제 Work 발굴 결과가 저장되면 캠페인별 후보를 평가할 수 있습니다." href="/discovery" label="발굴 기록 보기"/>}</>;}

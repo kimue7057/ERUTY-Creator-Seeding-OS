@@ -91,6 +91,7 @@ jobs:
       BOOTSTRAP_EMAIL: operator@example.invalid
       BOOTSTRAP_PASSWORD: ci-only-synthetic-operator-password
       E2E_ALLOW_WRITES: "true"
+      EVALUATION_ENABLED: "true"
       S3_ENDPOINT: http://127.0.0.1:9000
       S3_REGION: us-east-1
       S3_BUCKET: eruty-private-ci
@@ -132,6 +133,8 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: asset-browser-screenshots
-          path: test-results/assets-*.png
+          name: browser-screenshots
+          path: |
+            test-results/assets-*.png
+            test-results/evaluation-*.png
           if-no-files-found: ignore
