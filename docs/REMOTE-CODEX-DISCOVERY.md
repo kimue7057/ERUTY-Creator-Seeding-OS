@@ -40,6 +40,7 @@ pnpm exec tsx scripts/codex-discovery-remote.ts logout
 
 - `0013_remote_capture_scope.sql`까지 마이그레이션한 전용 DB, 서버 전용 `APP_DATABASE_URL`, `APP_ORIGIN`, `CODEX_DISCOVERY_ENABLED=true`, `EVALUATION_ENABLED=true`를 사용한다. Vercel production은 앱 역할의 `APP_DATABASE_URL`을 필수로 요구한다. 통합의 `DATABASE_URL`은 운영자가 마이그레이션할 때만 사용한다. 자동 AI 평가는 별도 opt-in이다.
 - 운영 DB는 production에만 연결한다. 미리보기 배포에 운영 DB 자격 증명을 복사하지 않는다. 마이그레이션 소유자와 실제 앱 DB 역할을 분리한다.
+- 자동 Git 배포는 꺼 두고, 확인한 커밋에서 `vercel deploy --prod --skip-domain` → 운영 빌드 검증 → `vercel promote DEPLOYMENT_URL`로 배포한다. DB가 없는 미리보기에 운영 비밀번호를 넣거나, 아직 병합되지 않은 기반 브랜치를 자동 운영 배포하지 않는다. 별도 preview DB를 준비하면 자동 배포 정책을 다시 설정할 수 있다. 설정은 [Vercel Git 문서](https://vercel.com/docs/project-configuration/git-configuration)를 따른다.
 - 프로젝트·제품·캠페인·브리프·발굴·평가 데이터는 공유된다. **첨부자료 업로드는 비공개 S3 저장소가 연결될 때까지 비활성**이다. 서버리스 본문 한도보다 큰 파일은 별도 직접 업로드 경로가 필요하다.
 - 기존 로컬 DB/Work/Probe/OAuth 세션은 보존한다. 운영 이전 시 대시보드 세션, 발굴 API 토큰, 기존 MCP/Probe 접근 자격 증명을 가져오지 않는다. 기존 비공개 로컬 캡처 경로는 다른 PC에서 자동으로 열리지 않는다.
 - Vercel이 로그인을 추가 요구하는 환경에서는 팀 접근도 필요하다. 보호를 임의로 끄지 말고 계정/팀 정책에 맞춰 접속한다.
