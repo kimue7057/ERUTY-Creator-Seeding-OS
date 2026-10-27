@@ -1,6 +1,6 @@
 # ERUTY Creator Seeding OS
 
-Work 없이 Codex 앱에서 SNS를 직접 탐색하는 [로컬 브라우저 파일럿](docs/CODEX-BROWSER-DISCOVERY.md)을 추가했다. `codex_browser` 출처와 원본 캡처를 분리하고 한 캠페인·후보 1명·최대 4시간으로 제한한다. 저장은 기존 검증·중복 방지·감사 로직을 거치며 담당자 검토 대기를 유지한다. 스킬 원본은 `skills/eruty-codex-discovery/SKILL.md`다.
+Work 없이 Codex 앱에서 SNS를 직접 탐색하는 [직접 발굴 요청 흐름](docs/CODEX-BROWSER-DISCOVERY.md)을 추가했다. 캠페인에서 플랫폼별 1–20명 요청을 저장하고 실행 안내를 Codex 채팅에 전달하면, 스킬이 원본 확인·순차 저장·제출을 진행한다. 요청 저장은 Codex 자동 실행이 아니다. 원본 근거와 브라우저 실행을 담당자가 각각 검토한 뒤 Codex 평가 JSON 가져오기·최종 승인으로 연결한다. 기존 1명 파일럿과 Work 기록은 보존한다. 스킬 원본은 `skills/eruty-codex-discovery/SKILL.md`이며 설정·명령은 연결 문서에 있다.
 
 MCP 연결 장애는 [요청 추적·오류 코드·격리 회귀·OAuth/Tunnel 복구 절차](docs/MCP-STABILITY.md)로 진단한다. 로컬 테스트 성공과 실제 hosted Work 성공을 구분한다.
 
