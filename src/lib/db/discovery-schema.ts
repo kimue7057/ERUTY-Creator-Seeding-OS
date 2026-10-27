@@ -4,7 +4,7 @@ import { organizations, users, memberships, campaigns, campaignBriefRevisions, p
 
 export const DISCOVERY_PLATFORMS = ["instagram", "tiktok", "youtube"] as const;
 export const DISCOVERY_RUN_STATES = ["prepared", "collecting", "awaiting_review", "completed", "partial", "blocked", "failed", "cancelled"] as const;
-export const DISCOVERY_SOURCES = ["work_manual_task", "manual_import", "codex_test"] as const;
+export const DISCOVERY_SOURCES = ["work_manual_task", "manual_import", "codex_test", "codex_browser"] as const;
 export type DiscoveryPlatform = typeof DISCOVERY_PLATFORMS[number];
 export type TargetingSnapshot = { countryCodes: string[]; platforms: string[]; categories: string[]; followerMin: number; followerMax: number; goalCount: number; notes: string; exclusions: string };
 export type DiscoveryMetric = { name: "followers" | "subscribers" | "views" | "likes" | "comments"; raw_display: string | null; value: number | null; precision: "exact" | "rounded" | "hidden" | "unavailable"; observed_at: string; source_url: string };
@@ -38,7 +38,7 @@ export const discoveryRuns = pgTable("discovery_runs", {
   contextSha256: text("context_sha256").notNull(), snapshotSchemaVersion: integer("snapshot_schema_version").default(1).notNull(),
   requestedCount: integer("requested_count").notNull(), timeBudgetSeconds: integer("time_budget_seconds").default(1800).notNull(),
   workTaskReference: text("work_task_reference"), capabilityReceiptId: uuid("capability_receipt_id"),
-  environmentSnapshot: jsonb("environment_snapshot").$type<{ environment_sha256: string; work_connection: "unverified" | "reviewed"; initial_validation?: boolean }>().notNull(),
+  environmentSnapshot: jsonb("environment_snapshot").$type<{ environment_sha256: string; work_connection: "unverified" | "reviewed"; initial_validation?: boolean; browser_connection?: "unverified"; browser_surface?: "iab" | "chrome"; local_authorization_id?: string; execution_reference?: string }>().notNull(),
   startedAt: timestamp("started_at", { withTimezone: true }), submittedAt: timestamp("submitted_at", { withTimezone: true }),
   reviewedAt: timestamp("reviewed_at", { withTimezone: true }), endedAt: timestamp("ended_at", { withTimezone: true }),
   outcomeSummary: jsonb("outcome_summary").$type<Record<string, number>>().default({}).notNull(), limitations: text().array().default(sql`'{}'::text[]`).notNull(),
@@ -51,6 +51,7 @@ export const discoveryRuns = pgTable("discovery_runs", {
   check("discovery_run_hashes", sql`${t.targetingSha256} ~ '^[a-f0-9]{64}$' and ${t.contextSha256} ~ '^[a-f0-9]{64}$'`),
   check("discovery_run_bounds", sql`${t.requestedCount} between 1 and 500 and ${t.timeBudgetSeconds} between 60 and 14400 and ${t.snapshotSchemaVersion} = 1 and ${t.lockVersion} >= 0`),
   check("discovery_run_work_provenance", sql`${t.executionSource} <> 'work_manual_task' or (${t.workTaskReference} is not null and ${t.capabilityReceiptId} is not null)`),
+  check("discovery_run_codex_provenance", sql`${t.executionSource} <> 'codex_browser' or (${t.workTaskReference} is null and ${t.capabilityReceiptId} is null and coalesce(${t.environmentSnapshot}->>'browser_connection','') = 'unverified' and coalesce(${t.environmentSnapshot}->>'browser_surface','') in ('iab','chrome') and ${t.environmentSnapshot}->>'local_authorization_id' is not null and ${t.environmentSnapshot}->>'execution_reference' is not null)`),
   index("discovery_runs_campaign_time").on(t.organizationId, t.campaignId, t.createdAt),
 ]);
 export const creatorAccounts = pgTable("creator_accounts", {
@@ -82,7 +83,7 @@ export const discoveryEvidence = pgTable("discovery_evidence", {
   sourceUrl: text("source_url").notNull(), profileUrl: text("profile_url").notNull(), platformContentId: text("platform_content_id"),
   observedAt: timestamp("observed_at", { withTimezone: true }).notNull(), recordedAt: timestamp("recorded_at", { withTimezone: true }).defaultNow().notNull(),
   publishedAt: timestamp("published_at", { withTimezone: true }), facts: jsonb().$type<DiscoveryFacts>().notNull(),
-  limitations: text().array().notNull(), searchLogId: uuid("search_log_id").notNull(), workTraceReference: text("work_trace_reference"),
+  limitations: text().array().notNull(), searchLogId: uuid("search_log_id").notNull(), workTraceReference: text("work_trace_reference"), browserTraceReference: text("browser_trace_reference"),
   captureAssetVersionId: uuid("capture_asset_version_id"), supersedesId: uuid("supersedes_id"), payloadSha256: text("payload_sha256").notNull(),
   createdBy: uuid("created_by").notNull().references(() => users.id),
 }, t => [unique("discovery_evidence_scope").on(t.organizationId, t.projectId, t.campaignId, t.runId, t.id),

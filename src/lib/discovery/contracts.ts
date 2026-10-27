@@ -45,7 +45,7 @@ export const observationInput = z.strictObject({
     categories: z.array(z.string().trim().min(1).max(100)).max(20).default([]),
   }),
   contents: z.array(z.strictObject({ url: urlInput, opened_directly: z.boolean(), observed_at: observedTime, published_at: observedTime.nullable(), recent_basis: note, metrics, note })).max(3),
-  work_trace_reference: privateReference.nullable().default(null), supersedes_evidence_id: z.uuid().nullable().default(null),
+  work_trace_reference: privateReference.nullable().default(null), browser_trace_reference: privateReference.nullable().optional(), supersedes_evidence_id: z.uuid().nullable().default(null),
 });
 export const submitRunInput = z.strictObject({ contract_version: z.literal(1), run_id: z.uuid(), expected_lock_version: z.number().int().nonnegative(), outcome: z.enum(["submitted", "partial", "blocked", "failed"]), limitations: z.array(note).max(20), idempotency_key: z.uuid() });
 export const readRunInput = z.strictObject({ contract_version: z.literal(1), run_id: z.uuid(), cursor: z.number().int().nonnegative().default(0), evidence_cursor: z.number().int().min(0).max(100000).default(0), limit: z.number().int().min(1).max(100).default(25) });

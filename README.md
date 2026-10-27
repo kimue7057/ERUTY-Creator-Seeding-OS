@@ -1,5 +1,7 @@
 # ERUTY Creator Seeding OS
 
+Work 없이 Codex 앱에서 SNS를 직접 탐색하는 [로컬 브라우저 파일럿](docs/CODEX-BROWSER-DISCOVERY.md)을 추가했다. `codex_browser` 출처와 원본 캡처를 분리하고 한 캠페인·후보 1명·최대 4시간으로 제한한다. 저장은 기존 검증·중복 방지·감사 로직을 거치며 담당자 검토 대기를 유지한다. 스킬 원본은 `skills/eruty-codex-discovery/SKILL.md`다.
+
 MCP 연결 장애는 [요청 추적·오류 코드·격리 회귀·OAuth/Tunnel 복구 절차](docs/MCP-STABILITY.md)로 진단한다. 로컬 테스트 성공과 실제 hosted Work 성공을 구분한다.
 
 현재는 PC를 켜두는 임시 운영을 선택했다. [로컬 PC 운영·재개 안내](docs/LOCAL-PC-OPERATIONS.md)를 따른다. [상시 Linux 서버 전환 구성·비용·보존 및 승인 절차](docs/ALWAYS-ON-MIGRATION.md)는 추후 전환용으로 보관한다.

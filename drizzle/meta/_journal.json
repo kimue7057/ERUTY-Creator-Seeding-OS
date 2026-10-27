@@ -71,6 +71,13 @@
       "when": 1793070201031,
       "tag": "0009_evaluation_workflow",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793085000000,
+      "tag": "0010_codex_browser_discovery",
+      "breakpoints": true
     }
   ]
 }
