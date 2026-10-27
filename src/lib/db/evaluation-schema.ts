@@ -7,7 +7,7 @@ const scope=()=>({organizationId:uuid("organization_id").notNull(),projectId:uui
 export const creatorEvaluations=pgTable("creator_evaluations",{
  id:uuid().defaultRandom().primaryKey(),...scope(),briefVersion:integer("brief_version").notNull(),
  inputSha256:text("input_sha256").notNull(),payloadSha256:text("payload_sha256").notNull(),idempotencyKey:uuid("idempotency_key").notNull(),
- source:text({enum:["work_import","openai_api"]}).notNull(),model:text().notNull(),promptVersion:text("prompt_version").notNull(),
+ source:text({enum:["work_import","codex_import","openai_api"]}).notNull(),model:text().notNull(),promptVersion:text("prompt_version").notNull(),
  inputSnapshot:jsonb("input_snapshot").$type<Record<string,unknown>>().notNull(),output:jsonb().$type<EvaluationOutput>().notNull(),
  total:integer(),knownSubtotal:integer("known_subtotal").notNull(),unknownCount:integer("unknown_count").notNull(),
  createdBy:uuid("created_by").notNull().references(()=>users.id),createdAt:timestamp("created_at",{withTimezone:true}).defaultNow().notNull(),
@@ -15,7 +15,7 @@ export const creatorEvaluations=pgTable("creator_evaluations",{
  foreignKey({name:"evaluation_campaign_fk",columns:[t.organizationId,t.projectId,t.campaignId],foreignColumns:[campaigns.organizationId,campaigns.projectId,campaigns.id]}),
  foreignKey({name:"evaluation_creator_fk",columns:[t.organizationId,t.campaignId,t.creatorAccountId],foreignColumns:[campaignCreators.organizationId,campaignCreators.campaignId,campaignCreators.creatorAccountId]}),
  foreignKey({name:"evaluation_brief_fk",columns:[t.organizationId,t.projectId,t.campaignId,t.briefVersion],foreignColumns:[campaignBriefRevisions.organizationId,campaignBriefRevisions.projectId,campaignBriefRevisions.campaignId,campaignBriefRevisions.version]}),
- check("evaluation_source",sql`${t.source} in ('work_import','openai_api')`),check("evaluation_scores",sql`${t.knownSubtotal} between 0 and 100 and ${t.unknownCount} between 0 and 6 and (${t.total} is null or (${t.unknownCount}=0 and ${t.total}=${t.knownSubtotal}))`),
+ check("evaluation_source",sql`${t.source} in ('work_import','codex_import','openai_api')`),check("evaluation_scores",sql`${t.knownSubtotal} between 0 and 100 and ${t.unknownCount} between 0 and 6 and (${t.total} is null or (${t.unknownCount}=0 and ${t.total}=${t.knownSubtotal}))`),
  check("evaluation_hashes",sql`${t.inputSha256} ~ '^[a-f0-9]{64}$' and ${t.payloadSha256} ~ '^[a-f0-9]{64}$'`),index("evaluation_campaign_time").on(t.organizationId,t.campaignId,t.createdAt),]);
 export const evaluationReviews=pgTable("creator_evaluation_reviews",{
  id:uuid().defaultRandom().primaryKey(),organizationId:uuid("organization_id").notNull(),evaluationId:uuid("evaluation_id").notNull(),

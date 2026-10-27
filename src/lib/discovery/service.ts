@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { z } from "zod";
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../db";
 import { auditEvents, campaigns, campaignBriefRevisions, memberships } from "../db/schema";
@@ -6,6 +7,8 @@ import { discoveryRuns as runs, creatorAccounts as accounts, creatorAccountAlias
 import type { ActorScope } from "../auth/permissions";
 import { DiscoveryError, appendLogInput, contextInput, discoveryHash, observationInput, prepareRunInput, readRunInput, reviewEvidenceInput, reviewRunInput, submitRunInput } from "./contracts";
 import { contentUrl, profileIdentity, searchSourceUrl } from "./urls";
+import { browserDiscoveryRequests, browserRunReviews } from "../db/browser-schema";
+import { browserExecutionAccepted } from "./browser-review";
 
 export type DiscoveryTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type DiscoveryScope = "discovery:read" | "discovery:observe" | "discovery:submit";
@@ -13,7 +16,7 @@ export type DiscoveryActor = ActorScope & {
   principalId: string; executionSource: typeof DISCOVERY_SOURCES[number]; environmentSha256: string;
   campaignIds?: readonly string[];
   requestId?: string;
-  localBrowser?: { platform: typeof import("../db/discovery-schema").DISCOVERY_PLATFORMS[number]; surface: "iab" | "chrome"; executionReference: string };
+  localBrowser?: { platform: typeof import("../db/discovery-schema").DISCOVERY_PLATFORMS[number]; surface: "iab" | "chrome"; executionReference: string; maxCreators?: number; requestId?: string; expectedContextSha256?: string };
   reauthorize?: (tx: DiscoveryTransaction, campaignId: string, scope: DiscoveryScope) => Promise<void>;
 };
 type Run = typeof runs.$inferSelect;
@@ -42,9 +45,11 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
   }
   async function loadRun(tx: Tx, actor: DiscoveryActor, id: string, scope: DiscoveryScope, lock = false) {
     const query = tx.select().from(runs).where(and(eq(runs.organizationId, actor.organizationId), eq(runs.id, id)));
-    const [run] = await (lock ? query.for("update") : query);
-    if (!run) return denied();
-    await authorize(tx, actor, run.campaignId, scope);
+    const [initial] = await query;
+    if (!initial) return denied();
+    await authorize(tx, actor, initial.campaignId, scope);
+    // Request lock precedes run lock, matching dashboard cancellation.
+    const run = lock ? (await query.for("update"))[0] : initial;
     if (scope !== "discovery:read" && (run.executionSource !== actor.executionSource || run.environmentSnapshot.environment_sha256 !== actor.environmentSha256)) throw new DiscoveryError(403, "principal_context_mismatch");
     return run;
   }
@@ -82,16 +87,18 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
     const observed = await tx.select().from(evidence).where(and(eq(evidence.organizationId, run.organizationId), eq(evidence.runId, run.id)));
     const attempts = await tx.select().from(logs).where(and(eq(logs.organizationId, run.organizationId), eq(logs.runId, run.id)));
     const reviewRows = await tx.select().from(reviews).where(and(eq(reviews.organizationId, run.organizationId), eq(reviews.runId, run.id)));
+    const executionReviews = run.executionSource === "codex_browser" ? await tx.select().from(browserRunReviews).where(and(eq(browserRunReviews.organizationId, run.organizationId), eq(browserRunReviews.runId, run.id))) : [];
     const profiles = observed.filter(row => row.kind === "profile_observation").sort((a, b) => b.observedAt.getTime() - a.observedAt.getTime() || b.recordedAt.getTime() - a.recordedAt.getTime());
     const unique = new Set(profiles.map(row => row.creatorAccountId));
     const verifiedAccounts = [...unique].filter(id => {
       const profile = profiles.find(row => row.creatorAccountId === id)!;
       const search = attempts.find(log => log.id === profile.searchLogId);
-      return run.executionSource === "work_manual_task" && run.environmentSnapshot.work_connection === "reviewed" && !!run.capabilityReceiptId && !!run.workTaskReference
-        && profile.observationMethod === "sns_browser" && profile.facts.opened_directly && !!profile.workTraceReference
+      const provenance = run.executionSource === "work_manual_task" && run.environmentSnapshot.work_connection === "reviewed" && !!run.capabilityReceiptId && !!run.workTaskReference && !!profile.workTraceReference
+        || browserExecutionAccepted(run, executionReviews) && !!profile.browserTraceReference;
+      return provenance && profile.observationMethod === "sns_browser" && profile.facts.opened_directly
         && search?.eventType === "native_search" && search.outcome === "success" && accepted(profile, reviewRows)
         && profile.facts.metrics.some(metric => ["followers", "subscribers"].includes(metric.name) && metric.value !== null && !!metric.raw_display)
-        && observed.some(row => row.creatorAccountId === id && row.kind === "content_observation" && row.payloadSha256 === profile.payloadSha256 && row.facts.opened_directly && !!row.facts.recent_basis && accepted(row, reviewRows));
+        && observed.some(row => row.creatorAccountId === id && row.kind === "content_observation" && row.payloadSha256 === profile.payloadSha256 && row.facts.opened_directly && !!row.facts.recent_basis && (run.executionSource !== "codex_browser" || row.browserTraceReference === profile.browserTraceReference) && accepted(row, reviewRows));
     });
     return { verifiedAccounts, counts: { discovered: unique.size, observations: profiles.length, verified: verifiedAccounts.length, duplicate_observations: profiles.length - unique.size, failures: attempts.filter(log => log.eventType !== "staff_review" && ["failed", "blocked"].includes(log.outcome)).length, native_searches: attempts.filter(log => log.eventType === "native_search" && log.outcome === "success").length, content_observations: observed.filter(row => row.kind === "content_observation").length } };
   }
@@ -124,7 +131,7 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
         let capabilityId: string | null = null;
         let initialValidation = false;
         if (actor.executionSource === "codex_browser") {
-          if (data.work_task_reference || data.platform !== actor.localBrowser?.platform || data.requested_count !== 1) throw new DiscoveryError(403, "local_browser_scope_denied");
+          if (data.work_task_reference || data.platform !== actor.localBrowser?.platform || data.requested_count !== (actor.localBrowser?.requestId ? actor.localBrowser.maxCreators : 1)) throw new DiscoveryError(403, "local_browser_scope_denied");
           const [{ used }] = await tx.select({ used: sql<number>`count(*)::int` }).from(runs).where(and(eq(runs.organizationId, actor.organizationId), eq(runs.executionSource, "codex_browser"), sql`${runs.environmentSnapshot}->>'local_authorization_id' = ${actor.principalId}`));
           if (used) throw new DiscoveryError(409, "local_browser_authorization_consumed");
         }
@@ -150,7 +157,9 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
         const [{ count }] = await tx.select({ count: sql<number>`count(*)::int` }).from(runs).where(and(eq(runs.organizationId, actor.organizationId), eq(runs.campaignId, campaign.id)));
         if (count >= 1000) throw new DiscoveryError(429, "quota_exceeded");
         const current = await context(tx, actor, { contract_version: 1, campaign_id: campaign.id });
+        if (actor.localBrowser?.expectedContextSha256 && current.context_sha256 !== actor.localBrowser.expectedContextSha256) throw new DiscoveryError(409, "stale_context");
         const [run] = await tx.insert(runs).values({ organizationId: actor.organizationId, projectId: campaign.projectId, campaignId: campaign.id, briefVersion: current.brief_version, platform: data.platform, executionSource: actor.executionSource, targetingSnapshot: current.targeting_snapshot, targetingSha256: current.targeting_sha256, contextSha256: current.context_sha256, requestedCount: data.requested_count, timeBudgetSeconds: data.time_budget_seconds, workTaskReference: data.work_task_reference, capabilityReceiptId: capabilityId, environmentSnapshot: { environment_sha256: actor.environmentSha256, work_connection: actor.executionSource === "work_manual_task" && !initialValidation ? "reviewed" : "unverified", ...(initialValidation ? { initial_validation: true } : {}), ...(actor.executionSource === "codex_browser" && actor.localBrowser ? { browser_connection: "unverified" as const, browser_surface: actor.localBrowser.surface, local_authorization_id: actor.principalId, execution_reference: actor.localBrowser.executionReference } : {}) }, createdBy: actor.userId, updatedBy: actor.userId }).returning();
+        if (actor.localBrowser?.requestId) await tx.update(browserDiscoveryRequests).set({ runId: run.id, updatedAt: new Date() }).where(and(eq(browserDiscoveryRequests.organizationId, actor.organizationId), eq(browserDiscoveryRequests.id, actor.localBrowser.requestId)));
         return wireRun(run);
       });
     }),
@@ -217,7 +226,7 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
         } else {
           [account] = await tx.insert(accounts).values({ organizationId: actor.organizationId, platform: run.platform, platformAccountId: stableId, canonicalProfileUrl: identity.url, currentHandle: identity.handle, displayName: data.identity.display_name, identityState: stableId ? "resolved" : "provisional", firstSeenAt: observed, lastSeenAt: observed, createdBy: actor.userId, updatedBy: actor.userId }).returning();
         }
-        if (run.environmentSnapshot.initial_validation) {
+        if (run.environmentSnapshot.initial_validation || run.executionSource === "codex_browser") {
           const previous = await tx.selectDistinct({ accountId: evidence.creatorAccountId }).from(evidence).where(and(eq(evidence.runId, run.id), eq(evidence.kind, "profile_observation")));
           if (!previous.some(row => row.accountId === account.id) && previous.length >= run.requestedCount) throw new DiscoveryError(429, "quota_exceeded");
         }
@@ -264,7 +273,24 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
       const entries = await tx.select().from(logs).where(and(eq(logs.organizationId, actor.organizationId), eq(logs.runId, run.id), sql`${logs.sequence} > ${data.cursor}`)).orderBy(logs.sequence).limit(data.limit + 1);
       const facts = await tx.select().from(evidence).where(and(eq(evidence.organizationId, actor.organizationId), eq(evidence.runId, run.id))).orderBy(evidence.recordedAt, evidence.id).limit(data.limit + 1).offset(data.evidence_cursor);
       await tx.insert(auditEvents).values({ organizationId: actor.organizationId, actorId: actor.userId, entityId: run.id, action: "discovery.run_read" });
-      return { ...wireRun(run), counts: await summary(tx, run), logs: entries.slice(0, data.limit), next_cursor: entries.length > data.limit ? entries[data.limit - 1].sequence : null, evidence: facts.slice(0, data.limit), next_evidence_cursor: facts.length > data.limit ? data.evidence_cursor + data.limit : null, work_connection: "unverified" };
+      const browserReviews = run.executionSource === "codex_browser" ? await tx.select().from(browserRunReviews).where(and(eq(browserRunReviews.organizationId, actor.organizationId), eq(browserRunReviews.runId, run.id))).orderBy(desc(browserRunReviews.createdAt), desc(browserRunReviews.id)) : [];
+      return { ...wireRun(run), counts: await summary(tx, run), browser_execution_accepted: browserExecutionAccepted(run, browserReviews), browser_reviews: browserReviews, logs: entries.slice(0, data.limit), next_cursor: entries.length > data.limit ? entries[data.limit - 1].sequence : null, evidence: facts.slice(0, data.limit), next_evidence_cursor: facts.length > data.limit ? data.evidence_cursor + data.limit : null, work_connection: "unverified" };
+    }),
+    reviewBrowserExecution: (actor: DiscoveryActor, input: unknown) => transaction(async tx => {
+      const data = reviewRunInput.omit({ verdict: true }).extend({ verdict: z.enum(["accepted", "rejected", "needs_review"]), browser_evidence_checked: z.boolean() }).parse(input);
+      if (actor.reauthorize || actor.principalId !== actor.userId) throw new DiscoveryError(403, "staff_review_required");
+      const run = await loadRun(tx, actor, data.run_id, "discovery:read", true);
+      if (data.campaign_id && data.campaign_id !== run.campaignId) return denied();
+      await authorize(tx, actor, run.campaignId, "discovery:observe");
+      if (run.executionSource !== "codex_browser" || run.status !== "awaiting_review" || run.lockVersion !== data.expected_lock_version) throw new DiscoveryError(409, "stale_context");
+      const counts = await summary(tx, run);
+      if (data.verdict === "accepted" && (!data.browser_evidence_checked || !counts.discovered || !counts.native_searches)) throw new DiscoveryError(409, "browser_execution_evidence_required");
+      const [review] = await tx.insert(browserRunReviews).values({ ...fields(run), contextSha256: run.contextSha256, environmentSha256: run.environmentSnapshot.environment_sha256, verdict: data.verdict, reason: data.reason, reviewedBy: actor.userId }).returning();
+      await tx.update(runs).set({ lockVersion: run.lockVersion + 1, updatedAt: new Date(), updatedBy: actor.userId }).where(eq(runs.id, run.id));
+      const profiles = await tx.select().from(evidence).where(and(eq(evidence.organizationId, actor.organizationId), eq(evidence.runId, run.id), eq(evidence.kind, "profile_observation")));
+      for (const row of profiles) await projectAccountReview(tx, actor, row);
+      await tx.insert(auditEvents).values({ organizationId: actor.organizationId, actorId: actor.userId, entityId: review.id, action: `discovery.browser_execution_${data.verdict}` });
+      return { review_id: review.id, verdict: review.verdict };
     }),
     reviewEvidence: (actor: DiscoveryActor, input: unknown) => transaction(async tx => {
       const data = reviewEvidenceInput.parse(input);

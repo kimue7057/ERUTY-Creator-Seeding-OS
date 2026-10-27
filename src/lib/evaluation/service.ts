@@ -7,6 +7,8 @@ import {creatorEvaluations as evaluations,evaluationReviews as reviews,evaluatio
 import type {ActorScope} from "../auth/permissions";
 import {discoveryHash} from "../discovery/contracts";
 import {EvaluationError,validateScores,evaluationOutput,evaluationReason,RUBRIC} from "./contracts";
+import {browserRunReviews} from "../db/browser-schema";
+import {browserExecutionAccepted} from "../discovery/browser-review";
 type Tx=Parameters<Parameters<typeof db.transaction>[0]>[0];
 const uuid=z.uuid(),hash=z.string().regex(/^[a-f0-9]{64}$/);
 async function member(tx:Tx,actor:ActorScope,write=false){
@@ -21,16 +23,18 @@ async function context(tx:Tx,actor:ActorScope,campaignId:string,accountId:string
  if(!campaign||!link||!account)throw new EvaluationError("evaluation_not_found");
  const [brief]=await tx.select().from(campaignBriefRevisions).where(and(eq(campaignBriefRevisions.organizationId,actor.organizationId),eq(campaignBriefRevisions.campaignId,campaignId),eq(campaignBriefRevisions.version,campaign.briefVersion)));
  if(!brief)throw new EvaluationError("evaluation_brief_missing");
- const evidence=await tx.select({e:discoveryEvidence,source:discoveryRuns.executionSource}).from(discoveryEvidence).innerJoin(discoveryRuns,and(eq(discoveryRuns.organizationId,discoveryEvidence.organizationId),eq(discoveryRuns.id,discoveryEvidence.runId)))
+ const evidence=await tx.select({e:discoveryEvidence,source:discoveryRuns.executionSource,run:discoveryRuns}).from(discoveryEvidence).innerJoin(discoveryRuns,and(eq(discoveryRuns.organizationId,discoveryEvidence.organizationId),eq(discoveryRuns.id,discoveryEvidence.runId)))
  .where(and(eq(discoveryEvidence.organizationId,actor.organizationId),eq(discoveryEvidence.campaignId,campaignId),eq(discoveryEvidence.creatorAccountId,accountId))).orderBy(discoveryEvidence.id).limit(101);
  if(evidence.length>100)throw new EvaluationError("evaluation_evidence_limit");
  const ids=evidence.map(r=>r.e.id);
+ const browserRunIds=[...new Set(evidence.filter(r=>r.source==="codex_browser").map(r=>r.e.runId))];
+ const browserReviews=browserRunIds.length?await tx.select().from(browserRunReviews).where(and(eq(browserRunReviews.organizationId,actor.organizationId),inArray(browserRunReviews.runId,browserRunIds))):[];
  const verdicts=ids.length?await tx.selectDistinctOn([discoveryEvidenceReviews.evidenceId]).from(discoveryEvidenceReviews).where(and(eq(discoveryEvidenceReviews.organizationId,actor.organizationId),inArray(discoveryEvidenceReviews.evidenceId,ids))).orderBy(discoveryEvidenceReviews.evidenceId,desc(discoveryEvidenceReviews.createdAt),desc(discoveryEvidenceReviews.id)):[];
  const snapshot={contract_version:1,campaign_id:campaignId,creator_account_id:accountId,brief_version:campaign.briefVersion,
   brief:{project:brief.snapshot.project,products:brief.snapshot.products,assets:brief.snapshot.assets.map(a=>({id:a.id,name:a.name,version:a.version,sha256:a.sha256??null}))},
   targeting:{country_codes:campaign.countryCodes,platforms:campaign.platforms,categories:campaign.categories,follower_min:campaign.followerMin,follower_max:campaign.followerMax,notes:campaign.notes,exclusions:campaign.exclusions},
   creator:{platform:account.platform,handle:account.currentHandle,display_name:account.displayName,profile_url:account.canonicalProfileUrl,verification_state:link.discoveryState},
-  evidence:evidence.map(({e,source})=>({id:e.id,kind:e.kind,source_url:e.sourceUrl,observed_at:e.observedAt.toISOString(),published_at:e.publishedAt?.toISOString()??null,payload_sha256:e.payloadSha256,method:e.observationMethod,execution_source:source,facts:e.facts,limitations:e.limitations,review:verdicts.find(r=>r.evidenceId===e.id)?.verdict??"unreviewed"})),
+  evidence:evidence.map(({e,source,run})=>({id:e.id,kind:e.kind,source_url:e.sourceUrl,observed_at:e.observedAt.toISOString(),published_at:e.publishedAt?.toISOString()??null,payload_sha256:e.payloadSha256,method:e.observationMethod,execution_source:source,...(source==="codex_browser"?{browser_execution_reviewed:browserExecutionAccepted(run,browserReviews),browser_execution_review_ids:browserReviews.filter(r=>r.runId===run.id).map(r=>r.id).sort()}:{}),facts:e.facts,limitations:e.limitations,review:verdicts.find(r=>r.evidenceId===e.id)?.verdict??"unreviewed"})),
   limitations:["Creator country is not audience country. Audience geography has not been independently verified.","Missing/rounded metrics must stay missing/rounded. Model scores are inferences, not new SNS observations."],rubric:RUBRIC};
  return {campaign,link,snapshot,input_sha256:discoveryHash(snapshot),ready_for_step4:link.discoveryState==="direct_sns_verified"};
 }
@@ -48,7 +52,8 @@ export function evaluationService(database:Pick<typeof db,"transaction">=db){
    const latest=history[0],latestDecision=decisions.find(d=>d.evaluationId===latest?.id);
    return {...current,history,decisions,can_outreach:!!latest&&latest.inputSha256===current.input_sha256&&current.ready_for_step4&&latestDecision?.verdict==="approved"};
   }),
-  record:(actor:ActorScope,campaignId:string,accountId:string,input:{input_sha256:string;idempotency_key:string;output:unknown;model:string},source:"work_import"|"openai_api"="work_import")=>transaction(async tx=>{
+  record:(actor:ActorScope,campaignId:string,accountId:string,input:{input_sha256:string;idempotency_key:string;output:unknown;model:string},source:"work_import"|"codex_import"|"openai_api"="work_import")=>transaction(async tx=>{
+   z.enum(["work_import","codex_import","openai_api"]).parse(source);
    hash.parse(input.input_sha256);uuid.parse(input.idempotency_key);z.string().trim().min(1).max(150).parse(input.model);
    const payload=discoveryHash({...input,source,campaignId,accountId});
    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${actor.organizationId}),hashtext(${actor.userId+input.idempotency_key}))`);
@@ -91,7 +96,7 @@ export function evaluationService(database:Pick<typeof db,"transaction">=db){
     if(current.campaign.status==="archived"||row.id!==rows[0].id||row.inputSha256!==current.input_sha256)throw new EvaluationError("evaluation_stale_input");
     if(!current.ready_for_step4)throw new EvaluationError("evaluation_discovery_pending");
     const used=Object.values(row.output.criteria).flatMap(c=>c.evidence_ids);
-    if(!used.length||used.some(id=>!current.snapshot.evidence.some(e=>e.id===id&&e.review==="accepted"&&e.execution_source==="work_manual_task"&&e.method==="sns_browser")))throw new EvaluationError("evaluation_evidence_not_reviewed");
+    if(!used.length||used.some(id=>!current.snapshot.evidence.some(e=>e.id===id&&e.review==="accepted"&&(e.execution_source==="work_manual_task"||e.execution_source==="codex_browser"&&e.browser_execution_reviewed)&&e.method==="sns_browser")))throw new EvaluationError("evaluation_evidence_not_reviewed");
     if(!data.unknowns_acknowledged)throw new EvaluationError("evaluation_unknowns_acknowledgement_required");
    }
    const [decision]=await tx.insert(reviews).values({organizationId:actor.organizationId,evaluationId:row.id,verdict:data.verdict,reason:data.reason,unknownsAcknowledged:data.unknowns_acknowledged?"yes":"no",idempotencyKey:data.idempotency_key,payloadSha256:payload,createdBy:actor.userId}).returning();await tx.insert(auditEvents).values({organizationId:actor.organizationId,actorId:actor.userId,entityId:decision.id,action:`evaluation.${data.verdict}`});return decision;

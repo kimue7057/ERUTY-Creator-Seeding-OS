@@ -1,4 +1,4 @@
--- Operator applies AFTER creating a dedicated LOGIN role and migrations 0000–0008.
+-- Operator applies AFTER creating a dedicated LOGIN role and migrations 0000–0011.
 -- Supply the role password only through a private operator session, never in this file/CI.
 -- This file creates no role, credentials, memberships, grants or capability attestations.
 DO $$ BEGIN EXECUTE format('GRANT CONNECT ON DATABASE %I TO eruty_discovery_runtime', current_database()); END $$;
@@ -18,3 +18,6 @@ GRANT UPDATE(status,started_at,submitted_at,outcome_summary,limitations,lock_ver
 GRANT UPDATE(platform_account_id,identity_state,canonical_profile_url,current_handle,display_name,last_seen_at,updated_by,updated_at) ON creator_accounts TO eruty_discovery_runtime;
 GRANT UPDATE(valid_to) ON creator_account_aliases TO eruty_discovery_runtime;
 GRANT UPDATE(discovery_state,updated_by,updated_at) ON campaign_creators TO eruty_discovery_runtime;
+-- Dashboard creates requests and staff reviews. Runtime can only claim/attach requests.
+GRANT SELECT ON discovery_browser_requests,discovery_browser_run_reviews TO eruty_discovery_runtime;
+GRANT UPDATE(state,claimed_by,claimed_at,expires_at,browser_surface,execution_reference,authorization_sha256,run_id,updated_at) ON discovery_browser_requests TO eruty_discovery_runtime;

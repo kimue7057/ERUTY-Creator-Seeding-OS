@@ -1,8 +1,34 @@
-# Codex direct browser pilot
+# Codex direct browser discovery
+
+## Dashboard request workflow
+
+The 2026-10-27 extension adds a real request queue and scoped collection of 1–20 distinct accounts per platform. In campaign discovery, save a request, copy its execution instructions into Codex, then use the installed discovery skill. The dashboard does not automatically launch a Codex session or browser. Requests preserve the targeting/context hash; a changed campaign requires a new request. Cancellation preserves observations and prevents further collection. A claim lasts at most four hours and can be replayed by the same operator/execution without issuing another run.
+
+Enable `CODEX_DISCOVERY_ENABLED=true` for both the dashboard and restricted local runtime. Apply migration `0011` after backup; reapply `staging/discovery/runtime-grants.sql` to the existing restricted runtime role. It can read/claim/attach requests, but cannot create dashboard requests or human reviews. No old Work grants, memberships or capability receipts are changed.
+
+Create a private operator identity file inside `.local/discovery/codex-browser/` containing only `organization_id` and `user_id` of the current operator. This is a local process adapter, not an HTTP credential. All calls check current membership/role. For commands below, replace the placeholder paths/IDs with actual private files and the dashboard's returned request ID:
+
+```powershell
+node --env-file=.local/discovery/codex-browser/runtime.env --import tsx scripts/codex-discovery.ts requests .local/discovery/codex-browser/operator.json
+node --env-file=.local/discovery/codex-browser/runtime.env --import tsx scripts/codex-discovery.ts claim .local/discovery/codex-browser/operator.json <request-id> iab <private-execution-reference>
+node --env-file=.local/discovery/codex-browser/runtime.env --import tsx scripts/codex-discovery.ts context <returned-authorization-file>
+node --env-file=.local/discovery/codex-browser/runtime.env --import tsx scripts/codex-discovery.ts collect <returned-authorization-file> <candidate-batch-file>
+node --env-file=.local/discovery/codex-browser/runtime.env --import tsx scripts/codex-discovery.ts submit <returned-authorization-file> <submission-manifest-file>
+```
+
+Each candidate batch uses the format described below, with `prepare_key` equal to the dashboard request ID and without `submit_key`. Use new stable log/observation keys per candidate. `collect` validates all captures before writing, records the candidate and reports `lock_version`, distinct-account counts and remaining slots. Exact replay creates no duplicate observations. A failure-only batch has only failed/blocked logs, no observation and no artifacts. It never creates a creator.
+
+The submission manifest contains `prepare_key`, `submit_key`, `expected_lock_version` (from the latest collection), `outcome` (`submitted`, `partial`, `blocked` or `failed`) and `limitations`. Preserve this file and keys for lost-acknowledgement replay. Submission means awaiting human review, even when the requested count was reached.
+
+Human review has two independent requirements: accept the original profile/content evidence, and review the browser execution from actual SNS searches/captures. The run page records execution-review verdict/reason separately and binds it to the immutable context/environment. Neither hashes nor an ordinary evidence acceptance alone attest execution. Unreviewed/synthetic/manual sources cannot pass. Once both checks pass, STEP 4 can use these candidates; an actual Codex evaluation JSON can be imported as `codex_import`, distinct from Work. Final approval still requires a current evaluation, reviewed cited evidence and acknowledged unknowns. A new execution review invalidates older evaluation input hashes. Nothing sends messages or executes outreach.
+
+Acceptance checks: request idempotency and tenant/role scoping; changed-context/cancelled/forged claims rejected; sequential two-candidate collection, capture tampering and lost-response replay checked under a restricted role; original-evidence plus execution review gates evaluation approval; later review invalidates approval. Integration fixtures are synthetic and isolated, never proof of actual SNS discovery.
+
+## Preserved single-candidate pilot
 
 The user authorized a Work-free desktop Codex browser pilot on 2026-10-27. Keep the approved product/SNS-native search requirements and historical Work evidence. This adapter adds `codex_browser`; it never claims `work_manual_task` or changes the approved PRD. Terminal Codex CLI still needs separate browser tooling.
 
-The initial scope is one real candidate, original native search/profile/content captures, core-service persistence, immediate read-back, independent verifier and dashboard comparison. No outreach, capability attestation, automatic final approval or Work/Tunnel changes. Codex browser runs remain pending even after ordinary evidence acceptance; broader provenance-review support is deferred explicitly.
+The initial scope was one real candidate, original native search/profile/content captures, core-service persistence, immediate read-back, independent verifier and dashboard comparison. Existing runs remain pending until the new explicit human execution review; the migration never approves them automatically. No outreach, Work capability attestation, automatic final approval or Work/Tunnel changes.
 
 Apply additive migration `0010` after a private DB/roles backup. It appends one nullable browser trace column and a new execution-source constraint, leaving old rows and migration hashes untouched. Existing restricted Discovery runtime and verifier table privileges cover the new column. Do not run tests/seed against the operating database. Run the CLI with a restricted runtime connection, never the owner connection. Local authorization is a private operator-issued file, not an HTTP credential or public MCP tool. Existing Work grant/capability rules are unchanged.
 
