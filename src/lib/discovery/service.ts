@@ -13,6 +13,7 @@ export type DiscoveryActor = ActorScope & {
   principalId: string; executionSource: typeof DISCOVERY_SOURCES[number]; environmentSha256: string;
   campaignIds?: readonly string[];
   requestId?: string;
+  localBrowser?: { platform: typeof import("../db/discovery-schema").DISCOVERY_PLATFORMS[number]; surface: "iab" | "chrome"; executionReference: string };
   reauthorize?: (tx: DiscoveryTransaction, campaignId: string, scope: DiscoveryScope) => Promise<void>;
 };
 type Run = typeof runs.$inferSelect;
@@ -31,6 +32,7 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
     return action(tx);
   });
   async function authorize(tx: Tx, actor: DiscoveryActor, campaignId: string, scope: DiscoveryScope) {
+    if (actor.executionSource === "codex_browser" && (!actor.localBrowser || !actor.reauthorize)) throw new DiscoveryError(403, "local_browser_authorization_required");
     const [member] = await tx.select().from(memberships).where(and(eq(memberships.organizationId, actor.organizationId), eq(memberships.userId, actor.userId))).for("share");
     if (!member || actor.campaignIds && !actor.campaignIds.includes(campaignId)) return denied();
     if (scope !== "discovery:read" && member.role === "reviewer") throw new DiscoveryError(403, "insufficient_scope");
@@ -121,6 +123,11 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
         if (!campaign.platforms.includes(data.platform) || campaign.status === "archived") throw new DiscoveryError(400, "targeting_platform_mismatch");
         let capabilityId: string | null = null;
         let initialValidation = false;
+        if (actor.executionSource === "codex_browser") {
+          if (data.work_task_reference || data.platform !== actor.localBrowser?.platform || data.requested_count !== 1) throw new DiscoveryError(403, "local_browser_scope_denied");
+          const [{ used }] = await tx.select({ used: sql<number>`count(*)::int` }).from(runs).where(and(eq(runs.organizationId, actor.organizationId), eq(runs.executionSource, "codex_browser"), sql`${runs.environmentSnapshot}->>'local_authorization_id' = ${actor.principalId}`));
+          if (used) throw new DiscoveryError(409, "local_browser_authorization_consumed");
+        }
         if (actor.executionSource === "work_manual_task") {
           if (!data.work_task_reference) throw new DiscoveryError(400, "work_trace_required");
           const checks = await tx.select().from(capabilities).where(and(eq(capabilities.organizationId, actor.organizationId), eq(capabilities.platform, data.platform), eq(capabilities.environmentSha256, actor.environmentSha256))).orderBy(desc(capabilities.createdAt));
@@ -143,7 +150,7 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
         const [{ count }] = await tx.select({ count: sql<number>`count(*)::int` }).from(runs).where(and(eq(runs.organizationId, actor.organizationId), eq(runs.campaignId, campaign.id)));
         if (count >= 1000) throw new DiscoveryError(429, "quota_exceeded");
         const current = await context(tx, actor, { contract_version: 1, campaign_id: campaign.id });
-        const [run] = await tx.insert(runs).values({ organizationId: actor.organizationId, projectId: campaign.projectId, campaignId: campaign.id, briefVersion: current.brief_version, platform: data.platform, executionSource: actor.executionSource, targetingSnapshot: current.targeting_snapshot, targetingSha256: current.targeting_sha256, contextSha256: current.context_sha256, requestedCount: data.requested_count, timeBudgetSeconds: data.time_budget_seconds, workTaskReference: data.work_task_reference, capabilityReceiptId: capabilityId, environmentSnapshot: { environment_sha256: actor.environmentSha256, work_connection: actor.executionSource === "work_manual_task" && !initialValidation ? "reviewed" : "unverified", ...(initialValidation ? { initial_validation: true } : {}) }, createdBy: actor.userId, updatedBy: actor.userId }).returning();
+        const [run] = await tx.insert(runs).values({ organizationId: actor.organizationId, projectId: campaign.projectId, campaignId: campaign.id, briefVersion: current.brief_version, platform: data.platform, executionSource: actor.executionSource, targetingSnapshot: current.targeting_snapshot, targetingSha256: current.targeting_sha256, contextSha256: current.context_sha256, requestedCount: data.requested_count, timeBudgetSeconds: data.time_budget_seconds, workTaskReference: data.work_task_reference, capabilityReceiptId: capabilityId, environmentSnapshot: { environment_sha256: actor.environmentSha256, work_connection: actor.executionSource === "work_manual_task" && !initialValidation ? "reviewed" : "unverified", ...(initialValidation ? { initial_validation: true } : {}), ...(actor.executionSource === "codex_browser" && actor.localBrowser ? { browser_connection: "unverified" as const, browser_surface: actor.localBrowser.surface, local_authorization_id: actor.principalId, execution_reference: actor.localBrowser.executionReference } : {}) }, createdBy: actor.userId, updatedBy: actor.userId }).returning();
         return wireRun(run);
       });
     }),
@@ -193,6 +200,8 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
         if (!search || !["native_search", "supplemental_web"].includes(search.eventType)) return denied();
         if (data.profile.opened_directly && search.outcome !== "success") throw new DiscoveryError(400, "search_not_successful");
         if (run.executionSource === "work_manual_task" && !data.work_trace_reference) throw new DiscoveryError(400, "work_trace_required");
+        if (run.executionSource === "codex_browser" && (!data.browser_trace_reference || data.work_trace_reference || !data.profile.opened_directly || !data.contents.some(content => content.opened_directly))) throw new DiscoveryError(400, "browser_trace_required");
+        if (run.executionSource !== "codex_browser" && data.browser_trace_reference) throw new DiscoveryError(400, "unexpected_browser_trace");
         const [{ count }] = await tx.select({ count: sql<number>`count(*)::int` }).from(evidence).where(and(eq(evidence.runId, run.id), eq(evidence.kind, "profile_observation")));
         if (count >= run.requestedCount * 3) throw new DiscoveryError(429, "quota_exceeded");
         await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${actor.organizationId}), hashtext(${run.platform}))`);
@@ -223,7 +232,7 @@ export function discoveryService(database: Pick<typeof db, "transaction"> = db) 
           category: data.profile.categories.length === 0 ? "unknown" : data.profile.categories.some(c => run.targetingSnapshot.categories.includes(c)) ? "match" : "outside",
         };
         const method: typeof evidence.$inferInsert.observationMethod = run.executionSource === "codex_test" ? "codex_test" : run.executionSource === "manual_import" ? "manual_import" : data.profile.opened_directly ? "sns_browser" : "supplemental_web";
-        const common = { ...fields(run), creatorAccountId: account.id, platform: run.platform, observationMethod: method, profileUrl: identity.url, limitations: data.profile.limitations, searchLogId: search.id, workTraceReference: data.work_trace_reference, payloadSha256: discoveryHash(normalized), createdBy: actor.userId };
+        const common = { ...fields(run), creatorAccountId: account.id, platform: run.platform, observationMethod: method, profileUrl: identity.url, limitations: data.profile.limitations, searchLogId: search.id, workTraceReference: data.work_trace_reference, browserTraceReference: data.browser_trace_reference ?? null, payloadSha256: discoveryHash(normalized), createdBy: actor.userId };
         const [profile] = await tx.insert(evidence).values({ ...common, kind: "profile_observation", sourceUrl: identity.url, observedAt: observed, supersedesId: data.supersedes_evidence_id, facts: { schema_version: 1, opened_directly: data.profile.opened_directly, identity: { handle: data.identity.handle?.replace(/^@/, "") ?? identity.handle, display_name: data.identity.display_name, platform_account_id: stableId }, metrics: data.profile.metrics, note: data.profile.match_notes, country: data.profile.country, categories: data.profile.categories, audience_country: "unknown", targeting } }).returning();
         const ids = [profile.id];
         for (const content of data.contents) {
