@@ -11,6 +11,7 @@
 | discovery-00 | 실제 Work의 SNS 방문/내부 검색 및 MCP 쓰기 실증 | 미검증 | 해당 없음 | PHASE-0-SNS-SPIKE; 실제 Work에서 별도 실행 |
 | discovery-00-prep | Phase 0 플랫폼별 체크리스트, STEP 3 DB/MCP 계약, PR 병합·운영 점검과 작은 PR 계획 | 문서 준비 완료 / 실제 Work 실증 미실행 | docs/discovery-00-prep | #4 기준 문서 전용. [시작 계획](STEP-3-PR-PLAN.md) |
 | discovery-probe-01 | 최소 원격 MCP 3도구, 전용 synthetic 조직/grant, JWT/현재 권한·멱등성·감사/DB read-back | 구현/로컬·CI 검사 완료, Draft #6 / hosted Work·스테이징 미실행 | feat/discovery-probe-01 | 미병합 #5 기준. 단위 8건/통합 19건/브라우저 4건·두 빌드 통과. [구현·검증 경계](DISCOVERY-PROBE-01.md) |
+| evaluation-01 | 고정 배점·근거/입력 hash·평가 초안·담당자 승인/보류/제외·선택 AI 공급자 | 구현, 검증 및 운영 반영 상태는 해당 PR/실행 영수증 참조 | feat/evaluation-01 | feat/discovery-operating-approval 위에 쌓음. [수용 범위·마이그레이션·검증 경계](EVALUATION-01.md) |
 
 ## 구현 결정
 

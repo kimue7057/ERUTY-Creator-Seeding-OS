@@ -19,6 +19,7 @@ export default async function DiscoveryCreator({ params, searchParams }: { param
   return <><div className="mb-5 text-xs muted"><Link href={`/campaigns/${id}/discovery`}>발굴 기록</Link> / 크리에이터 근거</div>
     <PageHeading eyebrow="Step 03 · Creator evidence" title={name} description={`${platformLabel(data.account.platform)} · 계정별 원본 관찰과 검토 이력입니다.`} />
     <div className="flex gap-2 items-center mb-7"><VerificationBadge state={data.link.discoveryState} /><span className="muted text-xs">동일 계정의 과거 관찰을 덮어쓰지 않습니다.</span></div>
+    {process.env.EVALUATION_ENABLED==="true"&&<Link className="btn mb-5" href={`/evaluations/${id}/${accountId}`}>캠페인별 평가 · 승인 →</Link>}
     {!canWrite(actor) && <p className="info-banner">현재 계정은 조회 전용입니다. 근거 검토는 관리자·캠페인 매니저가 수행합니다.</p>}
     {data.evidence.length ? <div className="stack">{data.evidence.map(({ evidence, source, runStatus, briefVersion }) => <article className="surface panel-body evidence-card" key={evidence.id}>
       <header className="evidence-card-heading"><div><h2>{evidence.kind === "profile_observation" ? "프로필 관찰" : "게시물 관찰"}</h2><div className="flex gap-2 mt-3"><SourceBadge source={source} /><span className="badge">브리프 v{briefVersion}</span></div></div><Link className="btn" href={`/campaigns/${id}/discovery/runs/${evidence.runId}`}>작업 기록 →</Link></header>

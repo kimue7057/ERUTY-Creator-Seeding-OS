@@ -11,7 +11,7 @@ import { discoveryOperatingApprovals as approvals, discoveryOperatingCampaigns a
 import { approveDiscoveryOperation, revokeDiscoveryOperation } from "../../src/lib/discovery/operating-approval";
 import { discoveryAccess } from "../../src/lib/discovery/mcp-access";
 import { discoveryEnvironmentHash, discoveryMcpConfig, DISCOVERY_SCOPES } from "../../src/lib/discovery/mcp-config";
-import { provisionDiscoveryGrant } from "../../src/lib/discovery/provision";
+import { provisionDiscoveryGrant,authorizeInitialDiscoveryRun } from "../../src/lib/discovery/provision";
 import { discoveryService } from "../../src/lib/discovery/service";
 import { prepareSample } from "../discovery-samples";
 import { DiscoveryError } from "../../src/lib/discovery/contracts";
@@ -33,6 +33,21 @@ const inputFor = (organizationId: string, userId: string, campaignId: string) =>
     reason: "SYNTHETIC isolated authorization regression; no hosted Work or SNS", idempotency_key: randomUUID(), confirmation: "approve-bounded-discovery-operation" };
 };
 const identityFor = (organizationId: string) => ({ issuer: configFor(organizationId).issuer, subject: "synthetic-operating-user", scopes: [...DISCOVERY_SCOPES], expiresAt: Date.now() / 1000 + 300 });
+
+test("explicit initial operating observation stays one-run/campaign/platform bounded and unverified without reviving legacy grants",async()=>{
+ await withDiscoveryDatabase(async({database,client,actor,reader,campaign})=>{
+  const a=await campaign(),config=configFor(actor.organizationId),approved=await approveDiscoveryOperation(inputFor(actor.organizationId,actor.userId,a.id),config,database);
+  const input={organization_id:actor.organizationId,user_id:actor.userId,grant_id:approved.approval_id,campaign_id:a.id,platform:"instagram",environment_sha256:discoveryEnvironmentHash(config),max_creators:3,expires_at:new Date(Date.now()+3600000).toISOString(),private_evidence_sha256:"b".repeat(64),confirmation:"authorize-one-unverified-Work-run"};
+  const receipt=await authorizeInitialDiscoveryRun(input,database),replay=await authorizeInitialDiscoveryRun(input,database);assert.equal(receipt.authorization_id,replay.authorization_id);assert.equal(replay.replayed,true);
+  await assert.rejects(authorizeInitialDiscoveryRun({...input,user_id:reader.userId},database));await assert.rejects(authorizeInitialDiscoveryRun({...input,max_creators:2},database));await assert.rejects(authorizeInitialDiscoveryRun({...input,expires_at:new Date(Date.now()+5*3600000).toISOString()},database));
+  const who=await discoveryAccess(config,database).actor(identityFor(actor.organizationId)),svc=discoveryService(database);
+  await assert.rejects(svc.prepare(who,{...prepareSample(a.id),requested_count:4,execution_source:"work_manual_task",work_task_reference:"SYNTHETIC no hosted Work"}),code("unverified_capability"));
+  const run=await svc.prepare(who,{...prepareSample(a.id),requested_count:3,execution_source:"work_manual_task",work_task_reference:"SYNTHETIC no hosted Work"});assert.equal(run.environment.initial_validation,true);
+  await assert.rejects(svc.prepare(who,{...prepareSample(a.id),requested_count:3,execution_source:"work_manual_task",work_task_reference:"SYNTHETIC no hosted Work"}),code("initial_validation_consumed"));
+  assert.equal((await client.query("select count(*)::int n from discovery_mcp_grants")).rows[0].n,0);assert.equal((await client.query("select count(*)::int n from discovery_capability_receipts where verdict='verified'")).rows[0].n,0);
+  await revokeDiscoveryOperation({organizationId:actor.organizationId,actorId:actor.userId,approvalId:approved.approval_id},database);await assert.rejects(authorizeInitialDiscoveryRun(input,database));
+ });
+});
 
 test("operating approval is explicit, admin/campaign scoped, bounded and concurrently idempotent; history cannot be extended or deleted", async () => {
   await withDiscoveryDatabase(async ({ database, client, actor, other, reader, campaign }) => {
@@ -125,6 +140,7 @@ test("restricted MCP runtime can read an approval but cannot issue, widen, revok
       pool=new pg.Pool({connectionString:url.href,max:2});await assertDiscoveryRuntimeRole(pool,true);
       const runtime=drizzle(pool,{schema:baseSchema}), who=await discoveryAccess(config,runtime).actor(identityFor(actor.organizationId));
       assert.equal((await discoveryService(runtime).getContext(who,{contract_version:1,campaign_id:a.id})).campaign_id,a.id);
+      for(const table of ['creator_evaluations','creator_evaluation_reviews','evaluation_requests'])await assert.rejects(pool.query(`select * from ${table}`),(e:unknown)=>(e as {code:string}).code==='42501');
       await assert.rejects(pool.query("update discovery_operating_approvals set revoked_at=now()"),(e:unknown)=>(e as {code:string}).code==='42501');
       await assert.rejects(pool.query("update discovery_operating_approvals set expires_at=now()+interval '7 days'"),(e:unknown)=>(e as {code:string}).code==='42501');
       await assert.rejects(approveDiscoveryOperation({...input,idempotency_key:randomUUID(),subject:'runtime-cannot-self-enroll'},config,runtime));
