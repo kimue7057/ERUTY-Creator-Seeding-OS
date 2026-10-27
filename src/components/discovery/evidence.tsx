@@ -10,6 +10,7 @@ export function EvidenceFacts({ row }: { row: typeof discoveryEvidence.$inferSel
     </dl>
     {row.facts.metrics.length ? <div className="evidence-metrics">{row.facts.metrics.map(metric => <div key={metric.name}><span className="muted text-xs">{metricLabels[metric.name]}</span><strong><FollowerValue value={metric.value} precision={metric.precision} /></strong><span className="text-xs muted">표시 원문: {metric.raw_display ?? "확인 불가"}</span><span className="text-[10px] muted"><Timestamp value={metric.observed_at} /></span><SourceLink url={metric.source_url} label="지표 출처" /></div>)}</div> : <p className="description">공개 지표 미확인</p>}
     {row.limitations.length > 0 && <div className="evidence-limitations"><strong>확인 제약</strong><ul>{row.limitations.map((text, i) => <li key={i}>{text}</li>)}</ul></div>}
+    {row.browserTraceReference && /^\/api\/discovery\/browser\/captures\/[a-f0-9-]{36}$/.test(row.browserTraceReference) && <a className="source-link" href={row.browserTraceReference} target="_blank" rel="noreferrer">검색·프로필·콘텐츠 원본 캡처 확인 →</a>}
     <details className="evidence-technical"><summary>근거 식별 정보</summary><dl><dt>Evidence ID</dt><dd>{row.id}</dd><dt>Payload SHA-256</dt><dd>{row.payloadSha256}</dd><dt>이전 근거 정정</dt><dd>{row.supersedesId ?? "없음"}</dd></dl></details>
   </>;
 }

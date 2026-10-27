@@ -16,6 +16,7 @@ async function member(tx: DiscoveryTransaction, actor: ActorScope, write = false
   if (!row || write && row.role === "reviewer") throw new DiscoveryError(403, "insufficient_scope");
 }
 export function browserRequestPrompt(id: string) {
+  if (process.env.APP_ORIGIN?.startsWith("https://")) return `$eruty-codex-discovery 스킬로 ${new URL(process.env.APP_ORIGIN).origin}의 발굴 요청 ${id}를 진행해 주세요. docs/REMOTE-CODEX-DISCOVERY.md를 읽고 HTTPS 원격 CLI로 로그인·requests/claim/context를 실행하세요. DB 비밀번호는 필요 없습니다. 실제 SNS 내부 검색·프로필·최근 콘텐츠를 직접 확인하고 원본 캡처와 함께 collect한 뒤 submit해 주세요. 이 요청 저장만으로 Codex나 브라우저가 자동 실행되지는 않습니다. 목표를 채우려고 후보나 지표를 만들지 말고, 사람의 검토·승인과 외부 연락은 수행하지 마세요.`;
   return `$eruty-codex-discovery 스킬로 발굴 요청 ${id}를 진행해 주세요. 실제 구현 저장소에서 requests/claim 명령으로 요청과 고정 캠페인 조건을 읽고, SNS 내부 검색·프로필·최근 콘텐츠를 직접 확인해 collect로 후보를 순차 저장한 뒤 submit해 주세요. 접근 실패는 그대로 기록하고, 목표를 채우려고 후보나 지표를 만들지 마세요. 사람의 근거 검토·실행 검토·최종 승인과 외부 연락은 수행하지 마세요.`;
 }
 export function browserRequestService(database: Pick<typeof db, "transaction"> = db) {

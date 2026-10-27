@@ -85,6 +85,20 @@
       "when": 1793094000000,
       "tag": "0011_codex_discovery_workflow",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793102000000,
+      "tag": "0012_remote_browser_discovery",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793103000000,
+      "tag": "0013_remote_capture_scope",
+      "breakpoints": true
     }
   ]
 }

@@ -26,6 +26,8 @@
 - `contracts`, `deliverables`, `performance_snapshots`, `campaign_reports`, `audit_events`
 
 ## Work browser integration: explicit uncertainty
+
+현재 Codex 실행 경로는 [원격 Codex 안내](REMOTE-CODEX-DISCOVERY.md)를 따른다. Vercel 웹앱/Neon DB가 캠페인과 요청을 공유하고, 각 PC의 Codex 데스크톱 브라우저가 SNS 내부 탐색을 수행한다. 발굴 전용 HTTPS API는 토큰·현재 소속/역할·claim 범위를 검증하고 원본 텍스트 캡처를 수정 불가 이력으로 저장한다. Work MCP 경로와 기존 로컬 DB 실행은 별도로 보존한다.
 **Do not assume a supported external API for starting standard ChatGPT Work sessions.**
 
 Path A (Stage-0 baseline): human starts a Work task in ChatGPT, cloud browser navigates to a target SNS. The Work result is written to an ERUTY MCP tool if the environment and connection support the needed write actions; test these permissions and tool calls with a tiny project. If unsupported, use a documented manual verified CSV import as a temporary bridge. Mark data as `manual_import`, never `verified_by_work` without evidence.

@@ -18,6 +18,7 @@ export const browserDiscoveryRequests = pgTable("discovery_browser_requests", {
   foreignKey({ name: "browser_request_claimant_fk", columns: [t.organizationId, t.claimedBy], foreignColumns: [memberships.organizationId, memberships.userId] }),
   foreignKey({ name: "browser_request_run_fk", columns: [t.organizationId, t.projectId, t.campaignId, t.platform, t.runId], foreignColumns: [discoveryRuns.organizationId, discoveryRuns.projectId, discoveryRuns.campaignId, discoveryRuns.platform, discoveryRuns.id] }),
   unique("browser_request_key").on(t.organizationId, t.createdBy, t.idempotencyKey), unique("browser_request_run").on(t.runId),
+  unique("browser_request_capture_scope").on(t.organizationId, t.id, t.runId),
   check("browser_request_bounds", sql`${t.requestedCount} between 1 and 20 and ${t.contextSha256} ~ '^[a-f0-9]{64}$'`),
   check("browser_request_platform", sql`${t.platform} in ('instagram','tiktok','youtube')`),
   check("browser_request_state", sql`${t.state} in ('queued','claimed','cancelled')`),
@@ -36,3 +37,16 @@ export const browserRunReviews = pgTable("discovery_browser_run_reviews", {
   check("browser_review_hash", sql`${t.contextSha256} ~ '^[a-f0-9]{64}$' and ${t.environmentSha256} ~ '^[a-f0-9]{64}$'`),
   index("browser_review_latest").on(t.organizationId, t.runId, t.createdAt),
 ]);
+
+// These credentials authorize only the browser worker API, never dashboard actions.
+export const browserWorkerSessions = pgTable("discovery_browser_sessions", {
+  tokenHash: text("token_hash").primaryKey(), organizationId: uuid("organization_id").notNull(), userId: uuid("user_id").notNull(),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, t => [foreignKey({ columns: [t.organizationId, t.userId], foreignColumns: [memberships.organizationId, memberships.userId] }).onDelete("cascade"), check("browser_session_hash", sql`${t.tokenHash} ~ '^[a-f0-9]{64}$'`), check("browser_session_expiry", sql`${t.expiresAt} > ${t.createdAt} and ${t.expiresAt} <= ${t.createdAt} + interval '8 hours'`)]);
+
+export const browserCaptureBatches = pgTable("discovery_browser_captures", {
+  id: uuid().defaultRandom().primaryKey(), organizationId: uuid("organization_id").notNull(), requestId: uuid("request_id").notNull().references(() => browserDiscoveryRequests.id),
+  runId: uuid("run_id").notNull().references(() => discoveryRuns.id), batchKey: uuid("batch_key").notNull(), payloadSha256: text("payload_sha256").notNull(),
+  originals: jsonb().$type<{ kind: string; sha256: string; content: string }[]>().notNull(),
+  createdBy: uuid("created_by").notNull(), createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+}, t => [unique("browser_capture_batch").on(t.requestId, t.batchKey), foreignKey({ name: "browser_capture_request_scope", columns: [t.organizationId, t.requestId, t.runId], foreignColumns: [browserDiscoveryRequests.organizationId, browserDiscoveryRequests.id, browserDiscoveryRequests.runId] }), foreignKey({ columns: [t.organizationId, t.createdBy], foreignColumns: [memberships.organizationId, memberships.userId] }), check("browser_capture_bounds", sql`${t.payloadSha256} ~ '^[a-f0-9]{64}$' and octet_length(${t.originals}::text) <= 524288`)]);
