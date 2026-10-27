@@ -9,3 +9,5 @@ test-results/
 .local/
 *.tsbuildinfo
 next-env.d.ts
+
+.vercel/
