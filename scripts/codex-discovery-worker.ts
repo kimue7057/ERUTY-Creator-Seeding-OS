@@ -1,6 +1,6 @@
 // Trusted local executor. No database credentials or SNS passwords are consumed.
 import { spawn, type ChildProcess } from "node:child_process";
-import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs";
 import { resolve, relative, isAbsolute } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -21,7 +21,7 @@ async function request(action: string, input: unknown, token?: string) {
 }
 async function authenticate() {
   if (session && Date.parse(session.expires_at) > Date.now() + 300000) return;
-  renewing ??= (async () => { const credentials = z.strictObject({ email: z.email(), password: z.string().min(1), organization_id: z.uuid().optional() }).parse(read(config.credentials_file)); session = z.object({ token: z.string().regex(/^[a-f0-9]{64}$/), expires_at: z.iso.datetime() }).parse(await request("login", credentials)); writeFileSync(connection, JSON.stringify({ origin: base.origin, ...session }, null, 2), { mode: 0o600 }); })().finally(() => { renewing = null; });
+  renewing ??= (async () => { const credentials = z.strictObject({ email: z.email(), password: z.string().min(1), organization_id: z.uuid().optional() }).parse(read(config.credentials_file)); session = z.object({ token: z.string().regex(/^[a-f0-9]{64}$/), expires_at: z.iso.datetime() }).parse(await request("login", credentials)); const temporary = `${connection}.${lease.instance_id}.tmp`; writeFileSync(temporary, JSON.stringify({ origin: base.origin, ...session }, null, 2), { mode: 0o600 }); renameSync(temporary, connection); })().finally(() => { renewing = null; });
   await renewing;
 }
 async function call(action: string, input: unknown) {
