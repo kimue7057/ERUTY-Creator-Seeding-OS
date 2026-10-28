@@ -10,13 +10,13 @@ import { seedShortlistCandidate, goodShortlistEvaluation } from "../shortlist-sa
 import { sampleEvaluation } from "../evaluation-samples";
 import { shortlistService } from "../../src/lib/evaluation/shortlist";
 const client = new Client({ connectionString: process.env.DATABASE_URL }), pool = new Pool({ connectionString: process.env.DATABASE_URL, max: 4 }), database = drizzle(pool, { schema });
-let fixture: Awaited<ReturnType<typeof initializeDiscoveryFixture>>, campaignId: string;
+let fixture: Awaited<ReturnType<typeof initializeDiscoveryFixture>>, campaignId: string, informationId: string;
 const hashes: string[] = [];
 test.beforeAll(async () => {
   if (process.env.E2E_ALLOW_WRITES !== "true" || process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED !== "true" || !["127.0.0.1", "localhost"].includes(new URL(process.env.DATABASE_URL!).hostname)) throw new Error("Explicit isolated automatic shortlist fixture required");
   await client.connect(); fixture = await initializeDiscoveryFixture(database, client);
   const first = await seedShortlistCandidate(fixture); campaignId = first.campaign.id;
-  const second = await seedShortlistCandidate({ ...fixture, campaign: async () => first.campaign });
+  const second = await seedShortlistCandidate({ ...fixture, campaign: async () => first.campaign }); informationId = second.accountId;
   const third = await seedShortlistCandidate({ ...fixture, campaign: async () => first.campaign });
   const fourth = await seedShortlistCandidate({ ...fixture, campaign: async () => first.campaign });
   const svc = shortlistService(database);
@@ -39,35 +39,62 @@ async function signIn(context: BrowserContext, actor: typeof fixture.actor) {
 }
 test("campaign review inbox, focused details, processing states and final selection work on desktop and mobile", async ({ page, context }) => {
   await signIn(context, fixture.actor); await page.goto('/evaluations');
-  await expect(page.getByRole('heading', {name:'검토할 추천 · 1명'})).toBeVisible();
-  await expect(page.getByText('SYNTHETIC insufficient evidence; no real SNS assessment')).toHaveCount(0);
-  await page.getByRole('link', {name:/후보 검토/}).click();
+  await expect(page.getByRole('heading', {name:'검토 대기 · 2명'})).toBeVisible();
+  await expect(page.getByText('SYNTHETIC insufficient evidence; no real SNS assessment')).toBeVisible();
+  await page.getByRole('link', {name:/SYNTHETIC recommended creator/}).click();
   await expect(page.getByRole('dialog')).toBeVisible(); await expect(page).toHaveURL(/candidate=/);
   await page.reload(); await expect(page.getByRole('dialog')).toBeVisible();
   await page.getByRole('button', {name:'후보 상세 닫기'}).click();
   await expect(page.getByRole('dialog')).toHaveCount(0);
-  await expect(page.getByRole('button', {name:'검토할 추천 1',exact:true})).toBeVisible();
+  await expect(page.getByRole('button', {name:'AI 추천 1',exact:true})).toBeVisible();
   await expect(page.getByRole('button', {name:'정보 부족 1',exact:true})).toBeVisible();
+  await page.getByRole('button',{name:'AI 추천 1',exact:true}).click();
   await page.screenshot({path:'test-results/shortlist-desktop.png',fullPage:true});
   await page.getByRole('button', {name:'정보 부족 1',exact:true}).click();
   await expect(page.getByText('SYNTHETIC insufficient evidence; no real SNS assessment')).toBeVisible();
-  await page.getByRole('button', {name:/상세 보기/}).click();
+  await page.getByRole('button', {name:/검토·선정/}).click();
   await expect(page.getByRole('button', {name:'최종 선정',exact:true})).toBeDisabled();
+  // The previously untested user journey: unknown information is not a ban on
+  // an explicit human decision. Both selection and changing it to exclusion persist.
+  await page.getByRole('button',{name:'보류',exact:true}).click();
+  await expect(page.getByText('보류했습니다. 보류 목록에 반영됩니다.')).toBeVisible();
+  expect((await shortlistService(database).board(fixture.actor,campaignId)).candidates.find(c=>c.id===informationId)!.verdict).toBe('hold');
+  await page.getByRole('button',{name:'판정 다시 변경',exact:true}).click();
+  const ack=page.getByRole('checkbox',{name:'평가와 SNS 원본 근거, 미확인 사항을 확인했습니다.'});
+  await ack.check();
+  await expect(page.getByRole('button',{name:'최종 선정',exact:true})).toBeDisabled();
+  await page.getByLabel('선정 사유 · 최종 선정 시 5자 이상 필수').fill('SYNTHETIC human selects despite documented unknowns');
+  await expect(page.getByRole('button',{name:'최종 선정',exact:true})).toBeEnabled();
+  await page.setViewportSize({width:390,height:844});
+  const selectBox=await page.getByRole('button',{name:'최종 선정',exact:true}).boundingBox();
+  expect(selectBox!.y+selectBox!.height).toBeLessThanOrEqual(844);
+  await page.screenshot({path:'test-results/shortlist-human-decision-mobile.png'});
+  await page.getByRole('button',{name:'최종 선정',exact:true}).click();
+  await expect(page.getByText('최종 선정했습니다. 선정 명단에 반영됩니다.')).toBeVisible();
+  await page.waitForTimeout(6500);
+  let reviewed=(await shortlistService(database).board(fixture.actor,campaignId)).candidates.find(c=>c.id===informationId)!;
+  expect(reviewed.verdict).toBe('approved');expect(reviewed.recommendation).toBe('needs_info');expect(reviewed.evaluation!.total).toBeNull();
+  await page.getByRole('button',{name:'판정 다시 변경',exact:true}).click();
+  await page.getByRole('button',{name:'제외',exact:true}).click();
+  await expect(page.getByText('제외했습니다. 제외 목록에 반영됩니다.')).toBeVisible();
+  reviewed=(await shortlistService(database).board(fixture.actor,campaignId)).candidates.find(c=>c.id===informationId)!;
+  expect(reviewed.verdict).toBe('rejected');expect(reviewed.recommendation).toBe('needs_info');
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('button', {name:/상세 보기/})).toBeFocused();
+  await page.setViewportSize({width:1440,height:1000});
+  await expect(page.getByRole('button', {name:/검토·선정/})).toBeFocused();
   await page.getByRole('link', {name:'진행·기록',exact:true}).click();
   await page.getByRole('button', {name:'평가 중 1',exact:true}).click();
   await expect(page.getByText('SNS 원본 근거를 자동 평가하고 있습니다.',{exact:true})).toBeVisible();
   await page.getByRole('button', {name:'평가 중단 1',exact:true}).click();
-  await page.getByRole('button', {name:/상세 보기/}).click();
+  await page.getByRole('button', {name:/검토·선정/}).click();
   await expect(page.getByText('Codex 지출 한도에 도달했습니다.',{exact:false})).toBeVisible();
   await expect(page.getByRole('button', {name:'자동 평가 다시 시도',exact:true})).toBeEnabled();
   await page.keyboard.press('Escape');
-  await page.getByRole('link', {name:'추천 후보 1',exact:true}).click();
+  await page.getByRole('link', {name:'후보 검토 1',exact:true}).click();
   await page.getByLabel('후보 이름 검색').fill('no matching synthetic creator');
   await expect(page.getByRole('heading', {name:'검색 조건에 맞는 후보가 없습니다'})).toBeVisible();
   await page.getByLabel('후보 이름 검색').fill('');
-  const opener=page.getByRole('button', {name:/상세 보기/});
+  const opener=page.getByRole('button', {name:/검토·선정/});
   await opener.click(); await expect(page.getByRole('dialog')).toBeVisible();
   await page.goBack(); await expect(page.getByRole('dialog')).toHaveCount(0);
   await page.goForward(); await expect(page.getByRole('dialog')).toBeVisible();
@@ -85,7 +112,7 @@ test("campaign review inbox, focused details, processing states and final select
   await expect(opener).toBeFocused();
   await page.getByRole('link', {name:'선정 명단 1',exact:true}).click();
   await expect(page.getByRole('heading',{name:'최종 선정 명단',exact:true})).toBeVisible();
-  await page.reload(); await page.getByRole('button',{name:/상세 보기/}).click();
+  await page.reload(); await page.getByRole('button',{name:/검토·선정/}).click();
   await expect(page.getByText('사용자 최종 선정 완료',{exact:true})).toBeVisible();
   await page.getByRole('button',{name:'후보 상세 닫기'}).click();
   await page.setViewportSize({width:320,height:740});
@@ -98,7 +125,7 @@ test("campaign review inbox, focused details, processing states and final select
   await expect(page.getByText('요청을 접수했습니다.',{exact:false})).toBeVisible();
   const queued=await client.query("select requested_count from discovery_browser_requests where organization_id=$1 and campaign_id=$2 and state='queued'",[fixture.actor.organizationId,campaignId]);
   expect(queued.rows.map(r=>r.requested_count)).toEqual([2]);
-  await page.goto('/evaluations'); await expect(page.getByRole('heading',{name:'지금 검토할 추천 후보가 없습니다'})).toBeVisible();
+  await page.goto('/evaluations'); await expect(page.getByRole('heading',{name:'지금 검토 대기 중인 후보가 없습니다'})).toBeVisible();
 });
 
 test("shortlist is read only for reviewers and inaccessible across organizations", async ({ browser }) => {

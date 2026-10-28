@@ -78,8 +78,10 @@ export function shortlistService(database: typeof db = db) {
       const currentEvidence = evidenceMap.get(byAccount(campaign.id, account.id)) ?? [];
       const adverse = currentEvidence.some(e => (evidenceVerdicts.has(e.id) && evidenceVerdicts.get(e.id) !== "accepted") || (runVerdicts.has(e.runId) && runVerdicts.get(e.runId) !== "accepted") || cancelledRuns.has(e.runId));
       const stale = !!snapshot && (job?.inputSnapshot.assessment_stage !== "before_final_human_review" || snapshot.brief_version !== campaign.briefVersion || snapshot.creator.display_name !== account.name || snapshot.creator.handle !== account.handle || snapshot.creator.profile_url !== account.url || discoveryHash(snapshot.targeting) !== discoveryHash({ country_codes: campaign.countryCodes, platforms: campaign.platforms, categories: campaign.categories, follower_min: campaign.followerMin, follower_max: campaign.followerMax, notes: campaign.notes, exclusions: campaign.exclusions }) || currentEvidence.length !== snapshot.evidence.length || currentEvidence.some(e => !snapshot.evidence.some(s => s.id === e.id && s.payload_sha256 === e.payload)));
+      const invalidDecision = stale || adverse && decision?.verdict === "approved";
       return { ...account, assessment_id: job?.id ?? null, state: stale ? "stale" : job?.state ?? "unassessed", error_code: job?.errorCode ?? null, retryable: !stale && job?.state === "failed" && job.attempts < 3,
-        recommendation: adverse ? "needs_info" : job?.recommendation ?? null, verdict: stale || adverse ? null : decision?.verdict ?? null, decision: stale || adverse || !decision ? null : { reason: decision.reason, at: decision.createdAt.toISOString() }, source_warning: adverse, evaluation: evaluation ? { id: evaluation.id, total: evaluation.total, known_subtotal: evaluation.knownSubtotal, unknown_count: evaluation.unknownCount, output: evaluation.output } : null,
+        can_select: !stale && !adverse && campaign.status !== "archived" && job?.state === "completed" && job.sourceEligible === "yes",
+        recommendation: adverse ? "needs_info" : job?.recommendation ?? null, verdict: invalidDecision ? null : decision?.verdict ?? null, decision: invalidDecision || !decision ? null : { reason: decision.reason, at: decision.createdAt.toISOString() }, source_warning: adverse, evaluation: evaluation ? { id: evaluation.id, total: evaluation.total, known_subtotal: evaluation.knownSubtotal, unknown_count: evaluation.unknownCount, output: evaluation.output } : null,
         evidence: snapshot?.evidence.map(e => ({ id: e.id, kind: e.kind, url: e.source_url, observed_at: e.observed_at, facts: e.facts, limitations: e.limitations })) ?? [] };
     }) }));
   }
@@ -156,7 +158,7 @@ export function shortlistService(database: typeof db = db) {
       await tx.update(jobs).set({ state: "queued", errorCode: null, workerId: null, instanceId: null, updatedAt: new Date() }).where(eq(jobs.id, id));
     }),
     review: (actor: ActorScope, campaignId: string, input: unknown) => transaction(async tx => {
-      const data = z.strictObject({ assessment_id: z.uuid(), idempotency_key: z.uuid(), verdict: z.enum(["approved", "hold", "rejected"]), reason: evaluationReason, acknowledged: z.boolean() }).parse(input);
+      const data = z.strictObject({ assessment_id: z.uuid(), idempotency_key: z.uuid(), verdict: z.enum(["approved", "hold", "rejected"]), reason: evaluationReason.or(z.literal("")), acknowledged: z.boolean() }).parse(input);
       await evaluationMember(tx, actor, true);
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${actor.organizationId}),hashtext(${actor.userId + data.idempotency_key}))`);
       const payload = discoveryHash({ ...data, campaignId });
@@ -169,9 +171,10 @@ export function shortlistService(database: typeof db = db) {
       if (current.campaign.status === "archived" || latest.id !== job.id || assessmentFingerprint(current.snapshot) !== job.inputSha256) throw new EvaluationError("evaluation_stale_input");
       if (data.verdict === "approved") {
         if (!data.acknowledged) throw new EvaluationError("evaluation_unknowns_acknowledgement_required");
-        if (job.recommendation !== "recommended" || !await sourceEligible(tx, actor, current)) throw new EvaluationError("evaluation_discovery_pending");
+        if (job.recommendation !== "recommended" && data.reason.trim().length < 5) throw new EvaluationError("evaluation_human_reason_required");
+        if (!await sourceEligible(tx, actor, current)) throw new EvaluationError("evaluation_discovery_pending");
       }
-      const [decision] = await tx.insert(evaluationReviews).values({ organizationId: actor.organizationId, evaluationId: job.evaluationId, verdict: data.verdict, reason: data.reason,
+      const [decision] = await tx.insert(evaluationReviews).values({ organizationId: actor.organizationId, evaluationId: job.evaluationId, verdict: data.verdict, reason: data.reason || "평가·SNS 원본·미확인 사항을 확인한 사용자 판정입니다.",
         unknownsAcknowledged: data.acknowledged ? "yes" : "no", idempotencyKey: data.idempotency_key, payloadSha256: payload, createdBy: actor.userId }).returning();
       await tx.insert(auditEvents).values({ organizationId: actor.organizationId, actorId: actor.userId, entityId: decision.id, action: `evaluation.${data.verdict}` });
       return decision;
