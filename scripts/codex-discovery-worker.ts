@@ -1,12 +1,14 @@
 // Trusted local executor. No database credentials or SNS passwords are consumed.
 import { spawn, type ChildProcess } from "node:child_process";
 import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from "node:fs";
-import { resolve, relative, isAbsolute } from "node:path";
+import { resolve, relative, isAbsolute, dirname, delimiter } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { localBrowserAuthorization } from "../src/lib/discovery/local-browser";
 
 const root = resolve(".local/discovery/codex-browser"); mkdirSync(root, { recursive: true });
+// Scheduled tasks do not inherit the desktop app's bundled Node path.
+process.env.PATH = `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ""}`;
 const privatePath = (file: string) => { const path = resolve(file), rel = relative(root, path); if (rel.startsWith("..") || isAbsolute(rel)) throw new Error("private_path_required"); return path; };
 const read = (file: string) => JSON.parse(readFileSync(privatePath(file), "utf8").replace(/^\uFEFF/, ""));
 const config = z.strictObject({ origin: z.url(), worker_id: z.uuid(), name: z.string().min(1).max(80), browser_surface: z.enum(["iab", "chrome"]), platforms: z.array(z.enum(["instagram", "tiktok", "youtube"])).min(1).max(3), credentials_file: z.string(), codex_path: z.string() }).parse(read(process.argv[2] ?? resolve(root, "worker.config.private.json")));
