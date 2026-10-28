@@ -41,15 +41,15 @@ export default async function CampaignDiscovery({ params, searchParams }: { para
       </details>)}</div>}
     </section>
     <div className="stats-grid">{[{ title: "기록된 계정", value: counts.total, note: "캠페인 내 중복 제거", Icon: FileSearch }, { title: "원본 근거 검토 완료", value: counts.verified, note: "실행 경로·프로필·콘텐츠 검토", Icon: ShieldCheck }, { title: "접근·검색 실패 기록", value: counts.failures, note: "로그인·차단·미확인 사유 보존", Icon: CircleAlert }, { title: "중복 관찰", value: counts.duplicates, note: "동일 계정의 추가 관찰", Icon: Copy }].map(({ title, value, note, Icon }) => <section key={title} className="stat-card"><div className="stat-title">{title}<Icon size={15} aria-hidden="true" /></div><div className="stat-value">{value.toLocaleString("ko-KR")}</div><div className="stat-note">{note}</div></section>)}</div>
-    <section aria-label="플랫폼별 Work 실증" className="platform-checks">{DISCOVERY_PLATFORMS.map(platform => {
+    {!automatic && <section aria-label="플랫폼별 Work 실증" className="platform-checks">{DISCOVERY_PLATFORMS.map(platform => {
       const rows = data.capabilities.filter(row => row.platform === platform && row.environment === currentEnvironment), native = rows.find(row => row.kind === "sns_native_search"), mcp = rows.find(row => row.kind === "work_mcp_write");
       const verified = native?.verdict === "verified" && mcp?.verdict === "verified" && native.facts.native_search && native.facts.direct_profiles >= 5 && native.facts.recent_content_profiles >= 5;
       const blocked = native?.verdict === "blocked" || mcp?.verdict === "blocked";
       const initial = rows.some(row => row.kind === "initial_validation");
       const label = verified ? "5명 실증 검토" : blocked ? "제한 기록 있음" : native ? "일부 실증 기록" : initial ? "초기 실증 · 환경 미검증" : data.capabilities.some(row => row.platform === platform) ? "환경 재확인 필요" : "실증 미검증";
       return <div className="platform-check" key={platform}><span className="font-semibold">{platformLabel(platform)}</span><span className={`badge ${verified ? "badge-green" : "badge-amber"}`}>{label}</span></div>;
-    })}</section>
-    <div className="info-banner discovery-notice"><ScanSearch size={19} aria-hidden="true" /><div>합성 테스트와 수동 입력은 Work 직접 발굴 완료에 포함하지 않습니다. 플랫폼별 검색 안정성은 해당 환경에서 수행한 실증 기록으로 확인합니다.</div></div>
+    })}</section>}
+    <div className="info-banner discovery-notice"><ScanSearch size={19} aria-hidden="true" /><div>{automatic ? "Codex가 SNS 내부 검색과 프로필·게시물 확인 후 후보와 원본 근거를 저장합니다. 수집 완료 후에도 근거와 최종 적합성은 사람이 별도로 검토합니다." : "합성 테스트와 수동 입력은 Work 직접 발굴 완료에 포함하지 않습니다. 플랫폼별 검색 안정성은 해당 환경에서 수행한 실증 기록으로 확인합니다."}</div></div>
     <div className="section-heading"><h2>크리에이터 <span className="muted text-xs font-normal ml-2">필터 결과 {data.totalFiltered}명</span></h2><Link className="text-xs muted" href={`/campaigns/${id}`}>캠페인 브리프 →</Link></div>
     <section className="surface"><form key={JSON.stringify(filters)} className="discovery-filters" aria-label="크리에이터 필터">
       <label className="field">플랫폼<select aria-label="플랫폼" name="platform" className="input" defaultValue={filters.platform ?? ""}><option value="">전체 플랫폼</option>{PLATFORMS.map(p => <option value={p.value} key={p.value}>{p.label}</option>)}</select></label>
