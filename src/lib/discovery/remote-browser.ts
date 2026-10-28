@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, or, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db";
 import { browserCaptureBatches, browserDiscoveryRequests } from "../db/browser-schema";
@@ -10,6 +10,8 @@ import { submissionManifest, verifyRemoteCollection } from "./browser-captures";
 import { discoveryService } from "./service";
 import { appendLogInput, observationInput, DiscoveryError, discoveryHash } from "./contracts";
 import { automaticWorkerService } from "./automatic-worker";
+import { campaignCreators, creatorAccounts, creatorAccountAliases } from "../db/discovery-schema";
+import { profileIdentity } from "./urls";
 
 export function remoteBrowserService(database: typeof db = db) {
   const queue = browserRequestService(database), service = discoveryService(database), authentication = browserWorkerAuth(database);
@@ -38,7 +40,14 @@ export function remoteBrowserService(database: typeof db = db) {
       }
       const request = z.strictObject({ authorization: z.unknown(), payload: z.unknown().optional() }).parse(input);
       const { auth, who } = await scoped(actor, request.authorization);
-      if (action === "context") return { ...await service.getContext(who, { contract_version: 1, campaign_id: auth.campaign_id }), remote_execution: "codex_desktop_https_worker", browser_launched: false, hosted_work_called: false };
+      if (action === "context") {
+        const existing = await database.select({ platform: creatorAccounts.platform, profile_url: creatorAccounts.canonicalProfileUrl, handle: creatorAccounts.currentHandle }).from(campaignCreators).innerJoin(creatorAccounts, and(eq(creatorAccounts.id, campaignCreators.creatorAccountId), eq(creatorAccounts.organizationId, actor.organizationId))).where(and(eq(campaignCreators.organizationId, actor.organizationId), eq(campaignCreators.campaignId, auth.campaign_id)));
+        return { ...await service.getContext(who, { contract_version: 1, campaign_id: auth.campaign_id }), existing_campaign_accounts: existing, remote_execution: "codex_desktop_https_worker", browser_launched: false, hosted_work_called: false };
+      }
+      if (action === "status") {
+        const run = await prepare(auth, who), result = await service.getRun(who, { contract_version: 1, run_id: run.run_id });
+        return { run_id: result.run_id, status: result.status, lock_version: result.lock_version, counts: result.counts };
+      }
       if (action === "collect") {
         let data: ReturnType<typeof verifyRemoteCollection>;
         try { data = verifyRemoteCollection(request.payload, auth.platform, auth.issued_at, auth.expires_at); }
@@ -52,6 +61,17 @@ export function remoteBrowserService(database: typeof db = db) {
           if (!job || job.state !== "claimed" || job.authorizationSha256 !== discoveryHash(auth)) throw new DiscoveryError(403, "browser_request_not_authorized");
           const [previous] = await tx.select().from(browserCaptureBatches).where(and(eq(browserCaptureBatches.requestId, job.id), eq(browserCaptureBatches.batchKey, key)));
           if (previous) { if (previous.payloadSha256 !== hash) throw new DiscoveryError(409, "idempotency_conflict"); return previous; }
+          if (data.batch.observation) {
+            const identity = observationInput.shape.identity.parse(data.batch.observation.identity), normalized = profileIdentity(auth.platform, identity.profile_url);
+            const stableId = identity.platform_account_id ?? normalized.stableId;
+            const [existing] = await tx.select({ firstRun: campaignCreators.firstDiscoveryRunId }).from(campaignCreators)
+              .innerJoin(creatorAccounts, and(eq(creatorAccounts.id, campaignCreators.creatorAccountId), eq(creatorAccounts.organizationId, actor.organizationId)))
+              .leftJoin(creatorAccountAliases, and(eq(creatorAccountAliases.accountId, creatorAccounts.id), eq(creatorAccountAliases.organizationId, actor.organizationId), isNull(creatorAccountAliases.validTo)))
+              .where(and(eq(campaignCreators.organizationId, actor.organizationId), eq(campaignCreators.campaignId, auth.campaign_id), eq(creatorAccounts.platform, auth.platform),
+                or(eq(creatorAccounts.canonicalProfileUrl, normalized.url), eq(creatorAccountAliases.normalizedUrl, normalized.url), ...(stableId ? [eq(creatorAccounts.platformAccountId, stableId)] : []))))
+              .limit(1);
+            if (existing && existing.firstRun !== run.run_id) throw new DiscoveryError(409, "candidate_already_in_campaign");
+          }
           const [saved] = await tx.insert(browserCaptureBatches).values({ organizationId: actor.organizationId, requestId: job.id, runId: run.run_id, batchKey: key, payloadSha256: hash, originals: data.captures, createdBy: actor.userId }).returning();
           return saved;
         });

@@ -37,9 +37,20 @@ test("authenticated automatic assignment accepts real-contract capture batches a
     }
     const saved = await remote.execute("collect", token, { authorization: assignment.authorization, payload: { batch: { prepare_key: job.id, logs, observation }, captures } });
     assert.ok("counts" in saved && saved.counts); assert.equal(saved.counts.discovered, 1); assert.equal(saved.counts.verified, 0);
+    const status = await remote.execute("status", token, { authorization: assignment.authorization });
+    assert.ok("lock_version" in status); assert.equal(status.lock_version, saved.lock_version);
+    const pinned = await remote.execute("context", token, { authorization: assignment.authorization });
+    assert.ok("existing_campaign_accounts" in pinned); assert.equal(pinned.existing_campaign_accounts.length, 1);
+    const replay = await remote.execute("collect", token, { authorization: assignment.authorization, payload: { batch: { prepare_key: job.id, logs, observation }, captures } });
+    assert.ok("counts" in replay && replay.counts); assert.equal(replay.counts.discovered, 1);
     await remote.execute("submit", token, { authorization: assignment.authorization, payload: { prepare_key: job.id, submit_key: randomUUID(), expected_lock_version: saved.lock_version, outcome: "partial", limitations: ["SYNTHETIC fixture; no actual browser visit"] } });
-    const finished = await remote.execute("worker-finish", token, { ...lease, execution_id: assignment.execution_id, exit_code: 0, error_code: null });
+    const finished = await remote.execute("worker-finish", token, { ...lease, execution_id: assignment.execution_id, exit_code: 1, error_code: "workspace_spend_cap" });
     assert.ok("state" in finished); assert.equal(finished.state, "partial");
+    assert.equal((await automaticWorkerService(f.database).snapshot(f.actor, campaign.id)).requests[0].error_code, "workspace_spend_cap");
+    const another = await browserRequestService(f.database).create(f.actor, { campaign_id: campaign.id, platform: "instagram", requested_count: 1, expected_context_sha256: context.context_sha256, idempotency_key: randomUUID() });
+    const next = await remote.execute("worker-next", token, lease); assert.ok("assignment" in next && next.assignment);
+    await assert.rejects(remote.execute("collect", token, { authorization: next.assignment.authorization, payload: { batch: { prepare_key: another.id, logs, observation }, captures } }), code("candidate_already_in_campaign"));
+    assert.equal((await f.client.query("select count(*)::int n from discovery_browser_captures")).rows[0].n, 1);
     assert.equal((await f.client.query("select count(*)::int n from discovery_browser_run_reviews")).rows[0].n, 0);
   }); } finally { if (flag === undefined) delete process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED; else process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED = flag; }
 });

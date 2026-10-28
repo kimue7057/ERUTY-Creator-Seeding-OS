@@ -84,7 +84,7 @@ export function automaticWorkerService(database: typeof db = db) {
       return { cancelled: false };
     }),
     finish: (actor: ActorScope, input: unknown) => database.transaction(async tx => {
-      const data = lease.extend({ execution_id: z.uuid(), exit_code: z.number().int(), error_code: z.enum(["cli_failed", "execution_timeout", "browser_unavailable", "result_not_submitted"]).nullable() }).parse(input);
+      const data = lease.extend({ execution_id: z.uuid(), exit_code: z.number().int(), error_code: z.enum(["cli_failed", "workspace_spend_cap", "execution_timeout", "browser_unavailable", "result_not_submitted"]).nullable() }).parse(input);
       const host = await worker(tx, actor, data);
       const [row] = await tx.select().from(executions).where(and(eq(executions.id, data.execution_id), eq(executions.workerId, host.id), eq(executions.organizationId, actor.organizationId), eq(executions.instanceId, host.instanceId))).for("update");
       if (!row) throw new DiscoveryError(404, "not_found_or_forbidden");
@@ -94,7 +94,7 @@ export function automaticWorkerService(database: typeof db = db) {
       const [{ collected }] = await tx.execute(sql`select count(distinct creator_account_id)::int collected from discovery_evidence where organization_id=${actor.organizationId} and run_id=${job.runId} and kind='profile_observation'`).then(r => r.rows as {collected: number}[]);
       const reported = run?.limitations.find(x => x.startsWith("Reported outcome: "))?.replace("Reported outcome: ", "");
       const state = job.state === "cancelled" ? "cancelled" : run?.status === "awaiting_review" ? reported === "blocked" ? "blocked" : reported === "failed" ? "failed" : reported === "partial" || collected < job.requestedCount ? "partial" : "completed" : ["blocked", "failed", "partial"].includes(run?.status) ? run.status as "blocked" | "failed" | "partial" : "failed";
-      await tx.update(executions).set({ state, phase: "finishing", finishedAt: new Date(), updatedAt: new Date(), errorCode: state === "failed" ? data.error_code ?? (data.exit_code ? "cli_failed" : "result_not_submitted") : null }).where(eq(executions.id, row.id));
+      await tx.update(executions).set({ state, phase: "finishing", finishedAt: new Date(), updatedAt: new Date(), errorCode: state === "cancelled" || state === "completed" ? null : data.error_code ?? (state === "failed" ? data.exit_code ? "cli_failed" : "result_not_submitted" : null) }).where(eq(executions.id, row.id));
       return { state };
     }),
     snapshot: async (actor: ActorScope, campaignId: string) => {
