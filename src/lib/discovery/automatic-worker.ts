@@ -11,6 +11,7 @@ import { DiscoveryError, platformSchema } from "./contracts";
 import { browserRequestService } from "./browser-requests";
 import { discoveryService, type DiscoveryTransaction } from "./service";
 import { codexBrowserActor } from "./local-browser";
+import { creatorAssessments } from "../db/assessment-schema";
 const lease = z.strictObject({ worker_id: z.uuid(), instance_id: z.uuid() });
 const active = ["starting", "running"] as const;
 const fresh = (at: Date) => at.getTime() > Date.now() - 45000;
@@ -41,6 +42,8 @@ export function automaticWorkerService(database: typeof db = db) {
     next: (actor: ActorScope, input: unknown) => database.transaction(async tx => {
       const data = lease.parse(input), host = await worker(tx, actor, data);
       if (host.ready !== "ready") throw new DiscoveryError(409, "browser_unavailable");
+      const [assessing] = await tx.select().from(creatorAssessments).where(and(eq(creatorAssessments.workerId, host.id), eq(creatorAssessments.state, "running")));
+      if (assessing) return { assignment: null, busy: true };
       const [busy] = await tx.select().from(executions).where(and(eq(executions.workerId, host.id), inArray(executions.state, [...active])));
       if (busy) {
         const [currentJob] = await tx.select().from(jobs).where(eq(jobs.id, busy.requestId));

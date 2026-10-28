@@ -6,6 +6,8 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { localBrowserAuthorization } from "../src/lib/discovery/local-browser";
 import { cliFailureCode, interruptionManifest } from "../src/lib/discovery/cli-interruption";
+import { evaluationPrompt } from "../src/lib/evaluation/prompt";
+import { evaluationOutput } from "../src/lib/evaluation/contracts";
 
 const root = resolve(".local/discovery/codex-browser"); mkdirSync(root, { recursive: true });
 // Scheduled tasks do not inherit the desktop app's bundled Node path.
@@ -108,6 +110,25 @@ Continue real browsing until ${auth.max_creators} distinct eligible candidates a
   log("finished", { request_id: job.request_id, state: result.state, exit_code: code });
 }
 
+async function assess(job: { assessment_id: string; snapshot: Record<string, unknown> }) {
+  const directory = resolve(root, "assessments", job.assessment_id, randomUUID());
+  let error: "cli_failed" | "workspace_spend_cap" | "execution_timeout" | "invalid_assessment" | null = null;
+  const execution = launch(`${evaluationPrompt(job.snapshot)}\nWrite the summary and reasons in Korean. This is an automatic campaign assessment of stored observations. Do not browse, execute commands, read files, contact anyone, change source code, or approve a candidate. Return exactly the requested JSON object, without markdown.`, directory, "read-only", undefined, event => { const code = cliFailureCode(event); if (code) error = code; });
+  log("assessment_started", { assessment_id: job.assessment_id, child_pid: execution.child.pid });
+  const timeout = setTimeout(() => { error = "execution_timeout"; void terminate(execution.child); }, 300000);
+  let polling = false;
+  const timer = setInterval(() => { if (polling) return; polling = true; void call("worker-assessment-event", { ...lease, assessment_id: job.assessment_id }).then(result => { if (result.cancelled) return terminate(execution.child); }).catch(() => {}).finally(() => { polling = false; }); }, 15000);
+  const code = await execution.done; clearTimeout(timeout); clearInterval(timer);
+  let output;
+  if (!error && code) error = "cli_failed";
+  if (!error) try {
+    const text = readFileSync(resolve(directory, "result.private.txt"), "utf8").trim().replace(/^```(?:json)?\s*/, "").replace(/\s*```$/, "");
+    output = evaluationOutput.parse(JSON.parse(text));
+  } catch { error = "invalid_assessment"; }
+  const result = await call("worker-assessment-finish", { ...lease, assessment_id: job.assessment_id, output, error_code: error });
+  log("assessment_finished", { assessment_id: job.assessment_id, state: result.state, error_code: error });
+}
+
 let ready = false, busy = false, stopped = false, heartbeating = false;
 process.on("SIGINT", () => { stopped = true; }); process.on("SIGTERM", () => { stopped = true; });
 const heartbeat = async () => { if (heartbeating) return; heartbeating = true; try { await call("worker-heartbeat", { ...lease, name: config.name, browser_surface: config.browser_surface, platforms: config.platforms, ready }); } finally { heartbeating = false; } };
@@ -117,7 +138,18 @@ try {
   ready = await preflight(); await heartbeat(); log(ready ? "ready" : "browser_unavailable");
   while (!stopped) {
     try { if (!ready) { await new Promise(r => setTimeout(r, 30000)); ready = await preflight(); await heartbeat(); continue; }
-      if (!busy) { const next = await call("worker-next", lease); if (next.assignment) { busy = true; try { await execute(next.assignment); } finally { busy = false; } } }
+      if (!busy) {
+        let assessment = null;
+        try { assessment = (await call("worker-assessment-next", lease)).assignment; }
+        catch (error) { if (!["unknown_worker_action", "automatic_discovery_disabled", "automatic_assessment_disabled"].some(code => String(error).includes(code))) throw error; }
+        if (assessment) { busy = true; try {
+          await assess(assessment);
+          // Newly requested discovery should not wait behind a whole historic
+          // assessment backlog. Both kinds of work still execute sequentially.
+          if (!stopped) { const next = await call("worker-next", lease); if (next.assignment) await execute(next.assignment); }
+        } finally { busy = false; } }
+        else { const next = await call("worker-next", lease); if (next.assignment) { busy = true; try { await execute(next.assignment); } finally { busy = false; } } }
+      }
     } catch (error) { log("worker_error", { code: String((error as Error).message).slice(0, 100) }); }
     await new Promise(r => setTimeout(r, 5000));
   }

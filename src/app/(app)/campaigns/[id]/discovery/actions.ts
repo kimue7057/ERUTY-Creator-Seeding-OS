@@ -33,7 +33,7 @@ export async function createBrowserRequestAction(campaignId: string, contextHash
   try {
     if (process.env.CODEX_DISCOVERY_ENABLED !== "true") throw new DiscoveryError(403, "local_browser_disabled");
     const job = await browserRequestService().create(await requireActor(), { campaign_id: campaignId, platform: form.get("platform"), requested_count: Number(form.get("requested_count")), expected_context_sha256: contextHash, idempotency_key: form.get("idempotency_key") });
-    revalidatePath(`/campaigns/${campaignId}/discovery`);
+    revalidatePath(`/campaigns/${campaignId}/discovery`); revalidatePath(`/campaigns/${campaignId}`);
     return { error: "", saved: true, requestId: job.id, prompt: browserRequestPrompt(job.id) };
   } catch (error) { return { ...(error instanceof z.ZodError ? { error: "플랫폼과 요청 인원(1–20명)을 확인해 주세요.", saved: false } : failure(error)), requestId: "", prompt: "" }; }
 }

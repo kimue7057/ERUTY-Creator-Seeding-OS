@@ -92,6 +92,8 @@ jobs:
       BOOTSTRAP_PASSWORD: ci-only-synthetic-operator-password
       E2E_ALLOW_WRITES: "true"
       EVALUATION_ENABLED: "true"
+      CODEX_DISCOVERY_ENABLED: "true"
+      CODEX_AUTOMATIC_DISCOVERY_ENABLED: "true"
       S3_ENDPOINT: http://127.0.0.1:9000
       S3_REGION: us-east-1
       S3_BUCKET: eruty-private-ci
@@ -137,4 +139,5 @@ jobs:
           path: |
             test-results/assets-*.png
             test-results/evaluation-*.png
+            test-results/shortlist-*.png
           if-no-files-found: ignore

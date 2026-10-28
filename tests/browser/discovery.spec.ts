@@ -42,9 +42,10 @@ async function signIn(context: BrowserContext, actor: typeof fixture.actor) {
 test("persisted discovery dashboard filters, original evidence, reviews, failures and mobile layout", async ({ page, context }) => {
   await signIn(context, fixture.actor);
   await page.goto(`/campaigns/${campaignId}`);
-  await page.getByRole("link", { name: "발굴 기록 보기 →", exact: true }).click();
+  await page.getByRole("link", { name: process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED === "true" ? "전체 발굴 기록 →" : "발굴 기록 보기 →", exact: true }).click();
   await expect(page.getByRole("table", { name: "크리에이터 목록" })).toContainText("SYNTHETIC fixture");
-  await expect(page.getByLabel("플랫폼별 Work 실증")).toContainText("실증 미검증");
+  if (process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED === "true") await expect(page.getByLabel("플랫폼별 Work 실증")).toHaveCount(0);
+  else await expect(page.getByLabel("플랫폼별 Work 실증")).toContainText("실증 미검증");
   await expect(page.getByRole("table", { name: "발굴 작업 이력" }).getByRole("row").filter({ hasText: "Instagram" })).toContainText("1 / 1명");
   await expect(page.getByRole("table", { name: "발굴 작업 이력" }).getByRole("row").filter({ hasText: "TikTok" })).toContainText("1건");
   await expect(page.getByRole("button", { name: /Work.*실행|발굴 시작/ })).toHaveCount(0);

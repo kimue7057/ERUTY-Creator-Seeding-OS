@@ -1,0 +1,89 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { eq } from "drizzle-orm";
+import { withDiscoveryDatabase, sqlFailure } from "../discovery-fixture";
+import { localDiscoveryActor } from "../discovery-samples";
+import { seedShortlistCandidate as seed, goodShortlistEvaluation as goodOutput } from "../shortlist-samples";
+import { shortlistService } from "../../src/lib/evaluation/shortlist";
+import { evaluationService } from "../../src/lib/evaluation/service";
+import { EvaluationError } from "../../src/lib/evaluation/contracts";
+import { campaigns } from "../../src/lib/db/schema";
+import { creatorAssessments } from "../../src/lib/db/assessment-schema";
+const code = (value: string) => (error: unknown) => error instanceof EvaluationError && error.code === value;
+test("automatic shortlist is durable and scoped, evaluates once, and requires one real human decision without fake batch reviews", async () => {
+  await withDiscoveryDatabase(async f => {
+    const s = await seed(f), svc = shortlistService(f.database);
+    await Promise.all([svc.enqueue(f.actor, s.campaign.id, s.accountId), svc.enqueue(f.actor, s.campaign.id, s.accountId)]);
+    assert.equal((await f.database.select().from(creatorAssessments)).length, 1);
+    assert.equal((await svc.board(f.actor, s.campaign.id)).candidates[0].state, "queued");
+    await assert.rejects(svc.board(f.other, s.campaign.id), code("evaluation_not_found"));
+    await assert.rejects(svc.enqueue(f.reader, s.campaign.id, s.accountId), code("evaluation_forbidden"));
+    const assigned = await svc.next(f.actor, s.worker); assert.ok(assigned.assignment);
+    const source = (assigned.assignment.snapshot.evidence as { source_material: { visible_text: string; sha256: string } }[])[0].source_material;
+    assert.match(source.visible_text, /SYNTHETIC/); assert.match(source.sha256, /^[a-f0-9]{64}$/);
+    assert.ok(!JSON.stringify(assigned.assignment.snapshot).includes('"verification_state"'));
+    assert.equal((await svc.next(f.actor, s.worker)).assignment, null);
+    const input = { ...s.worker, assessment_id: assigned.assignment.assessment_id, output: goodOutput(s.ids[0]), error_code: null };
+    await assert.rejects(svc.finish(f.actor, { ...input, output: goodOutput(randomUUID()) }), code("evidence_not_allowed"));
+    const result = await svc.finish(f.actor, input); assert.equal(result.state, "completed");
+    assert.deepEqual(await svc.finish(f.actor, input), result);
+    let board = await svc.board(f.actor, s.campaign.id); assert.equal(board.candidates[0].recommendation, "recommended"); assert.equal(board.candidates[0].evaluation!.total, null);
+    assert.equal((await evaluationService(f.database).detail(f.actor, s.campaign.id, s.accountId)).can_outreach, false);
+    const review = { assessment_id: input.assessment_id, idempotency_key: randomUUID(), verdict: "approved", reason: "SYNTHETIC human confirmation of evidence and unknowns", acknowledged: false };
+    await assert.rejects(svc.review(f.actor, s.campaign.id, review), code("evaluation_unknowns_acknowledgement_required"));
+    await assert.rejects(svc.review(f.reader, s.campaign.id, { ...review, acknowledged: true }), code("evaluation_forbidden"));
+    const decision = await svc.review(f.actor, s.campaign.id, { ...review, acknowledged: true });
+    assert.equal((await svc.review(f.actor, s.campaign.id, { ...review, acknowledged: true })).id, decision.id);
+    assert.equal((await evaluationService(f.database).detail(f.actor, s.campaign.id, s.accountId)).can_outreach, true);
+    assert.equal((await f.client.query("select count(*)::int n from discovery_browser_run_reviews")).rows[0].n, 0);
+    assert.equal((await f.client.query("select count(*)::int n from discovery_evidence_reviews")).rows[0].n, 0);
+    await assert.rejects(f.database.delete(creatorAssessments), sqlFailure("23514"));
+    await assert.rejects(f.database.update(creatorAssessments).set({ recommendation: "excluded" }), sqlFailure("23514"));
+    await f.database.update(campaigns).set({ notes: "SYNTHETIC changed conditions" }).where(eq(campaigns.id, s.campaign.id));
+    board = await svc.board(f.actor, s.campaign.id); assert.equal(board.candidates[0].state, "stale"); assert.equal(board.candidates[0].verdict, null);
+    assert.equal((await evaluationService(f.database).detail(f.actor, s.campaign.id, s.accountId)).can_outreach, false);
+    await assert.rejects(svc.review(f.actor, s.campaign.id, { ...review, acknowledged: true, idempotency_key: randomUUID() }), code("evaluation_stale_input"));
+  });
+});
+test("stale or archived assessment input never becomes a fresh approved candidate; failures require explicit retry", async () => {
+  await withDiscoveryDatabase(async f => {
+    const s = await seed(f), svc = shortlistService(f.database);
+    await svc.enqueue(f.actor, s.campaign.id, s.accountId);
+    const first = (await svc.next(f.actor, s.worker)).assignment!;
+    await svc.finish(f.actor, { ...s.worker, assessment_id: first.assessment_id, error_code: "workspace_spend_cap" });
+    assert.equal((await svc.next(f.actor, s.worker)).assignment, null);
+    await svc.retry(f.actor, s.campaign.id, first.assessment_id);
+    const next = (await svc.next(f.actor, s.worker)).assignment!; assert.equal(next.assessment_id, first.assessment_id);
+    await f.database.update(campaigns).set({ notes: "SYNTHETIC new target" }).where(eq(campaigns.id, s.campaign.id));
+    await assert.rejects(svc.finish(f.actor, { ...s.worker, assessment_id: next.assessment_id, output: goodOutput(s.ids[0]), error_code: null }), code("evaluation_stale_input"));
+    assert.equal((await svc.event(f.actor, { ...s.worker, assessment_id: next.assessment_id })).cancelled, true);
+    await svc.enqueueCampaign(f.actor, s.campaign.id);
+    await f.database.update(campaigns).set({ status: "archived" }).where(eq(campaigns.id, s.campaign.id));
+    assert.equal((await svc.next(f.actor, s.worker)).assignment, null);
+    await assert.rejects(svc.enqueueCampaign(f.actor, s.campaign.id), code("evaluation_campaign_archived"));
+  });
+});
+test("an adverse source review blocks final approval even after AI recommends a candidate", async () => {
+  await withDiscoveryDatabase(async f => {
+    const s = await seed(f), svc = shortlistService(f.database);
+    await svc.enqueue(f.actor, s.campaign.id, s.accountId);
+    const assignment = (await svc.next(f.actor, s.worker)).assignment!;
+    await svc.finish(f.actor, { ...s.worker, assessment_id: assignment.assessment_id, output: goodOutput(s.ids[0]), error_code: null });
+    await s.discovery.reviewEvidence(localDiscoveryActor(f.actor), { evidence_id: s.ids[0], verdict: "rejected", reason: "SYNTHETIC source rejected" });
+    await assert.rejects(svc.review(f.actor, s.campaign.id, { assessment_id: assignment.assessment_id, idempotency_key: randomUUID(), verdict: "approved", reason: "SYNTHETIC cannot override rejected source", acknowledged: true }), code("evaluation_discovery_pending"));
+  });
+});
+test("enqueuing changed facts preserves but cancels obsolete unpaid jobs instead of spending on stale input", async () => {
+  await withDiscoveryDatabase(async f => {
+    const s = await seed(f), svc = shortlistService(f.database);
+    await svc.enqueue(f.actor, s.campaign.id, s.accountId);
+    await f.database.update(campaigns).set({ notes: "SYNTHETIC updated assessment input" }).where(eq(campaigns.id, s.campaign.id));
+    await svc.enqueueCampaign(f.actor, s.campaign.id);
+    const history = await f.database.select().from(creatorAssessments);
+    assert.equal(history.length, 2);
+    assert.deepEqual(history.map(h => h.state).sort(), ["cancelled", "queued"]);
+    const assignment = (await svc.next(f.actor, s.worker)).assignment!;
+    assert.equal(assignment.assessment_id, history.find(h => h.state === "queued")!.id);
+  });
+});

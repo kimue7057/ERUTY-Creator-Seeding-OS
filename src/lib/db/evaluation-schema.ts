@@ -11,7 +11,7 @@ export const creatorEvaluations=pgTable("creator_evaluations",{
  inputSnapshot:jsonb("input_snapshot").$type<Record<string,unknown>>().notNull(),output:jsonb().$type<EvaluationOutput>().notNull(),
  total:integer(),knownSubtotal:integer("known_subtotal").notNull(),unknownCount:integer("unknown_count").notNull(),
  createdBy:uuid("created_by").notNull().references(()=>users.id),createdAt:timestamp("created_at",{withTimezone:true}).defaultNow().notNull(),
-},t=>[unique("evaluation_identity").on(t.organizationId,t.id),unique("evaluation_request_identity").on(t.organizationId,t.createdBy,t.idempotencyKey),
+},t=>[unique("evaluation_identity").on(t.organizationId,t.id),unique("evaluation_account_identity").on(t.organizationId,t.campaignId,t.creatorAccountId,t.id),unique("evaluation_request_identity").on(t.organizationId,t.createdBy,t.idempotencyKey),
  foreignKey({name:"evaluation_campaign_fk",columns:[t.organizationId,t.projectId,t.campaignId],foreignColumns:[campaigns.organizationId,campaigns.projectId,campaigns.id]}),
  foreignKey({name:"evaluation_creator_fk",columns:[t.organizationId,t.campaignId,t.creatorAccountId],foreignColumns:[campaignCreators.organizationId,campaignCreators.campaignId,campaignCreators.creatorAccountId]}),
  foreignKey({name:"evaluation_brief_fk",columns:[t.organizationId,t.projectId,t.campaignId,t.briefVersion],foreignColumns:[campaignBriefRevisions.organizationId,campaignBriefRevisions.projectId,campaignBriefRevisions.campaignId,campaignBriefRevisions.version]}),
