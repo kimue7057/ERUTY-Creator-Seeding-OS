@@ -74,3 +74,16 @@ test("an adverse source review blocks final approval even after AI recommends a 
     await assert.rejects(svc.review(f.actor, s.campaign.id, { assessment_id: assignment.assessment_id, idempotency_key: randomUUID(), verdict: "approved", reason: "SYNTHETIC cannot override rejected source", acknowledged: true }), code("evaluation_discovery_pending"));
   });
 });
+test("enqueuing changed facts preserves but cancels obsolete unpaid jobs instead of spending on stale input", async () => {
+  await withDiscoveryDatabase(async f => {
+    const s = await seed(f), svc = shortlistService(f.database);
+    await svc.enqueue(f.actor, s.campaign.id, s.accountId);
+    await f.database.update(campaigns).set({ notes: "SYNTHETIC updated assessment input" }).where(eq(campaigns.id, s.campaign.id));
+    await svc.enqueueCampaign(f.actor, s.campaign.id);
+    const history = await f.database.select().from(creatorAssessments);
+    assert.equal(history.length, 2);
+    assert.deepEqual(history.map(h => h.state).sort(), ["cancelled", "queued"]);
+    const assignment = (await svc.next(f.actor, s.worker)).assignment!;
+    assert.equal(assignment.assessment_id, history.find(h => h.state === "queued")!.id);
+  });
+});

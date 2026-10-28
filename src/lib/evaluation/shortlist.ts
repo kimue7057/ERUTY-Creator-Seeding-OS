@@ -29,6 +29,7 @@ export function shortlistService(database: typeof db = db) {
     const eligible = await sourceEligible(tx, actor, current);
     const [job] = await tx.insert(jobs).values({ organizationId: actor.organizationId, campaignId, creatorAccountId: accountId,
       inputSha256: fingerprint, inputSnapshot: automaticAssessmentSnapshot(current.snapshot), sourceEligible: eligible ? "yes" : "no", createdBy: actor.userId }).onConflictDoNothing().returning();
+    await tx.update(jobs).set({ state: "cancelled", errorCode: "evaluation_stale_input", updatedAt: new Date() }).where(and(scope(actor, campaignId, accountId), eq(jobs.state, "queued"), sql`${jobs.inputSha256}<>${fingerprint}`));
     return job;
   }
   async function host(tx: Tx, actor: ActorScope, data: z.infer<typeof lease>) {
