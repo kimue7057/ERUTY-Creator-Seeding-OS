@@ -8,7 +8,7 @@ async function login(page: Page) {
   await page.getByLabel("이메일", { exact: true }).fill(process.env.BOOTSTRAP_EMAIL!);
   await page.getByLabel("비밀번호", { exact: true }).fill(process.env.BOOTSTRAP_PASSWORD!);
   await page.getByRole("button", { name: "로그인", exact: true }).click();
-  await expect(page.getByRole("heading", { name: "좋은 연결의 시작, 프로젝트부터." })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "캠페인의 다음 할 일을 확인하세요" })).toBeVisible();
 }
 test("anonymous requests redirect and invalid login displays a clear error", async ({ page }) => {
   await page.goto("/projects");
@@ -67,6 +67,7 @@ test("project/product CRUD, independent campaigns, validation and frozen brief s
   await page.getByRole("button", { name: "300명", exact: true }).click();
   await page.getByRole("button", { name: "캠페인 만들기", exact: true }).click();
   await expect(page.getByRole("heading", { name: `SMOKE US Instagram ${key}`, exact: true })).toBeVisible();
+  if (process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED === "true") await page.getByRole("link", { name: "캠페인 설정", exact: true }).click();
   await page.getByRole("link", { name: "캠페인 편집", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: "미국 US", exact: true })).toBeChecked();
   await expect(page.getByRole("checkbox", { name: "캐나다 CA", exact: true })).toBeChecked();
@@ -74,7 +75,7 @@ test("project/product CRUD, independent campaigns, validation and frozen brief s
   await expect(page.getByLabel("최소 팔로워 수 *", { exact: true })).toHaveValue("50000");
   await page.getByRole("button", { name: "변경 저장", exact: true }).click();
   await page.goto(firstCampaign);
-  if (process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED === "true") await page.getByText("캠페인 조건 · 브리프 · 운영 정보", { exact: true }).click();
+  if (process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED === "true") await page.getByRole("link", { name: "캠페인 설정", exact: true }).click();
   await expect(page.getByText("Synthetic original brand narrative", { exact: true }).first()).toBeVisible();
   await page.getByRole("link", { name: "캠페인 편집", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: "일본 JP", exact: true })).toBeChecked();
@@ -85,9 +86,9 @@ test("project/product CRUD, independent campaigns, validation and frozen brief s
   await page.getByRole("button", { name: "프로젝트 만들기", exact: true }).click();
   await expect(page.getByRole("cell", { name: product, exact: true })).toHaveCount(0);
   await page.goto("/");
-  await expect(page.getByRole("link", { name: "발굴 기록", exact: true })).toBeVisible();
-  if(process.env.EVALUATION_ENABLED==="true") await expect(page.getByRole("link", { name: "추천 후보 · 승인", exact:true })).toBeVisible();
-  else await expect(page.getByRole("button", { name: "평가 및 승인 예정" })).toBeDisabled();
+  await expect(page.getByRole("link", { name: "캠페인", exact: true })).toBeVisible();
+  if(process.env.EVALUATION_ENABLED==="true") await expect(page.getByRole("link", { name: "검토함", exact:true })).toBeVisible();
+  else await expect(page.getByRole("link", { name: "검토함", exact: true })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /발굴 시작|Work.*실행/ })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole("link", { name: "프로젝트", exact: true })).toBeVisible();

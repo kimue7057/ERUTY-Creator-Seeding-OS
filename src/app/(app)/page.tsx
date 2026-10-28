@@ -1,29 +1,26 @@
 import Link from "next/link";
-import { FolderKanban, Package, Megaphone, CheckCheck, ArrowUpRight, Sprout } from "lucide-react";
-import { PageHeading, Steps, Empty } from "@/components/ui";
+import { PageHeading, Empty } from "@/components/ui";
 import { ProjectCard } from "@/components/projects/project-card";
 import { requireActor } from "@/lib/auth/session";
 import { canWrite } from "@/lib/auth/permissions";
-import { listProjects, workspaceCounts } from "@/lib/projects/service";
+import { listProjects } from "@/lib/projects/service";
 import { listCampaigns } from "@/lib/campaigns/service";
+import { workspaceSummaries } from "@/lib/evaluation/workspace";
 import { CampaignTable } from "@/components/campaigns/campaign-table";
 export default async function Overview() {
   const actor = await requireActor();
-  const discovery = process.env.CODEX_DISCOVERY_ENABLED === "true", evaluation = process.env.EVALUATION_ENABLED === "true";
-  const automatic = discovery && process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED === "true";
-  const [projects, counts, campaigns] = await Promise.all([listProjects(actor), workspaceCounts(actor), listCampaigns(actor)]);
-  const stats = [
-    { label: "전체 프로젝트", value: counts.projects, note: "브랜드와 제품의 시작점", icon: FolderKanban },
-    { label: "등록된 제품", value: counts.products, note: "캠페인에 연결할 제품", icon: Package },
-    { label: "전체 캠페인", value: counts.campaigns, note: "프로젝트별 독립 타겟팅", icon: Megaphone },
-    { label: "준비 완료 캠페인", value: counts.ready, note: "발굴 조건 설정 완료", icon: CheckCheck },
-  ];
-  return <><PageHeading eyebrow="Workspace overview" title="좋은 연결의 시작, 프로젝트부터." description="브랜드의 이야기를 모으고, 크리에이터와 만날 다음 캠페인을 준비하세요." action={canWrite(actor) ? { href: "/projects/new", label: "새 프로젝트" } : undefined} />
-    <div className="stats-grid">{stats.map(({ label, value, note, icon: Icon }) => <div className="stat-card" key={label}><div className="stat-title">{label}<Icon size={16} className="text-[#94a58e]" /></div><div className="stat-value">{value}<span className="text-xs font-normal text-[#8e998e] ml-1.5">개</span></div><div className="stat-note">{note}</div></div>)}</div>
-    <div className="section-heading"><h2>시딩 워크플로</h2><span className="badge badge-green">{discovery && evaluation ? "STEP 1–4 · 준비·발굴·검토" : "STEP 1–2 · 데이터 준비"}</span></div><Steps discovery={discovery} evaluation={evaluation} />
-    <div className="section-heading"><h2>최근 프로젝트 <span className="text-xs font-normal muted ml-2">브랜드의 모든 정보를 한 곳에</span></h2><Link href="/projects" className="text-xs muted flex gap-2 items-center">전체 보기<ArrowUpRight size={13} /></Link></div>
-    {projects.length ? <div className="project-grid">{projects.slice(0, 3).map(p => <ProjectCard key={p.id} project={p} />)}</div> : <section className="surface"><Empty title="첫 프로젝트를 만들어 보세요" text="브랜드 소개와 제품을 등록하고, 국가와 플랫폼에 맞는 캠페인을 준비하세요." href={canWrite(actor) ? "/projects/new" : undefined} label="프로젝트 만들기" /></section>}
-    <div className="section-heading"><h2>최근 캠페인</h2><Link href="/campaigns" className="text-xs muted flex gap-2 items-center">전체 보기<ArrowUpRight size={13} /></Link></div><section className="surface">{campaigns.length ? <CampaignTable rows={campaigns.slice(0, 5)} /> : <Empty title="다음 캠페인을 준비해 보세요" text="프로젝트와 제품을 연결한 뒤 국가, 플랫폼, 크리에이터 조건을 설정하세요." href={canWrite(actor) ? "/campaigns/new" : undefined} label="캠페인 만들기" />}</section>
-    <div className="info-banner"><Sprout size={21} className="shrink-0 mt-0.5" /><div><strong>작은 준비가, 좋은 협업의 시작입니다.</strong><br />{automatic ? "캠페인에서 탐색을 시작하면 연결된 실행 PC가 SNS 검색과 후보 저장을 진행합니다. 진행 상태는 발굴 화면에서 확인하고, 저장된 근거는 사람이 검토한 뒤 평가·승인합니다." : discovery ? "캠페인에서 발굴 요청을 만들고 실행 안내를 Codex 앱에 전달하세요. 직접 탐색한 후보는 근거와 실행 경로를 사람이 검토한 뒤 평가·승인합니다." : "브랜드와 제품을 충분히 정리해 두면 다음 캠페인에서도 그대로 사용할 수 있어요. SNS 직접 발굴은 실행 환경을 준비한 뒤 사용할 수 있습니다."}</div></div>
+  const [projects, campaigns] = await Promise.all([listProjects(actor), listCampaigns(actor)]);
+  const active = campaigns.filter(row => row.campaign.status !== "archived");
+  const summaries = await workspaceSummaries(actor, active.map(row => row.campaign.id));
+  const total = [...summaries.values()].reduce((sum,c) => ({ recommended: sum.recommended+c.recommended, selected: sum.selected+c.selected, processing: sum.processing+c.processing, interrupted: sum.interrupted+c.interrupted }), { recommended: 0, selected: 0, processing: 0, interrupted: 0 });
+  const sorted = [...active].sort((a,b) => (summaries.get(b.campaign.id)?.recommended ?? 0) - (summaries.get(a.campaign.id)?.recommended ?? 0));
+  return <><PageHeading eyebrow="Workspace" title="캠페인의 다음 할 일을 확인하세요" description="발굴을 요청하고, 자동 평가한 추천 후보를 검토해 최종 선정하세요." action={canWrite(actor) ? { href: projects.length ? "/campaigns/new" : "/projects/new", label: projects.length ? "새 캠페인" : "새 프로젝트" } : undefined} />
+    <div className="workspace-counts home-counts">{[{ label: "운영 중인 캠페인", value: active.length, unit: "개", href: "/campaigns" }, { label: "검토할 추천", value: total.recommended, unit: "명", href: "/evaluations" }, { label: "자동 평가 중", value: total.processing, unit: "명", href: "/campaigns" }, { label: "최종 선정", value: total.selected, unit: "명", href: "/campaigns" }].map(item => <Link href={item.href} key={item.label}><span>{item.label}</span><strong>{item.value}<small>{item.unit}</small></strong></Link>)}</div>
+    {total.recommended > 0 && <div className="workspace-next"><p>최종 선정을 기다리는 추천 후보가 {total.recommended}명 있습니다.</p><Link className="btn btn-primary" href="/evaluations">추천 후보 검토 →</Link></div>}
+    {total.interrupted > 0 && <p className="workspace-alert">자동 평가 {total.interrupted}명이 중단됐습니다. 해당 캠페인의 진행·기록에서 확인할 수 있습니다.</p>}
+    <div className="section-heading"><h2>이어서 진행할 캠페인</h2><Link href="/campaigns" className="source-link">전체 보기 →</Link></div><section className="surface">{sorted.length ? <CampaignTable rows={sorted.slice(0,5)} summaries={summaries} /> : <Empty title="첫 캠페인을 준비하세요" text="프로젝트와 제품을 연결하고 탐색 조건을 정하면 SNS에서 후보를 찾기 시작할 수 있습니다." href={canWrite(actor) ? projects.length ? "/campaigns/new" : "/projects/new" : undefined} label={projects.length ? "캠페인 만들기" : "프로젝트 만들기"} />}</section>
+    <p className="description mt-4">최근 캠페인 최대 100개 · 캠페인별 최대 200명의 후보 기준입니다.</p>
+    <div className="section-heading"><div><h2>프로젝트와 브랜드 자료</h2><p className="description">캠페인에 사용할 브랜드 소개와 제품을 관리합니다.</p></div><div className="flex gap-4"><Link href="/projects" className="source-link">전체 보기 →</Link>{canWrite(actor) && projects.length > 0 && <Link href="/projects/new" className="source-link">새 프로젝트</Link>}</div></div>
+    {projects.length ? <div className="project-grid">{projects.slice(0,3).map(p => <ProjectCard key={p.id} project={p} />)}</div> : <section className="surface"><Empty title="브랜드와 제품부터 등록하세요" text="프로젝트의 브랜드 자료는 여러 캠페인에서 함께 사용할 수 있습니다." href={canWrite(actor) ? "/projects/new" : undefined} label="프로젝트 만들기" /></section>}
   </>;
 }

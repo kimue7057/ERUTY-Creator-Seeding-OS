@@ -42,7 +42,8 @@ async function signIn(context: BrowserContext, actor: typeof fixture.actor) {
 test("persisted discovery dashboard filters, original evidence, reviews, failures and mobile layout", async ({ page, context }) => {
   await signIn(context, fixture.actor);
   await page.goto(`/campaigns/${campaignId}`);
-  await page.getByRole("link", { name: process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED === "true" ? "전체 발굴 기록 →" : "발굴 기록 보기 →", exact: true }).click();
+  if (process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED === "true") await page.getByRole("link", { name: "진행·기록", exact: true }).click();
+  await page.getByRole("link", { name: process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED === "true" ? "상세 발굴 기록" : "상세 발굴 기록 →", exact: true }).click();
   await expect(page.getByRole("table", { name: "크리에이터 목록" })).toContainText("SYNTHETIC fixture");
   if (process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED === "true") await expect(page.getByLabel("플랫폼별 Work 실증")).toHaveCount(0);
   else await expect(page.getByLabel("플랫폼별 Work 실증")).toContainText("실증 미검증");

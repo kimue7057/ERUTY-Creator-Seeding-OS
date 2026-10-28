@@ -17,6 +17,12 @@ test("automatic shortlist is durable and scoped, evaluates once, and requires on
     await Promise.all([svc.enqueue(f.actor, s.campaign.id, s.accountId), svc.enqueue(f.actor, s.campaign.id, s.accountId)]);
     assert.equal((await f.database.select().from(creatorAssessments)).length, 1);
     assert.equal((await svc.board(f.actor, s.campaign.id)).candidates[0].state, "queued");
+    const foreign = await f.campaign(f.other);
+    const ownEmpty = await f.campaign();
+    const batch = await svc.boards(f.actor, [s.campaign.id, ownEmpty.id, foreign.id]);
+    assert.deepEqual(batch.map(b => b.campaign_id).sort(), [s.campaign.id, ownEmpty.id].sort());
+    assert.deepEqual(batch.find(b => b.campaign_id === s.campaign.id), await svc.board(f.actor, s.campaign.id));
+    assert.equal(batch.find(b => b.campaign_id === ownEmpty.id)!.candidates.length, 0);
     await assert.rejects(svc.board(f.other, s.campaign.id), code("evaluation_not_found"));
     await assert.rejects(svc.enqueue(f.reader, s.campaign.id, s.accountId), code("evaluation_forbidden"));
     const assigned = await svc.next(f.actor, s.worker); assert.ok(assigned.assignment);
