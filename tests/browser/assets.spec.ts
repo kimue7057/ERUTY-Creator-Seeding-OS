@@ -69,6 +69,7 @@ test("real browser uploads PDF and a dropped product image, previews/downloads, 
   downloading = page.waitForEvent("download"); await png.getByRole("button", { name: "product-test.png v2 다운로드", exact: true }).first().click();
   expect(await readFile((await (await downloading).path())!)).toEqual(fixture.bytes.png2);
   await page.goto(campaignUrl);
+  if (process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED === "true") await page.getByText("캠페인 조건 · 브리프 · 운영 정보", { exact: true }).click();
   downloading = page.waitForEvent("download"); await page.getByRole("button", { name: "product-test.png v1 다운로드", exact: true }).click();
   expect(await readFile((await (await downloading).path())!)).toEqual(fixture.bytes.png);
   await expect(page.getByRole("button", { name: "product-test.png v2 다운로드", exact: true })).toHaveCount(0);

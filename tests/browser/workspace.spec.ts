@@ -74,6 +74,7 @@ test("project/product CRUD, independent campaigns, validation and frozen brief s
   await expect(page.getByLabel("최소 팔로워 수 *", { exact: true })).toHaveValue("50000");
   await page.getByRole("button", { name: "변경 저장", exact: true }).click();
   await page.goto(firstCampaign);
+  if (process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED === "true") await page.getByText("캠페인 조건 · 브리프 · 운영 정보", { exact: true }).click();
   await expect(page.getByText("Synthetic original brand narrative", { exact: true }).first()).toBeVisible();
   await page.getByRole("link", { name: "캠페인 편집", exact: true }).click();
   await expect(page.getByRole("checkbox", { name: "일본 JP", exact: true })).toBeChecked();
@@ -85,7 +86,7 @@ test("project/product CRUD, independent campaigns, validation and frozen brief s
   await expect(page.getByRole("cell", { name: product, exact: true })).toHaveCount(0);
   await page.goto("/");
   await expect(page.getByRole("link", { name: "발굴 기록", exact: true })).toBeVisible();
-  if(process.env.EVALUATION_ENABLED==="true") await expect(page.getByRole("link", { name: "평가 및 승인", exact:true })).toBeVisible();
+  if(process.env.EVALUATION_ENABLED==="true") await expect(page.getByRole("link", { name: "추천 후보 · 승인", exact:true })).toBeVisible();
   else await expect(page.getByRole("button", { name: "평가 및 승인 예정" })).toBeDisabled();
   await expect(page.getByRole("button", { name: /발굴 시작|Work.*실행/ })).toHaveCount(0);
   await page.setViewportSize({ width: 390, height: 844 });

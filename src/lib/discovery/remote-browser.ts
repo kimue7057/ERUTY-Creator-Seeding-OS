@@ -12,6 +12,7 @@ import { appendLogInput, observationInput, DiscoveryError, discoveryHash } from 
 import { automaticWorkerService } from "./automatic-worker";
 import { campaignCreators, creatorAccounts, creatorAccountAliases } from "../db/discovery-schema";
 import { profileIdentity } from "./urls";
+import { shortlistService } from "../evaluation/shortlist";
 
 export function remoteBrowserService(database: typeof db = db) {
   const queue = browserRequestService(database), service = discoveryService(database), authentication = browserWorkerAuth(database);
@@ -24,6 +25,15 @@ export function remoteBrowserService(database: typeof db = db) {
   }
   const prepare = (auth: Extract<z.infer<typeof localBrowserAuthorization>, { request_id: string }>, who: ReturnType<typeof codexBrowserActor>) => service.prepare(who, { contract_version: 1, campaign_id: auth.campaign_id, platform: auth.platform, requested_count: auth.max_creators, time_budget_seconds: auth.execution_reference.startsWith("automatic-codex:") ? 10800 : 1800, execution_source: "codex_browser", idempotency_key: auth.request_id });
   return {
+    async assessment(action: string, token: string, input: unknown) {
+      const actor = await authentication.actor(token);
+      if (process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED !== "true" || process.env.EVALUATION_ENABLED !== "true") throw new DiscoveryError(403, "automatic_assessment_disabled");
+      const shortlist = shortlistService(database);
+      if (action === "worker-assessment-next") return shortlist.next(actor, input);
+      if (action === "worker-assessment-event") return shortlist.event(actor, input);
+      if (action === "worker-assessment-finish") return shortlist.finish(actor, input);
+      throw new DiscoveryError(404, "unknown_worker_action");
+    },
     async execute(action: string, token: string, input: unknown) {
       const actor = await authentication.actor(token);
       if (action === "logout") return authentication.logout(token);
@@ -93,6 +103,10 @@ export function remoteBrowserService(database: typeof db = db) {
         if (manifest.outcome === "submitted" && current.counts.discovered < auth.max_creators) throw new DiscoveryError(409, "requested_count_incomplete");
         await service.submit(who, { contract_version: 1, run_id: run.run_id, expected_lock_version: manifest.expected_lock_version, outcome: manifest.outcome, limitations: manifest.limitations, idempotency_key: manifest.submit_key });
         const result = await service.getRun(who, { contract_version: 1, run_id: run.run_id, limit: 100 });
+        if (process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED === "true" && process.env.EVALUATION_ENABLED === "true") {
+          const accounts = [...new Set(result.evidence.map(e => e.creatorAccountId))];
+          for (let i = 0; i < accounts.length; i += 3) await Promise.all(accounts.slice(i, i + 3).map(account => shortlistService(database).enqueue(actor, auth.campaign_id, account)));
+        }
         return { run_id: result.run_id, status: result.status, counts: result.counts, hosted_work_called: false };
       }
       throw new DiscoveryError(404, "unknown_worker_action");
