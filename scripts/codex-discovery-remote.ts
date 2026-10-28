@@ -60,7 +60,7 @@ try {
         const { artifacts: _artifacts, ...batch } = input; void _artifacts;
         payload = verifyRemoteCollection(remoteCollection.parse({ batch, captures }), authorization.platform, authorization.issued_at, authorization.expires_at);
       } else if (action === "submit") payload = submissionManifest.parse(read(second));
-      else if (action !== "context") throw new Error("Use login, requests, claim, context, collect, submit or logout");
+      else if (action !== "context" && action !== "status") throw new Error("Use login, requests, claim, context, status, collect, submit or logout");
       result = await call(connection.origin, action, { authorization, ...(payload ? { payload } : {}) }, connection.token);
       if (action === "collect" || action === "submit") {
         const path = privateFile(second), data = read(second) as Record<string, unknown>;

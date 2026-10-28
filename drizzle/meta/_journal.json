@@ -99,6 +99,13 @@
       "when": 1793103000000,
       "tag": "0013_remote_capture_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1793160000000,
+      "tag": "0014_automatic_codex_worker",
+      "breakpoints": true
     }
   ]
 }
