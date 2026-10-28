@@ -10,6 +10,7 @@ import { evaluationService } from "../../src/lib/evaluation/service";
 import { EvaluationError } from "../../src/lib/evaluation/contracts";
 import { campaigns } from "../../src/lib/db/schema";
 import { creatorAssessments } from "../../src/lib/db/assessment-schema";
+import { sampleEvaluation } from "../evaluation-samples";
 const code = (value: string) => (error: unknown) => error instanceof EvaluationError && error.code === value;
 test("automatic shortlist is durable and scoped, evaluates once, and requires one real human decision without fake batch reviews", async () => {
   await withDiscoveryDatabase(async f => {
@@ -78,6 +79,40 @@ test("an adverse source review blocks final approval even after AI recommends a 
     await svc.finish(f.actor, { ...s.worker, assessment_id: assignment.assessment_id, output: goodOutput(s.ids[0]), error_code: null });
     await s.discovery.reviewEvidence(localDiscoveryActor(f.actor), { evidence_id: s.ids[0], verdict: "rejected", reason: "SYNTHETIC source rejected" });
     await assert.rejects(svc.review(f.actor, s.campaign.id, { assessment_id: assignment.assessment_id, idempotency_key: randomUUID(), verdict: "approved", reason: "SYNTHETIC cannot override rejected source", acknowledged: true }), code("evaluation_discovery_pending"));
+    assert.equal((await svc.board(f.actor, s.campaign.id)).candidates[0].can_select, false);
+    await svc.review(f.actor, s.campaign.id, { assessment_id: assignment.assessment_id, idempotency_key: randomUUID(), verdict: "rejected", reason: "SYNTHETIC human excludes unusable source", acknowledged: false });
+    assert.equal((await svc.board(f.actor, s.campaign.id)).candidates[0].verdict, "rejected");
+  });
+});
+
+test("a human can select information-insufficient or AI-excluded candidates without changing AI scores or source history", async () => {
+  await withDiscoveryDatabase(async f => {
+    const svc = shortlistService(f.database);
+    for (const recommendation of ["needs_info", "excluded"] as const) {
+      const s = await seed(f);
+      await svc.enqueue(f.actor, s.campaign.id, s.accountId);
+      const assignment = (await svc.next(f.actor, s.worker)).assignment!;
+      const output = recommendation === "needs_info" ? sampleEvaluation(s.ids[0]) : goodOutput(s.ids[0]);
+      if (recommendation === "excluded") for (const criterion of Object.values(output.criteria)) criterion.score = 0;
+      await svc.finish(f.actor, { ...s.worker, assessment_id: assignment.assessment_id, output, error_code: null });
+      const before = (await svc.board(f.actor, s.campaign.id)).candidates[0];
+      assert.equal(before.recommendation, recommendation); assert.equal(before.can_select, true);
+      const input = { assessment_id: assignment.assessment_id, idempotency_key: randomUUID(), verdict: "approved", reason: "", acknowledged: true };
+      await assert.rejects(svc.review(f.actor, s.campaign.id, input), code("evaluation_human_reason_required"));
+      await assert.rejects(svc.review(f.actor, s.campaign.id, { ...input, reason: "SYNTHETIC human reason", acknowledged: false }), code("evaluation_unknowns_acknowledgement_required"));
+      await assert.rejects(svc.review(f.reader, s.campaign.id, { ...input, reason: "SYNTHETIC human reason" }), code("evaluation_forbidden"));
+      await svc.review(f.actor, s.campaign.id, { ...input, reason: "SYNTHETIC human accepts the documented unknowns and selects for campaign fit" });
+      const after = (await svc.board(f.actor, s.campaign.id)).candidates[0];
+      assert.equal(after.verdict, "approved"); assert.equal(after.recommendation, recommendation);
+      assert.deepEqual(after.evaluation, before.evaluation);
+      assert.equal((await evaluationService(f.database).detail(f.actor, s.campaign.id, s.accountId)).can_outreach, true);
+      await svc.review(f.actor, s.campaign.id, { ...input, idempotency_key: randomUUID(), verdict: "rejected", reason: "SYNTHETIC human changes selection to exclusion" });
+      assert.equal((await svc.board(f.actor, s.campaign.id)).candidates[0].verdict, "rejected");
+      assert.equal((await evaluationService(f.database).detail(f.actor, s.campaign.id, s.accountId)).can_outreach, false);
+    }
+    assert.equal((await f.client.query("select count(*)::int n from discovery_evidence_reviews")).rows[0].n, 0);
+    assert.equal((await f.client.query("select count(*)::int n from discovery_browser_run_reviews")).rows[0].n, 0);
+    assert.equal((await f.client.query("select count(*)::int n from creator_evaluation_reviews")).rows[0].n, 4);
   });
 });
 test("enqueuing changed facts preserves but cancels obsolete unpaid jobs instead of spending on stale input", async () => {

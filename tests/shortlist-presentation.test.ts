@@ -12,6 +12,6 @@ test("processing, interruptions and obsolete results never appear as actionable 
 test("current automatic outcomes and human decisions form disjoint task counts", () => {
   const c = (recommendation: "recommended" | "needs_info" | "excluded", verdict: "approved" | "hold" | "rejected" | null = null) => ({ state: "completed", recommendation, verdict });
   const counts = shortlistCounts([c("recommended"), c("needs_info"), c("excluded"), c("recommended", "hold"), c("recommended", "approved"), c("recommended", "rejected")]);
-  assert.deepEqual(counts, { discovered: 6, evaluated: 6, recommended: 1, selected: 1, hold: 1, needs_info: 1, excluded: 2, processing: 0, interrupted: 0, unassessed: 0 });
+  assert.deepEqual(counts, { discovered: 6, evaluated: 6, recommended: 1, selected: 1, hold: 1, needs_info: 1, excluded: 2, processing: 0, interrupted: 0, unassessed: 0, review_pending: 2 });
   assert.equal(campaignHref("campaign", "recommended", "creator"), "/campaigns/campaign?tab=recommended&candidate=creator");
 });

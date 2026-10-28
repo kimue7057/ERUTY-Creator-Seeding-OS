@@ -279,3 +279,13 @@ progress { accent-color: var(--green); height: 7px; }
 @media(max-width:760px) { .workspace-counts > button,.workspace-counts > a { padding:12px 14px; gap:5px; } .workspace-counts strong { font-size:24px; } .workspace-counts > button > span:last-child { font-size:11px; } .workspace-next { padding:12px 15px; } .workspace-next p { font-size:13px; } .workspace-next .eyebrow { display:none; } }
 .campaign-mobile-target { display:none; }
 @media(max-width:760px) { .campaign-table { table-layout:fixed; width:100%; } .campaign-table th:nth-child(2),.campaign-table td:nth-child(2),.campaign-table th:nth-child(3),.campaign-table td:nth-child(3),.campaign-table th:nth-child(4),.campaign-table td:nth-child(4),.campaign-table th:nth-child(6),.campaign-table td:nth-child(6),.campaign-table th:nth-child(7),.campaign-table td:nth-child(7) { display:none; } .campaign-table th:first-child { width:53%; } .campaign-table td,.campaign-table th { padding:16px 12px; overflow-wrap:anywhere; } .campaign-mobile-target { display:block; color:#61716a; font-size:11px; line-height:1.8; margin-top:8px; } .campaign-list-progress { white-space:normal; font-size:11px; line-height:1.7; } }
+/* Human decisions remain visible while the evidence body scrolls. */
+.candidate-panel[open] { display:flex; flex-direction:column; overflow:hidden; }
+.candidate-panel-heading { position:relative; flex-shrink:0; }
+.candidate-panel-body { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; }
+.decision-dock { flex-shrink:0; border-top:1px solid #cbdccf; background:#f3f7f3; padding:16px 24px; max-height:50dvh; overflow-y:auto; }
+.decision-dock .selection-form { margin:0; padding:0; border:0; gap:10px; }
+.decision-dock .selection-receipt { margin:0; padding:8px 12px; }
+.decision-guidance { font-size:12px; line-height:1.7; color:#55675d; margin:0; }
+.decision-followup { display:flex; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+@media(max-width:760px) { .decision-dock { padding:12px 18px max(12px,env(safe-area-inset-bottom)); max-height:48dvh; } .decision-dock .selection-form h3 { font-size:14px; } .decision-dock .field,.decision-dock .selection-ack { font-size:12px; } .decision-dock .input { padding:8px 10px; } }

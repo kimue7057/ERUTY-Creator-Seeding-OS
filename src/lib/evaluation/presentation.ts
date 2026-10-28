@@ -2,8 +2,8 @@ import type { ShortlistBoard } from "./shortlist";
 
 export type Candidate = ShortlistBoard["candidates"][number];
 export const GROUPS = {
-  recommended: "검토할 추천", selected: "최종 선정", hold: "보류",
-  needs_info: "정보 부족", excluded: "추천 제외", processing: "평가 중", interrupted: "평가 중단", unassessed: "평가 필요",
+  recommended: "AI 추천", selected: "최종 선정", hold: "보류",
+  needs_info: "정보 부족", excluded: "제외", processing: "평가 중", interrupted: "평가 중단", unassessed: "평가 필요",
 } as const;
 export type CandidateGroup = keyof typeof GROUPS;
 export function candidateGroup(c: Pick<Candidate, "state" | "verdict" | "recommendation">): CandidateGroup {
@@ -17,12 +17,16 @@ export function candidateGroup(c: Pick<Candidate, "state" | "verdict" | "recomme
   return c.recommendation === "excluded" ? "excluded" : "needs_info";
 }
 export function shortlistCounts(candidates: Pick<Candidate, "state" | "verdict" | "recommendation">[]) {
-  const counts = { discovered: candidates.length, evaluated: 0, recommended: 0, selected: 0, hold: 0, needs_info: 0, excluded: 0, processing: 0, interrupted: 0, unassessed: 0 };
+  const counts = { discovered: candidates.length, evaluated: 0, recommended: 0, selected: 0, hold: 0, needs_info: 0, excluded: 0, processing: 0, interrupted: 0, unassessed: 0, review_pending: 0 };
   for (const candidate of candidates) {
     counts[candidateGroup(candidate)]++;
+    if (isReviewPending(candidate)) counts.review_pending++;
     if (candidate.state === "completed") counts.evaluated++;
   }
   return counts;
+}
+export function isReviewPending(c: Pick<Candidate, "state" | "verdict" | "recommendation">) {
+  return ["recommended", "needs_info"].includes(candidateGroup(c));
 }
 export type ShortlistCounts = ReturnType<typeof shortlistCounts>;
 export function candidateLabel(c: Candidate) {

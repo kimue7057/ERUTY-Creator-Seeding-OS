@@ -6,18 +6,23 @@ import { LABELS, RUBRIC } from "@/lib/evaluation/contracts";
 import { candidateGroup, candidateLabel, candidateName, candidateProfile, type Candidate } from "@/lib/evaluation/presentation";
 import { platformLabel } from "@/lib/validation/campaigns";
 import { SourceLink, FollowerValue } from "@/components/discovery/display";
-import { retryAssessmentAction, shortlistReviewAction } from "@/app/(app)/campaigns/[id]/shortlist-actions";
-const initial = { saved: false, error: "", message: "" };
-function Review({ campaignId, candidate }: { campaignId: string; candidate: Candidate }) {
+import { retryAssessmentAction, shortlistReviewAction, type ShortlistActionState } from "@/app/(app)/campaigns/[id]/shortlist-actions";
+const initial: ShortlistActionState = { saved: false, error: "", message: "" };
+export type DecisionUpdate = (id: string, verdict: NonNullable<ShortlistActionState["verdict"]>, decision: NonNullable<ShortlistActionState["decision"]>) => void;
+function Review({ campaignId, candidate, onReset, onDecision }: { campaignId: string; candidate: Candidate; onReset: () => void; onDecision: DecisionUpdate }) {
   const [key] = useState(() => crypto.randomUUID()), [checked, setChecked] = useState(false);
   const [state, submit, pending] = useActionState(shortlistReviewAction.bind(null, campaignId, candidate.assessment_id!), initial);
-  if (candidate.verdict === "approved" && !state.saved) return null;
+  const [reason, setReason] = useState("");
+  const needsReason = candidate.recommendation !== "recommended";
+  useEffect(() => { if (state.saved && state.verdict && state.decision) onDecision(candidate.id, state.verdict, state.decision); }, [state, candidate.id, onDecision]);
   return <form action={submit} className="selection-form" aria-label={`${candidateName(candidate)} 최종 선정`}>
-    <h3>최종 선정</h3><input type="hidden" name="idempotency_key" value={key} />
+    <h3>사람의 최종 판정</h3><input type="hidden" name="idempotency_key" value={key} />
+    {needsReason && !candidate.verdict && <p className="decision-guidance">AI가 {candidate.recommendation === "excluded" ? "제외를 제안" : "정보 부족으로 분류"}한 후보입니다. 사람이 근거를 확인해 선정·보류·제외할 수 있습니다.</p>}
     <label className="selection-ack"><input type="checkbox" name="acknowledged" checked={checked} onChange={e => setChecked(e.target.checked)} disabled={pending || state.saved} /><span>평가와 SNS 원본 근거, 미확인 사항을 확인했습니다.</span></label>
-    <label className="field">검토 메모<input className="input" name="reason" maxLength={1000} disabled={pending || state.saved} placeholder="선택 사항 · 선정 사유나 확인할 내용" /></label>
-    <div className="selection-actions"><button name="verdict" value="approved" className="btn btn-primary" disabled={pending || state.saved || !checked || candidateGroup(candidate) === "needs_info" || candidate.recommendation !== "recommended"}>{pending ? "저장 중…" : "최종 선정"}</button><button name="verdict" value="hold" className="btn" disabled={pending || state.saved}>보류</button><button name="verdict" value="rejected" className="btn" disabled={pending || state.saved}>제외</button></div>
-    {candidate.recommendation !== "recommended" && <p className="description">추천 기준을 충족한 후보만 최종 선정할 수 있습니다.</p>}
+    <label className="field">{needsReason ? "선정 사유 · 최종 선정 시 5자 이상 필수" : "검토 메모 · 선택"}<input className="input" name="reason" value={reason} onChange={e => setReason(e.target.value)} maxLength={1000} disabled={pending || state.saved} placeholder={needsReason ? "정보 부족·AI 판단을 감안해도 선정하는 이유" : "선정 사유나 확인할 내용"} /></label>
+    <div className="selection-actions"><button name="verdict" value="approved" className="btn btn-primary" disabled={pending || state.saved || !checked || !candidate.can_select || candidate.verdict === "approved" || needsReason && reason.trim().length < 5}>{pending ? "저장 중…" : candidate.verdict === "approved" ? "선정됨" : "최종 선정"}</button><button name="verdict" value="hold" className="btn" disabled={pending || state.saved}>보류</button><button name="verdict" value="rejected" className="btn" disabled={pending || state.saved}>제외</button></div>
+    {!candidate.can_select && <p className="description">현재 SNS 원본 근거의 검증 상태로는 최종 선정할 수 없습니다. 보류·제외는 기록할 수 있습니다.</p>}
+    {state.saved && <div className="decision-followup"><Link href={`/campaigns/${campaignId}?tab=${state.verdict === "approved" ? "selected" : "recommended"}${state.verdict === "hold" ? "&filter=hold" : state.verdict === "rejected" ? "&filter=excluded" : ""}`} className="source-link">판정 결과 목록 보기 →</Link><button type="button" className="source-link" onClick={onReset}>판정 다시 변경</button></div>}
     <div aria-live="polite">{state.error && <p className="form-error" role="alert">{state.error}</p>}{state.message && <p className="selection-receipt" role="status">{state.message}</p>}</div>
   </form>;
 }
@@ -25,8 +30,9 @@ function Retry({ campaignId, id }: { campaignId: string; id: string }) {
   const [state, submit, pending] = useActionState(retryAssessmentAction.bind(null, campaignId, id), initial);
   return <form action={submit}><p className="description mb-3">다시 요청하면 연결된 실행 PC에서 자동 평가를 재실행합니다.</p><button className="btn" disabled={pending || state.saved}>자동 평가 다시 시도</button><p role="status" className="description mt-2">{state.error || state.message}</p></form>;
 }
-export function CandidatePanel({ candidate: c, campaignId, writable, onClose }: { candidate: Candidate; campaignId: string; writable: boolean; onClose: () => void }) {
+export function CandidatePanel({ candidate: c, campaignId, writable, onClose, onDecision }: { candidate: Candidate; campaignId: string; writable: boolean; onClose: () => void; onDecision: DecisionUpdate }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const [decisionVersion, setDecisionVersion] = useState(0);
   useEffect(() => {
     const dialog = ref.current!, opener = document.activeElement instanceof HTMLElement ? document.activeElement : null, overflow = document.body.style.overflow;
     dialog.showModal(); document.body.style.overflow = "hidden";
@@ -46,9 +52,10 @@ export function CandidatePanel({ candidate: c, campaignId, writable, onClose }: 
       {c.error_code && <p role="status" className="form-error">{c.error_code === "workspace_spend_cap" ? "Codex 지출 한도에 도달했습니다. 한도 조정 후 다시 시도해 주세요." : "자동 평가가 중단됐습니다. 저장된 후보와 원본은 보존되어 있습니다."}</p>}
       {c.retryable && writable && c.assessment_id && <Retry campaignId={campaignId} id={c.assessment_id} />}
       {c.verdict && <section className="selection-receipt"><strong>{c.verdict === "approved" ? "사용자 최종 선정 완료" : c.verdict === "hold" ? "사용자 보류" : "사용자 제외"}</strong>{c.decision && <><p>{new Date(c.decision.at).toLocaleString("ko-KR", { timeZone: "Asia/Seoul" })}</p><p>{c.decision.reason}</p></>}</section>}
-      {writable && !c.source_warning && c.state === "completed" && c.assessment_id && <Review key={c.assessment_id} campaignId={campaignId} candidate={c} />}
+
       {!writable && <p className="description mt-5">현재 계정은 조회 전용입니다.</p>}
       <Link className="source-link mt-6" href={`/evaluations/${campaignId}/${c.id}`}>평가 상세 이력 →</Link>
     </div>
+    {writable && c.state === "completed" && c.assessment_id && <div className="decision-dock"><Review key={`${c.assessment_id}/${decisionVersion}`} campaignId={campaignId} candidate={c} onReset={() => setDecisionVersion(v => v+1)} onDecision={onDecision} /></div>}
   </dialog>;
 }
