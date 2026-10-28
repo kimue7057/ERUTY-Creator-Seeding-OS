@@ -1,5 +1,27 @@
 # Codex direct browser discovery
 
+## Selected browser account
+
+An operator can select an existing SNS account in the local, ignored `.local/discovery/codex-browser/browser-preferences.private.json` file. This is a browser/account preference, not a credential or a discovery authorization. It must not contain passwords or cookies, and it never changes the campaign/request scope.
+
+```json
+{
+  "version": 1,
+  "platforms": {
+    "youtube": {
+      "browser_family": "chrome",
+      "extension_instance_id": "UUID_FROM_THE_ACTUAL_BROWSER_INVENTORY",
+      "account_label": "Selected account display name",
+      "account_email": "selected-account@example.invalid"
+    }
+  }
+}
+```
+
+Read this preference before navigating the requested SNS. Obtain the actual host browser inventory and match `metadata.extensionInstanceId`; numeric browser IDs are local to a tool session and can be reordered. Select that exact connection with the documented browser API and use its returned browser ID for a new task tab. Verify the platform's actual account menu against the selected account email and label before any discovery search or content visit. If the connection is unavailable, authorization surface is incompatible, or the account cannot be verified, stop and report the actual setup mismatch without switching to a different/personal account or inventing SNS evidence. Existing saved results remain intact.
+
+Account selection does not authorize login, purchase, or history/privacy changes. Do not turn off, clear, or restore personal watch/search history automatically. New CLI executions read the current preference through the installed discovery skill; updating it does not interrupt an already running execution. Keep the repository skill and installed copy in sync. Account names and stable browser IDs stay in this private local file, never in committed skill instructions or public PRs.
+
 ## Dashboard request workflow
 
 With migration 0014 and a connected automatic worker, the request button launches Codex CLI without a chat handoff. See [automatic execution](AUTOMATIC-CODEX-DISCOVERY.md). The manual flow below remains available when automatic execution is disabled. An automatic assignment already has a claimed authorization and prepared run; do not claim it again.
