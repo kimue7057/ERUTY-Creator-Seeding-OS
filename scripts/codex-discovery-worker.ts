@@ -142,7 +142,12 @@ try {
         let assessment = null;
         try { assessment = (await call("worker-assessment-next", lease)).assignment; }
         catch (error) { if (!["unknown_worker_action", "automatic_discovery_disabled", "automatic_assessment_disabled"].some(code => String(error).includes(code))) throw error; }
-        if (assessment) { busy = true; try { await assess(assessment); } finally { busy = false; } }
+        if (assessment) { busy = true; try {
+          await assess(assessment);
+          // Newly requested discovery should not wait behind a whole historic
+          // assessment backlog. Both kinds of work still execute sequentially.
+          if (!stopped) { const next = await call("worker-next", lease); if (next.assignment) await execute(next.assignment); }
+        } finally { busy = false; } }
         else { const next = await call("worker-next", lease); if (next.assignment) { busy = true; try { await execute(next.assignment); } finally { busy = false; } } }
       }
     } catch (error) { log("worker_error", { code: String((error as Error).message).slice(0, 100) }); }
