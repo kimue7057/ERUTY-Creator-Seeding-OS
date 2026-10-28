@@ -3,16 +3,16 @@ import { useActionState, useState } from "react";
 import { useHydrated } from "@/components/use-hydrated";
 import { createBrowserRequestAction, cancelBrowserRequestAction } from "@/app/(app)/campaigns/[id]/discovery/actions";
 
-export function BrowserRequestForm({ campaignId, contextHash, platforms, goal, requestKey }: { campaignId: string; contextHash: string; platforms: { value: string; label: string }[]; goal: number; requestKey: string }) {
+export function BrowserRequestForm({ campaignId, contextHash, platforms, goal, requestKey, automatic = false }: { campaignId: string; contextHash: string; platforms: { value: string; label: string }[]; goal: number; requestKey: string; automatic?: boolean }) {
   const [state, submit, pending] = useActionState(createBrowserRequestAction.bind(null, campaignId, contextHash), { error: "", saved: false, requestId: "", prompt: "" });
   const hydrated = useHydrated();
   return <form action={submit} className="review-form" aria-label="Codex 발굴 요청" aria-busy={pending}>
     <input type="hidden" name="idempotency_key" value={requestKey} />
     {!state.saved && <div className="grid gap-4 sm:grid-cols-2"><label className="field">탐색 플랫폼<select className="input" name="platform" defaultValue={platforms[0]?.value} disabled={pending} required>{platforms.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}</select></label>
       <label className="field">이번 요청 인원<input className="input" type="number" name="requested_count" min={1} max={20} defaultValue={Math.min(20, goal)} disabled={pending} required /><span className="text-xs muted">플랫폼별 1–20명 · 캠페인 전체 목표 {goal}명</span></label></div>}
-    <p className="description">요청을 저장한 뒤 실행 안내를 Codex 채팅에 전달하세요. Codex가 SNS에서 직접 탐색하고 후보를 순차 저장합니다.</p>
-    <button className="btn btn-primary" disabled={pending || !hydrated || state.saved}>{pending ? "요청 저장 중…" : state.saved ? "요청 저장됨" : "발굴 요청 저장"}</button>
-    <div aria-live="polite">{state.error && <p role="alert" className="form-error">{state.error}</p>}{state.saved && <p role="status">요청을 저장했습니다. 아래 ‘최근 실행 요청’을 열어 실행 안내를 복사해 주세요.</p>}</div>
+    <p className="description">{automatic ? "탐색을 요청하면 연결된 실행 PC의 Codex가 SNS 내부 검색을 시작하고 후보와 원본 근거를 순차 저장합니다." : "요청을 저장한 뒤 실행 안내를 Codex 채팅에 전달하세요. Codex가 SNS에서 직접 탐색하고 후보를 순차 저장합니다."}</p>
+    <button className="btn btn-primary" disabled={pending || !hydrated || state.saved}>{pending ? "요청 중…" : state.saved ? "요청 접수됨" : automatic ? "탐색 시작" : "발굴 요청 저장"}</button>
+    <div aria-live="polite">{state.error && <p role="alert" className="form-error">{state.error}</p>}{state.saved && <p role="status">{automatic ? "요청을 접수했습니다. 아래에서 자동 실행 상태와 저장 인원을 확인하세요." : "요청을 저장했습니다. 아래 ‘최근 실행 요청’을 열어 실행 안내를 복사해 주세요."}</p>}</div>
     {state.saved && <a className="btn" href={`/campaigns/${campaignId}/discovery`}>다른 요청 만들기</a>}
   </form>;
 }

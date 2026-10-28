@@ -9,6 +9,7 @@ import { codexBrowserActor, localBrowserAuthorization } from "./local-browser";
 import { submissionManifest, verifyRemoteCollection } from "./browser-captures";
 import { discoveryService } from "./service";
 import { appendLogInput, observationInput, DiscoveryError, discoveryHash } from "./contracts";
+import { automaticWorkerService } from "./automatic-worker";
 
 export function remoteBrowserService(database: typeof db = db) {
   const queue = browserRequestService(database), service = discoveryService(database), authentication = browserWorkerAuth(database);
@@ -19,13 +20,22 @@ export function remoteBrowserService(database: typeof db = db) {
     await service.getContext(who, { contract_version: 1, campaign_id: auth.campaign_id });
     return { auth, who };
   }
-  const prepare = (auth: Extract<z.infer<typeof localBrowserAuthorization>, { request_id: string }>, who: ReturnType<typeof codexBrowserActor>) => service.prepare(who, { contract_version: 1, campaign_id: auth.campaign_id, platform: auth.platform, requested_count: auth.max_creators, time_budget_seconds: 1800, execution_source: "codex_browser", idempotency_key: auth.request_id });
+  const prepare = (auth: Extract<z.infer<typeof localBrowserAuthorization>, { request_id: string }>, who: ReturnType<typeof codexBrowserActor>) => service.prepare(who, { contract_version: 1, campaign_id: auth.campaign_id, platform: auth.platform, requested_count: auth.max_creators, time_budget_seconds: auth.execution_reference.startsWith("automatic-codex:") ? 10800 : 1800, execution_source: "codex_browser", idempotency_key: auth.request_id });
   return {
     async execute(action: string, token: string, input: unknown) {
       const actor = await authentication.actor(token);
       if (action === "logout") return authentication.logout(token);
       if (action === "requests") return { browser_launched: false, requests: (await queue.list(actor)).map(({ request: job, run }) => ({ request_id: job.id, campaign_id: job.campaignId, platform: job.platform, requested_count: job.requestedCount, state: job.state, run_id: job.runId, run_status: run?.status ?? null })) };
       if (action === "claim") return queue.claim(actor, input);
+      if (action.startsWith("worker-")) {
+        if (process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED !== "true") throw new DiscoveryError(403, "automatic_discovery_disabled");
+        const automatic = automaticWorkerService(database);
+        if (action === "worker-heartbeat") return automatic.heartbeat(actor, input);
+        if (action === "worker-next") return automatic.next(actor, input);
+        if (action === "worker-event") return automatic.event(actor, input);
+        if (action === "worker-finish") return automatic.finish(actor, input);
+        throw new DiscoveryError(404, "unknown_worker_action");
+      }
       const request = z.strictObject({ authorization: z.unknown(), payload: z.unknown().optional() }).parse(input);
       const { auth, who } = await scoped(actor, request.authorization);
       if (action === "context") return { ...await service.getContext(who, { contract_version: 1, campaign_id: auth.campaign_id }), remote_execution: "codex_desktop_https_worker", browser_launched: false, hosted_work_called: false };

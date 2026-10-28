@@ -2,6 +2,8 @@
 
 ## Dashboard request workflow
 
+With migration 0014 and a connected automatic worker, the request button launches Codex CLI without a chat handoff. See [automatic execution](AUTOMATIC-CODEX-DISCOVERY.md). The manual flow below remains available when automatic execution is disabled. An automatic assignment already has a claimed authorization and prepared run; do not claim it again.
+
 The 2026-10-27 extension adds a real request queue and scoped collection of 1–20 distinct accounts per platform. In campaign discovery, save a request, copy its execution instructions into Codex, then use the installed discovery skill. The dashboard does not automatically launch a Codex session or browser. Requests preserve the targeting/context hash; a changed campaign requires a new request. Cancellation preserves observations and prevents further collection. A claim lasts at most four hours and can be replayed by the same operator/execution without issuing another run.
 
 Enable `CODEX_DISCOVERY_ENABLED=true` for both the dashboard and restricted local runtime. Apply migration `0011` after backup; reapply `staging/discovery/runtime-grants.sql` to the existing restricted runtime role. It can read/claim/attach requests, but cannot create dashboard requests or human reviews. No old Work grants, memberships or capability receipts are changed.

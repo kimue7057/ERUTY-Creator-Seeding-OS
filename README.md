@@ -1,6 +1,6 @@
 # ERUTY Creator Seeding OS
 
-Work 없이 Codex 앱에서 SNS를 직접 탐색하는 [직접 발굴 요청 흐름](docs/CODEX-BROWSER-DISCOVERY.md)을 추가했다. 캠페인에서 플랫폼별 1–20명 요청을 저장하고 실행 안내를 Codex 채팅에 전달하면, 스킬이 원본 확인·순차 저장·제출을 진행한다. 요청 저장은 Codex 자동 실행이 아니다. 원본 근거와 브라우저 실행을 담당자가 각각 검토한 뒤 Codex 평가 JSON 가져오기·최종 승인으로 연결한다. 기존 1명 파일럿과 Work 기록은 보존한다. 스킬 원본은 `skills/eruty-codex-discovery/SKILL.md`이며 설정·명령은 연결 문서에 있다.
+캠페인의 **탐색 시작** 요청을 연결된 실행 PC가 자동으로 받아 Codex CLI·스킬·실제 SNS 브라우저로 탐색하는 [자동 발굴 실행](docs/AUTOMATIC-CODEX-DISCOVERY.md)을 제공한다. 플랫폼별 1–20명을 순차 저장하며 대시보드에서 연결 상태·진행·저장 인원·실패를 확인한다. Vercel/Neon은 요청과 결과를 공유하고, SNS 탐색 동안 실행 PC와 Codex 앱은 켜져 있어야 한다. 자동 실행 미설정 환경에는 [수동 직접 발굴](docs/CODEX-BROWSER-DISCOVERY.md)을 유지한다. 원본 근거와 브라우저 실행을 담당자가 각각 검토한 뒤 Codex 평가 JSON 가져오기·최종 승인으로 연결한다. 기존 파일럿·Work 기록을 보존하며 스킬 원본은 `skills/eruty-codex-discovery/SKILL.md`이다.
 
 MCP 연결 장애는 [요청 추적·오류 코드·격리 회귀·OAuth/Tunnel 복구 절차](docs/MCP-STABILITY.md)로 진단한다. 로컬 테스트 성공과 실제 hosted Work 성공을 구분한다.
 
