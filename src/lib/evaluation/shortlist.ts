@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, sql, getTableColumns } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db";
 import { auditEvents, campaigns } from "../db/schema";
@@ -43,6 +43,45 @@ export function shortlistService(database: typeof db = db) {
     const [job] = await tx.select().from(jobs).where(and(eq(jobs.id, data.assessment_id), eq(jobs.organizationId, actor.organizationId), eq(jobs.workerId, data.worker_id), eq(jobs.instanceId, data.instance_id))).for("update");
     if (!job) throw new EvaluationError("assessment_not_found");
     return job;
+  }
+  async function loadBoards(tx: Tx, actor: ActorScope, campaignIds: string[]) {
+    z.array(z.uuid()).max(100).parse(campaignIds); await evaluationMember(tx, actor);
+    if (!campaignIds.length) return [];
+    const selectedCampaigns = await tx.select().from(campaigns).where(and(eq(campaigns.organizationId, actor.organizationId), inArray(campaigns.id, campaignIds)));
+    const ranked = tx.select({ campaignId: campaignCreators.campaignId, id: creatorAccounts.id, name: creatorAccounts.displayName, handle: creatorAccounts.currentHandle, platform: creatorAccounts.platform, url: creatorAccounts.canonicalProfileUrl,
+      position: sql<number>`row_number() over (partition by ${campaignCreators.campaignId} order by ${creatorAccounts.id})`.as("position") }).from(campaignCreators)
+      .innerJoin(creatorAccounts, and(eq(creatorAccounts.id, campaignCreators.creatorAccountId), eq(creatorAccounts.organizationId, actor.organizationId)))
+      .where(and(eq(campaignCreators.organizationId, actor.organizationId), inArray(campaignCreators.campaignId, campaignIds))).as("ranked");
+    const accounts = await tx.select().from(ranked).where(sql`${ranked.position}<=200`);
+    const assessments = await tx.selectDistinctOn([jobs.campaignId, jobs.creatorAccountId], { ...getTableColumns(jobs),
+      // Raw original screen text is needed by the worker, not these read views.
+      inputSnapshot: sql<(typeof jobs.$inferSelect)["inputSnapshot"]>`jsonb_set(${jobs.inputSnapshot}, '{evidence}', coalesce((select jsonb_agg(item - 'source_material') from jsonb_array_elements(${jobs.inputSnapshot}->'evidence') item), '[]'::jsonb))` }).from(jobs).where(and(eq(jobs.organizationId, actor.organizationId), inArray(jobs.campaignId, campaignIds))).orderBy(jobs.campaignId, jobs.creatorAccountId, desc(jobs.createdAt), desc(jobs.id));
+    const ids = assessments.flatMap(job => job.evaluationId ? [job.evaluationId] : []);
+    const evaluations = ids.length ? await tx.select().from(creatorEvaluations).where(and(eq(creatorEvaluations.organizationId, actor.organizationId), inArray(creatorEvaluations.id, ids), eq(creatorEvaluations.promptVersion, "campaign-shortlist-v1"))) : [];
+    const decisions = ids.length ? await tx.selectDistinctOn([evaluationReviews.evaluationId]).from(evaluationReviews).where(and(eq(evaluationReviews.organizationId, actor.organizationId), inArray(evaluationReviews.evaluationId, ids))).orderBy(evaluationReviews.evaluationId, desc(evaluationReviews.createdAt), desc(evaluationReviews.id)) : [];
+    const observations = await tx.select({ campaignId: discoveryEvidence.campaignId, account: discoveryEvidence.creatorAccountId, id: discoveryEvidence.id, payload: discoveryEvidence.payloadSha256, runId: discoveryEvidence.runId }).from(discoveryEvidence).where(and(eq(discoveryEvidence.organizationId, actor.organizationId), inArray(discoveryEvidence.campaignId, campaignIds)));
+    const evidenceReviews = await tx.selectDistinctOn([discoveryEvidenceReviews.evidenceId]).from(discoveryEvidenceReviews).where(and(eq(discoveryEvidenceReviews.organizationId, actor.organizationId), inArray(discoveryEvidenceReviews.campaignId, campaignIds))).orderBy(discoveryEvidenceReviews.evidenceId, desc(discoveryEvidenceReviews.createdAt), desc(discoveryEvidenceReviews.id));
+    const runReviews = await tx.selectDistinctOn([browserRunReviews.runId]).from(browserRunReviews).where(and(eq(browserRunReviews.organizationId, actor.organizationId), inArray(browserRunReviews.campaignId, campaignIds))).orderBy(browserRunReviews.runId, desc(browserRunReviews.createdAt), desc(browserRunReviews.id));
+    const cancelled = await tx.select({ runId: browserDiscoveryRequests.runId }).from(browserDiscoveryRequests).where(and(eq(browserDiscoveryRequests.organizationId, actor.organizationId), inArray(browserDiscoveryRequests.campaignId, campaignIds), eq(browserDiscoveryRequests.state, "cancelled")));
+    const byAccount = (campaign: string, account: string) => campaign + "/" + account;
+    const jobMap = new Map(assessments.map(job => [byAccount(job.campaignId, job.creatorAccountId), job]));
+    const evaluationMap = new Map(evaluations.map(e => [e.id, e]));
+    const decisionMap = new Map(decisions.map(d => [d.evaluationId, d]));
+    const evidenceMap = new Map<string, typeof observations>();
+    for (const e of observations) { const key = byAccount(e.campaignId, e.account!); const group = evidenceMap.get(key) ?? []; group.push(e); evidenceMap.set(key, group); }
+    const evidenceVerdicts = new Map(evidenceReviews.map(r => [r.evidenceId, r.verdict]));
+    const runVerdicts = new Map(runReviews.map(r => [r.runId, r.verdict]));
+    const cancelledRuns = new Set(cancelled.map(r => r.runId));
+    return selectedCampaigns.map(campaign => ({ campaign_id: campaign.id, campaign_title: campaign.title, archived: campaign.status === "archived", policy: SHORTLIST_POLICY, candidates: accounts.filter(a => a.campaignId === campaign.id).map(account => {
+      const job = jobMap.get(byAccount(campaign.id, account.id)), evaluation = job?.evaluationId ? evaluationMap.get(job.evaluationId) : undefined, decision = evaluation ? decisionMap.get(evaluation.id) : undefined;
+      const snapshot = job?.inputSnapshot as EvaluationContext["snapshot"] | undefined;
+      const currentEvidence = evidenceMap.get(byAccount(campaign.id, account.id)) ?? [];
+      const adverse = currentEvidence.some(e => (evidenceVerdicts.has(e.id) && evidenceVerdicts.get(e.id) !== "accepted") || (runVerdicts.has(e.runId) && runVerdicts.get(e.runId) !== "accepted") || cancelledRuns.has(e.runId));
+      const stale = !!snapshot && (job?.inputSnapshot.assessment_stage !== "before_final_human_review" || snapshot.brief_version !== campaign.briefVersion || snapshot.creator.display_name !== account.name || snapshot.creator.handle !== account.handle || snapshot.creator.profile_url !== account.url || discoveryHash(snapshot.targeting) !== discoveryHash({ country_codes: campaign.countryCodes, platforms: campaign.platforms, categories: campaign.categories, follower_min: campaign.followerMin, follower_max: campaign.followerMax, notes: campaign.notes, exclusions: campaign.exclusions }) || currentEvidence.length !== snapshot.evidence.length || currentEvidence.some(e => !snapshot.evidence.some(s => s.id === e.id && s.payload_sha256 === e.payload)));
+      return { ...account, assessment_id: job?.id ?? null, state: stale ? "stale" : job?.state ?? "unassessed", error_code: job?.errorCode ?? null, retryable: !stale && job?.state === "failed" && job.attempts < 3,
+        recommendation: adverse ? "needs_info" : job?.recommendation ?? null, verdict: stale || adverse ? null : decision?.verdict ?? null, decision: stale || adverse || !decision ? null : { reason: decision.reason, at: decision.createdAt.toISOString() }, source_warning: adverse, evaluation: evaluation ? { id: evaluation.id, total: evaluation.total, known_subtotal: evaluation.knownSubtotal, unknown_count: evaluation.unknownCount, output: evaluation.output } : null,
+        evidence: snapshot?.evidence.map(e => ({ id: e.id, kind: e.kind, url: e.source_url, observed_at: e.observed_at, facts: e.facts, limitations: e.limitations })) ?? [] };
+    }) }));
   }
   return {
     enqueue: (actor: ActorScope, campaignId: string, accountId: string) => transaction(tx => enqueue(tx, actor, campaignId, accountId)),
@@ -137,30 +176,11 @@ export function shortlistService(database: typeof db = db) {
       await tx.insert(auditEvents).values({ organizationId: actor.organizationId, actorId: actor.userId, entityId: decision.id, action: `evaluation.${data.verdict}` });
       return decision;
     }),
+    boards: (actor: ActorScope, campaignIds: string[]) => transaction(tx => loadBoards(tx, actor, campaignIds)),
     board: (actor: ActorScope, campaignId: string) => transaction(async tx => {
-      z.uuid().parse(campaignId); await evaluationMember(tx, actor);
-      const [campaign] = await tx.select().from(campaigns).where(and(eq(campaigns.organizationId, actor.organizationId), eq(campaigns.id, campaignId)));
-      if (!campaign) throw new EvaluationError("evaluation_not_found");
-      const accounts = await tx.select({ id: creatorAccounts.id, name: creatorAccounts.displayName, handle: creatorAccounts.currentHandle, platform: creatorAccounts.platform, url: creatorAccounts.canonicalProfileUrl }).from(campaignCreators)
-        .innerJoin(creatorAccounts, and(eq(creatorAccounts.id, campaignCreators.creatorAccountId), eq(creatorAccounts.organizationId, actor.organizationId))).where(and(eq(campaignCreators.organizationId, actor.organizationId), eq(campaignCreators.campaignId, campaignId))).limit(200);
-      const assessments = await tx.selectDistinctOn([jobs.creatorAccountId]).from(jobs).where(scope(actor, campaignId)).orderBy(jobs.creatorAccountId, desc(jobs.createdAt), desc(jobs.id));
-      const evaluations = await tx.select().from(creatorEvaluations).where(and(eq(creatorEvaluations.organizationId, actor.organizationId), eq(creatorEvaluations.campaignId, campaignId), eq(creatorEvaluations.promptVersion, "campaign-shortlist-v1")));
-      const ids = evaluations.map(e => e.id);
-      const decisions = ids.length ? await tx.selectDistinctOn([evaluationReviews.evaluationId]).from(evaluationReviews).where(and(eq(evaluationReviews.organizationId, actor.organizationId), inArray(evaluationReviews.evaluationId, ids))).orderBy(evaluationReviews.evaluationId, desc(evaluationReviews.createdAt), desc(evaluationReviews.id)) : [];
-      const observations = await tx.select({ account: discoveryEvidence.creatorAccountId, id: discoveryEvidence.id, payload: discoveryEvidence.payloadSha256, runId: discoveryEvidence.runId }).from(discoveryEvidence).where(and(eq(discoveryEvidence.organizationId, actor.organizationId), eq(discoveryEvidence.campaignId, campaignId)));
-      const evidenceReviews = await tx.selectDistinctOn([discoveryEvidenceReviews.evidenceId]).from(discoveryEvidenceReviews).where(and(eq(discoveryEvidenceReviews.organizationId, actor.organizationId), eq(discoveryEvidenceReviews.campaignId, campaignId))).orderBy(discoveryEvidenceReviews.evidenceId, desc(discoveryEvidenceReviews.createdAt), desc(discoveryEvidenceReviews.id));
-      const runReviews = await tx.selectDistinctOn([browserRunReviews.runId]).from(browserRunReviews).where(and(eq(browserRunReviews.organizationId, actor.organizationId), eq(browserRunReviews.campaignId, campaignId))).orderBy(browserRunReviews.runId, desc(browserRunReviews.createdAt), desc(browserRunReviews.id));
-      const cancelled = await tx.select({ runId: browserDiscoveryRequests.runId }).from(browserDiscoveryRequests).where(and(eq(browserDiscoveryRequests.organizationId, actor.organizationId), eq(browserDiscoveryRequests.campaignId, campaignId), eq(browserDiscoveryRequests.state, "cancelled")));
-      return { campaign_id: campaignId, archived: campaign.status === "archived", policy: SHORTLIST_POLICY, candidates: accounts.map(account => {
-        const job = assessments.find(j => j.creatorAccountId === account.id), evaluation = evaluations.find(e => e.id === job?.evaluationId), decision = decisions.find(d => d.evaluationId === evaluation?.id);
-        const snapshot = job?.inputSnapshot as EvaluationContext["snapshot"] | undefined;
-        const currentEvidence = observations.filter(e => e.account === account.id);
-        const adverse = currentEvidence.some(e => evidenceReviews.some(r => r.evidenceId === e.id && r.verdict !== "accepted") || runReviews.some(r => r.runId === e.runId && r.verdict !== "accepted") || cancelled.some(r => r.runId === e.runId));
-        const stale = !!snapshot && (job?.inputSnapshot.assessment_stage !== "before_final_human_review" || snapshot.brief_version !== campaign.briefVersion || snapshot.creator.display_name !== account.name || snapshot.creator.handle !== account.handle || snapshot.creator.profile_url !== account.url || discoveryHash(snapshot.targeting) !== discoveryHash({ country_codes: campaign.countryCodes, platforms: campaign.platforms, categories: campaign.categories, follower_min: campaign.followerMin, follower_max: campaign.followerMax, notes: campaign.notes, exclusions: campaign.exclusions }) || currentEvidence.length !== snapshot.evidence.length || currentEvidence.some(e => !snapshot.evidence.some(s => s.id === e.id && s.payload_sha256 === e.payload)));
-        return { ...account, assessment_id: job?.id ?? null, state: stale ? "stale" : job?.state ?? "unassessed", error_code: job?.errorCode ?? null, retryable: job?.state === "failed" && job.attempts < 3,
-          recommendation: adverse ? "needs_info" : job?.recommendation ?? null, verdict: stale || adverse ? null : decision?.verdict ?? null, source_warning: adverse, evaluation: evaluation ? { id: evaluation.id, total: evaluation.total, known_subtotal: evaluation.knownSubtotal, unknown_count: evaluation.unknownCount, output: evaluation.output } : null,
-          evidence: snapshot?.evidence.map(e => ({ id: e.id, kind: e.kind, url: e.source_url, observed_at: e.observed_at, facts: e.facts, limitations: e.limitations })) ?? [] };
-      }) };
+      const [board] = await loadBoards(tx, actor, [campaignId]);
+      if (!board) throw new EvaluationError("evaluation_not_found");
+      return board;
     }),
   };
 }

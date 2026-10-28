@@ -1,11 +1,18 @@
 import Link from "next/link";
-import {requireActor} from "@/lib/auth/session";
-import {evaluationService} from "@/lib/evaluation/service";
-import {PageHeading,Empty} from "@/components/ui";
+import { requireActor } from "@/lib/auth/session";
+import { listCampaigns } from "@/lib/campaigns/service";
+import { workspaceBoards } from "@/lib/evaluation/workspace";
+import { candidateGroup, candidateName, campaignHref } from "@/lib/evaluation/presentation";
+import { platformLabel } from "@/lib/validation/campaigns";
+import { PageHeading, Empty } from "@/components/ui";
 export default async function Evaluations() {
- const actor=await requireActor();
- if(process.env.EVALUATION_ENABLED!=="true")return <Empty title="평가 기능 준비 중" text="운영 설정이 완료되면 평가와 검토를 시작할 수 있습니다."/>;
- const rows=await evaluationService().list(actor);
- const campaigns=[...new Map(rows.map(r=>[r.campaignId,{id:r.campaignId,title:r.title}])).values()];
- return <><PageHeading eyebrow="Creator shortlist" title="추천 후보 · 승인" description="캠페인에서 자동 평가한 추천 후보를 확인하고 최종 승인하세요."/><p className="info-banner">발굴 요청부터 자동 평가, 추천 명단과 사용자 승인까지 캠페인 한곳에서 이어집니다.</p>{campaigns.length?<div className="project-grid mt-7">{campaigns.map(c=><Link key={c.id} className="project-card" href={`/campaigns/${c.id}`}><div className="eyebrow mb-4">캠페인</div><h2>{c.title}</h2><p className="description">저장된 후보 {rows.filter(r=>r.campaignId===c.id).length}명</p><div className="card-footer">추천 후보 확인 · 최종 승인 →</div></Link>)}</div>:<Empty title="추천 후보를 찾기 시작하세요" text="캠페인에서 발굴을 요청하면 SNS 근거를 평가해 추천 명단을 올려드립니다." href="/campaigns" label="캠페인 열기"/>}</>;
+  const actor = await requireActor();
+  if (process.env.EVALUATION_ENABLED !== "true") return <Empty title="평가 기능 준비 중" text="운영 설정이 완료되면 추천 후보를 확인할 수 있습니다." />;
+  const campaigns = await listCampaigns(actor);
+  const boards = await workspaceBoards(actor, campaigns.filter(c => c.campaign.status !== "archived").map(c => c.campaign.id));
+  const rows = boards.flatMap(board => board.candidates.filter(c => candidateGroup(c) === "recommended").map(candidate => ({ candidate, campaign: board })));
+  return <><PageHeading eyebrow="Review inbox" title="검토함" description="자동 평가를 마친 추천 후보 중 아직 최종 선정하지 않은 사람만 모았습니다." />
+    <div className="section-heading"><h2>검토할 추천 · {rows.length}명</h2><Link className="source-link" href="/campaigns">캠페인 전체 보기 →</Link></div>
+    {rows.length ? <div className="inbox-list">{rows.map(({ candidate: c, campaign }) => <Link className="surface inbox-row" key={`${campaign.campaign_id}/${c.id}`} href={campaignHref(campaign.campaign_id, "recommended", c.id)}><div><p className="description">{campaign.campaign_title} · {platformLabel(c.platform)}</p><h2>{candidateName(c)}</h2><p className="inbox-reason">{c.evaluation?.output.summary}</p></div><span className="btn">후보 검토 →</span></Link>)}</div> : <section className="surface"><Empty title="지금 검토할 추천 후보가 없습니다" text="발굴과 자동 평가가 완료되면 조건에 맞는 후보가 이곳에 모입니다. 평가 진행 상황은 해당 캠페인에서 확인하세요." href="/campaigns" label="캠페인 확인" /></section>}
+    <p className="description mt-5">최근 캠페인 최대 100개 · 캠페인별 최대 200명 기준입니다. 보관된 캠페인은 제외합니다.</p></>;
 }

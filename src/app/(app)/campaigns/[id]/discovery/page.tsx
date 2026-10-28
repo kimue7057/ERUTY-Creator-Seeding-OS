@@ -29,9 +29,9 @@ export default async function CampaignDiscovery({ params, searchParams }: { para
   const currentEnvironment = /^[a-f0-9]{64}$/.test(process.env.DISCOVERY_CURRENT_ENVIRONMENT_SHA256 ?? "") ? process.env.DISCOVERY_CURRENT_ENVIRONMENT_SHA256 : null;
   const pageUrl = (page: number) => { const search = new URLSearchParams(); for (const [key, value] of Object.entries({ ...filters, page })) if (value !== undefined) search.set(key, String(value)); return `/campaigns/${id}/discovery?${search}`; };
   return <><div className="mb-5 text-xs muted"><Link href="/campaigns">캠페인</Link> / <Link href={`/campaigns/${id}`}>{campaign.title}</Link> / 발굴 기록</div>
-    <PageHeading eyebrow="Step 03 · Campaign discovery" title={campaign.title} description="저장된 작업과 크리에이터 원본 근거를 확인하고 검토하세요." />
+    <PageHeading eyebrow="Discovery archive" title={campaign.title} description="상세 기록 · 원본과 과거 검토 내역입니다. 발굴·추천·최종 선정은 캠페인 작업 화면에서 진행하세요." />
     <div className="flex gap-2 flex-wrap mb-7"><span className="badge">기록 조회</span><span className="badge badge-blue">브리프 v{campaign.briefVersion}</span><span className="description ml-auto">Work 보고 {counts.work_runs}개 · Codex 직접 탐색 {counts.codex_runs}개 · 합성 작업 {counts.synthetic_runs}개</span></div>
-    <section className="surface panel-body mb-7" aria-label="Codex 직접 발굴 요청"><h2>Codex 직접 발굴</h2>
+    <details className="surface panel-body mb-7"><summary className="cursor-pointer font-semibold">직접 발굴 요청 · 고급 운영</summary><section aria-label="Codex 직접 발굴 요청"><h2>Codex 직접 발굴</h2>
       {currentContext && campaign.status !== "archived" ? <BrowserRequestForm automatic={automatic} campaignId={id} contextHash={currentContext.context_sha256} platforms={PLATFORMS.filter(p => campaign.platforms.includes(p.value))} goal={campaign.goalCount} requestKey={randomUUID()} /> : <p className="description">{!canWrite(actor) ? "현재 계정은 발굴 요청을 조회할 수 있습니다." : campaign.status === "archived" ? "보관된 캠페인은 새 탐색을 요청할 수 없습니다." : "직접 발굴 실행 설정이 준비되지 않았습니다."}</p>}
       {automatic && <AutomaticProgress campaignId={id} writable={canWrite(actor)} />}
       {!automatic && browserRequests.length > 0 && <div className="mt-6"><h3>최근 실행 요청</h3>{browserRequests.map(({ request: job, run, collected }) => <details className="review-disclosure" key={job.id}><summary>{platformLabel(job.platform)} · {collected}/{job.requestedCount}명 · {job.state === "cancelled" ? "취소됨" : run ? ({ prepared: "실행 준비", collecting: "수집 중", awaiting_review: "검토 대기", completed: "검토 완료", partial: "일부 확인", blocked: "접근 차단", failed: "실패", cancelled: "취소됨" })[run.status] : job.state === "queued" ? "Codex 전달 대기" : "실행 준비"}</summary>
@@ -39,7 +39,7 @@ export default async function CampaignDiscovery({ params, searchParams }: { para
         {run && <Link className="btn mt-3" href={`/campaigns/${id}/discovery/runs/${run.id}`}>작업·근거 확인 →</Link>}
         {canWrite(actor) && job.state !== "cancelled" && (!run || ["prepared", "collecting"].includes(run.status)) && <><RequestHandoff prompt={browserRequestPrompt(job.id)} /><CancelBrowserRequest campaignId={id} requestId={job.id} /></>}
       </details>)}</div>}
-    </section>
+    </section></details>
     <div className="stats-grid">{[{ title: "기록된 계정", value: counts.total, note: "캠페인 내 중복 제거", Icon: FileSearch }, { title: "원본 근거 검토 완료", value: counts.verified, note: "실행 경로·프로필·콘텐츠 검토", Icon: ShieldCheck }, { title: "접근·검색 실패 기록", value: counts.failures, note: "로그인·차단·미확인 사유 보존", Icon: CircleAlert }, { title: "중복 관찰", value: counts.duplicates, note: "동일 계정의 추가 관찰", Icon: Copy }].map(({ title, value, note, Icon }) => <section key={title} className="stat-card"><div className="stat-title">{title}<Icon size={15} aria-hidden="true" /></div><div className="stat-value">{value.toLocaleString("ko-KR")}</div><div className="stat-note">{note}</div></section>)}</div>
     {!automatic && <section aria-label="플랫폼별 Work 실증" className="platform-checks">{DISCOVERY_PLATFORMS.map(platform => {
       const rows = data.capabilities.filter(row => row.platform === platform && row.environment === currentEnvironment), native = rows.find(row => row.kind === "sns_native_search"), mcp = rows.find(row => row.kind === "work_mcp_write");
@@ -49,8 +49,8 @@ export default async function CampaignDiscovery({ params, searchParams }: { para
       const label = verified ? "5명 실증 검토" : blocked ? "제한 기록 있음" : native ? "일부 실증 기록" : initial ? "초기 실증 · 환경 미검증" : data.capabilities.some(row => row.platform === platform) ? "환경 재확인 필요" : "실증 미검증";
       return <div className="platform-check" key={platform}><span className="font-semibold">{platformLabel(platform)}</span><span className={`badge ${verified ? "badge-green" : "badge-amber"}`}>{label}</span></div>;
     })}</section>}
-    <div className="info-banner discovery-notice"><ScanSearch size={19} aria-hidden="true" /><div>{automatic ? "Codex가 SNS 내부 검색과 프로필·게시물 확인 후 후보와 원본 근거를 저장합니다. 수집 완료 후에도 근거와 최종 적합성은 사람이 별도로 검토합니다." : "합성 테스트와 수동 입력은 Work 직접 발굴 완료에 포함하지 않습니다. 플랫폼별 검색 안정성은 해당 환경에서 수행한 실증 기록으로 확인합니다."}</div></div>
-    <div className="section-heading"><h2>크리에이터 <span className="muted text-xs font-normal ml-2">필터 결과 {data.totalFiltered}명</span></h2><Link className="text-xs muted" href={`/campaigns/${id}`}>캠페인 브리프 →</Link></div>
+    <div className="info-banner discovery-notice"><ScanSearch size={19} aria-hidden="true" /><div>{automatic ? "Codex가 SNS 원본을 저장하고 자동 평가합니다. 추천 후보의 최종 선정은 캠페인에서 진행하세요. 이곳의 개별 근거 검토는 상세 검증이 필요할 때 사용합니다." : "합성 테스트와 수동 입력은 Work 직접 발굴 완료에 포함하지 않습니다. 플랫폼별 검색 안정성은 해당 환경에서 수행한 실증 기록으로 확인합니다."}</div></div>
+    <div className="section-heading"><h2>크리에이터 <span className="muted text-xs font-normal ml-2">필터 결과 {data.totalFiltered}명</span></h2><Link className="text-xs muted" href={`/campaigns/${id}?tab=history`}>캠페인 진행·기록 →</Link></div>
     <section className="surface"><form key={JSON.stringify(filters)} className="discovery-filters" aria-label="크리에이터 필터">
       <label className="field">플랫폼<select aria-label="플랫폼" name="platform" className="input" defaultValue={filters.platform ?? ""}><option value="">전체 플랫폼</option>{PLATFORMS.map(p => <option value={p.value} key={p.value}>{p.label}</option>)}</select></label>
       <label className="field">카테고리<input name="category" className="input" maxLength={100} placeholder="카테고리명" defaultValue={filters.category ?? ""} /></label>

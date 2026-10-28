@@ -22,5 +22,5 @@ export async function campaignAction(id: string | undefined, _: ActionState, for
     savedId = (await saveCampaign(actor, data, id)).id;
   } catch (error) { return actionError(error); }
   revalidatePath("/", "layout");
-  redirect(`/campaigns/${savedId}`);
+  redirect(`/campaigns/${savedId}${id ? "?tab=settings" : ""}`);
 }
