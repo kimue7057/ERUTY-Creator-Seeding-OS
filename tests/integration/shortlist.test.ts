@@ -20,6 +20,9 @@ test("automatic shortlist is durable and scoped, evaluates once, and requires on
     await assert.rejects(svc.board(f.other, s.campaign.id), code("evaluation_not_found"));
     await assert.rejects(svc.enqueue(f.reader, s.campaign.id, s.accountId), code("evaluation_forbidden"));
     const assigned = await svc.next(f.actor, s.worker); assert.ok(assigned.assignment);
+    const source = (assigned.assignment.snapshot.evidence as { source_material: { visible_text: string; sha256: string } }[])[0].source_material;
+    assert.match(source.visible_text, /SYNTHETIC/); assert.match(source.sha256, /^[a-f0-9]{64}$/);
+    assert.ok(!JSON.stringify(assigned.assignment.snapshot).includes('"verification_state"'));
     assert.equal((await svc.next(f.actor, s.worker)).assignment, null);
     const input = { ...s.worker, assessment_id: assigned.assignment.assessment_id, output: goodOutput(s.ids[0]), error_code: null };
     await assert.rejects(svc.finish(f.actor, { ...input, output: goodOutput(randomUUID()) }), code("evidence_not_allowed"));

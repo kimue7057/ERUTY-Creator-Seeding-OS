@@ -11,8 +11,13 @@ export function assessmentFingerprint(snapshot: Record<string, unknown>) {
     brief_version: snapshot.brief_version, brief: snapshot.brief, targeting: snapshot.targeting,
     creator: { platform: creator.platform, handle: creator.handle, display_name: creator.display_name, profile_url: creator.profile_url },
     evidence: evidence.map(e => ({ id: e.id, kind: e.kind, source_url: e.source_url, observed_at: e.observed_at, published_at: e.published_at,
-      payload_sha256: e.payload_sha256, method: e.method, execution_source: e.execution_source })).sort((a,b) => String(a.id).localeCompare(String(b.id))),
+      payload_sha256: e.payload_sha256, original_sha256: (e.source_material as { sha256?: string } | null)?.sha256 ?? null, method: e.method, execution_source: e.execution_source })).sort((a,b) => String(a.id).localeCompare(String(b.id))),
   });
+}
+export function automaticAssessmentSnapshot(snapshot: Record<string, unknown>) {
+  const omit = (value: Record<string, unknown>, keys: string[]) => Object.fromEntries(Object.entries(value).filter(([key]) => !keys.includes(key)));
+  return { ...snapshot, assessment_stage: "before_final_human_review", creator: omit(snapshot.creator as Record<string, unknown>, ["verification_state"]),
+    evidence: (snapshot.evidence as Record<string, unknown>[]).map(e => omit(e, ["review", "browser_execution_reviewed", "browser_execution_review_ids"])) };
 }
 export const SHORTLIST_POLICY = { minimum_known_score: 70, minimum_confidence: 0.6, minimum_product_fit: 18 } as const;
 export function campaignConstraintMismatch(snapshot: Record<string, unknown>) {

@@ -12,6 +12,7 @@ import {browserExecutionAccepted} from "../discovery/browser-review";
 import {creatorAssessments} from "../db/assessment-schema";
 import {assessmentFingerprint} from "./shortlist-policy";
 import {assessmentSourceEligible} from "./assessment-evidence";
+import {assessmentOriginals} from "./originals";
 type Tx=Parameters<Parameters<typeof db.transaction>[0]>[0];
 const uuid=z.uuid(),hash=z.string().regex(/^[a-f0-9]{64}$/);
 export async function evaluationMember(tx:Tx,actor:ActorScope,write=false){
@@ -33,11 +34,12 @@ export async function evaluationContext(tx:Tx,actor:ActorScope,campaignId:string
  const browserRunIds=[...new Set(evidence.filter(r=>r.source==="codex_browser").map(r=>r.e.runId))];
  const browserReviews=browserRunIds.length?await tx.select().from(browserRunReviews).where(and(eq(browserRunReviews.organizationId,actor.organizationId),inArray(browserRunReviews.runId,browserRunIds))):[];
  const verdicts=ids.length?await tx.selectDistinctOn([discoveryEvidenceReviews.evidenceId]).from(discoveryEvidenceReviews).where(and(eq(discoveryEvidenceReviews.organizationId,actor.organizationId),inArray(discoveryEvidenceReviews.evidenceId,ids))).orderBy(discoveryEvidenceReviews.evidenceId,desc(discoveryEvidenceReviews.createdAt),desc(discoveryEvidenceReviews.id)):[];
+ const originals=await assessmentOriginals(tx,actor.organizationId,evidence.map(r=>r.e));
  const snapshot={contract_version:1,campaign_id:campaignId,creator_account_id:accountId,brief_version:campaign.briefVersion,
   brief:{project:brief.snapshot.project,products:brief.snapshot.products,assets:brief.snapshot.assets.map(a=>({id:a.id,name:a.name,version:a.version,sha256:a.sha256??null}))},
   targeting:{country_codes:campaign.countryCodes,platforms:campaign.platforms,categories:campaign.categories,follower_min:campaign.followerMin,follower_max:campaign.followerMax,notes:campaign.notes,exclusions:campaign.exclusions},
   creator:{platform:account.platform,handle:account.currentHandle,display_name:account.displayName,profile_url:account.canonicalProfileUrl,verification_state:link.discoveryState},
-  evidence:evidence.map(({e,source,run})=>({id:e.id,kind:e.kind,source_url:e.sourceUrl,observed_at:e.observedAt.toISOString(),published_at:e.publishedAt?.toISOString()??null,payload_sha256:e.payloadSha256,method:e.observationMethod,execution_source:source,...(source==="codex_browser"?{browser_execution_reviewed:browserExecutionAccepted(run,browserReviews),browser_execution_review_ids:browserReviews.filter(r=>r.runId===run.id).map(r=>r.id).sort()}:{}),facts:e.facts,limitations:e.limitations,review:verdicts.find(r=>r.evidenceId===e.id)?.verdict??"unreviewed"})),
+  evidence:evidence.map(({e,source,run})=>({id:e.id,kind:e.kind,source_url:e.sourceUrl,observed_at:e.observedAt.toISOString(),published_at:e.publishedAt?.toISOString()??null,payload_sha256:e.payloadSha256,method:e.observationMethod,execution_source:source,...(source==="codex_browser"?{browser_execution_reviewed:browserExecutionAccepted(run,browserReviews),browser_execution_review_ids:browserReviews.filter(r=>r.runId===run.id).map(r=>r.id).sort()}:{}),facts:e.facts,limitations:e.limitations,review:verdicts.find(r=>r.evidenceId===e.id)?.verdict??"unreviewed",source_material:originals.get(e.id)??null})),
   limitations:["Creator country is not audience country. Audience geography has not been independently verified.","Missing/rounded metrics must stay missing/rounded. Model scores are inferences, not new SNS observations."],rubric:RUBRIC};
  return {campaign,link,snapshot,input_sha256:discoveryHash(snapshot),ready_for_step4:link.discoveryState==="direct_sns_verified"};
 }

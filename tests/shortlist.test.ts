@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { assessmentFingerprint, campaignConstraintMismatch, shortlistRecommendation } from "../src/lib/evaluation/shortlist-policy";
+import { assessmentFingerprint, automaticAssessmentSnapshot, campaignConstraintMismatch, shortlistRecommendation } from "../src/lib/evaluation/shortlist-policy";
+import { evaluationPrompt } from "../src/lib/evaluation/prompt";
 import { sampleEvaluation } from "./evaluation-samples";
 test("shortlist preserves unknown scores and requires supported high scores and source eligibility", () => {
   const output = sampleEvaluation(randomUUID()); output.confidence = 0.85; output.criteria.product_fit.score = 25;
@@ -14,6 +15,11 @@ test("shortlist preserves unknown scores and requires supported high scores and 
 test("review changes preserve the assessment; targeting, identity and new evidence invalidate it", () => {
   const snapshot = { campaign_id: randomUUID(), creator_account_id: randomUUID(), brief_version: 1, brief: { project: "SYNTHETIC" }, targeting: { country_codes: ["JP"] }, creator: { platform: "youtube", handle: "synthetic", verification_state: "verification_pending" }, evidence: [{ id: randomUUID(), payload_sha256: "a".repeat(64), review: "unreviewed" }] };
   const fingerprint = assessmentFingerprint(snapshot);
+  const automatic = automaticAssessmentSnapshot(snapshot);
+  assert.equal(assessmentFingerprint(automatic), fingerprint);
+  assert.ok(!("verification_state" in automatic.creator));
+  assert.ok(!("review" in automatic.evidence[0]));
+  assert.match(evaluationPrompt(automatic), /BEFORE the user makes a final human decision/);
   assert.equal(assessmentFingerprint({ ...snapshot, creator: { ...snapshot.creator, verification_state: "direct_sns_verified" }, evidence: snapshot.evidence.map(e => ({ ...e, review: "accepted", browser_execution_review_ids: [randomUUID()] })) }), fingerprint);
   assert.notEqual(assessmentFingerprint({ ...snapshot, targeting: { country_codes: ["SG"] } }), fingerprint);
   assert.notEqual(assessmentFingerprint({ ...snapshot, creator: { ...snapshot.creator, handle: "changed" } }), fingerprint);

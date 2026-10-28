@@ -11,7 +11,7 @@ import type { ActorScope } from "../auth/permissions";
 import { discoveryHash, DiscoveryError } from "../discovery/contracts";
 import { EvaluationError, evaluationOutput, evaluationReason, validateScores } from "./contracts";
 import { evaluationContext, evaluationMember, type EvaluationContext } from "./service";
-import { assessmentFingerprint, campaignConstraintMismatch, shortlistRecommendation, SHORTLIST_POLICY } from "./shortlist-policy";
+import { assessmentFingerprint, automaticAssessmentSnapshot, campaignConstraintMismatch, shortlistRecommendation, SHORTLIST_POLICY } from "./shortlist-policy";
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 const lease = z.object({ worker_id: z.uuid(), instance_id: z.uuid() });
@@ -28,7 +28,7 @@ export function shortlistService(database: typeof db = db) {
     const fingerprint = assessmentFingerprint(current.snapshot);
     const eligible = await sourceEligible(tx, actor, current);
     const [job] = await tx.insert(jobs).values({ organizationId: actor.organizationId, campaignId, creatorAccountId: accountId,
-      inputSha256: fingerprint, inputSnapshot: current.snapshot, sourceEligible: eligible ? "yes" : "no", createdBy: actor.userId }).onConflictDoNothing().returning();
+      inputSha256: fingerprint, inputSnapshot: automaticAssessmentSnapshot(current.snapshot), sourceEligible: eligible ? "yes" : "no", createdBy: actor.userId }).onConflictDoNothing().returning();
     return job;
   }
   async function host(tx: Tx, actor: ActorScope, data: z.infer<typeof lease>) {
@@ -155,7 +155,7 @@ export function shortlistService(database: typeof db = db) {
         const snapshot = job?.inputSnapshot as EvaluationContext["snapshot"] | undefined;
         const currentEvidence = observations.filter(e => e.account === account.id);
         const adverse = currentEvidence.some(e => evidenceReviews.some(r => r.evidenceId === e.id && r.verdict !== "accepted") || runReviews.some(r => r.runId === e.runId && r.verdict !== "accepted") || cancelled.some(r => r.runId === e.runId));
-        const stale = !!snapshot && (snapshot.brief_version !== campaign.briefVersion || snapshot.creator.display_name !== account.name || snapshot.creator.handle !== account.handle || snapshot.creator.profile_url !== account.url || discoveryHash(snapshot.targeting) !== discoveryHash({ country_codes: campaign.countryCodes, platforms: campaign.platforms, categories: campaign.categories, follower_min: campaign.followerMin, follower_max: campaign.followerMax, notes: campaign.notes, exclusions: campaign.exclusions }) || currentEvidence.length !== snapshot.evidence.length || currentEvidence.some(e => !snapshot.evidence.some(s => s.id === e.id && s.payload_sha256 === e.payload)));
+        const stale = !!snapshot && (job?.inputSnapshot.assessment_stage !== "before_final_human_review" || snapshot.brief_version !== campaign.briefVersion || snapshot.creator.display_name !== account.name || snapshot.creator.handle !== account.handle || snapshot.creator.profile_url !== account.url || discoveryHash(snapshot.targeting) !== discoveryHash({ country_codes: campaign.countryCodes, platforms: campaign.platforms, categories: campaign.categories, follower_min: campaign.followerMin, follower_max: campaign.followerMax, notes: campaign.notes, exclusions: campaign.exclusions }) || currentEvidence.length !== snapshot.evidence.length || currentEvidence.some(e => !snapshot.evidence.some(s => s.id === e.id && s.payload_sha256 === e.payload)));
         return { ...account, assessment_id: job?.id ?? null, state: stale ? "stale" : job?.state ?? "unassessed", error_code: job?.errorCode ?? null, retryable: job?.state === "failed" && job.attempts < 3,
           recommendation: adverse ? "needs_info" : job?.recommendation ?? null, verdict: stale || adverse ? null : decision?.verdict ?? null, source_warning: adverse, evaluation: evaluation ? { id: evaluation.id, total: evaluation.total, known_subtotal: evaluation.knownSubtotal, unknown_count: evaluation.unknownCount, output: evaluation.output } : null,
           evidence: snapshot?.evidence.map(e => ({ id: e.id, kind: e.kind, url: e.source_url, observed_at: e.observed_at, facts: e.facts, limitations: e.limitations })) ?? [] };
