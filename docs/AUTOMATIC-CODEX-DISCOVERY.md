@@ -9,6 +9,7 @@
 1. 기존 DB와 역할을 백업하고 추가 마이그레이션 `0014`를 적용한다. 기존 마이그레이션·Work·OAuth·Probe 기록은 변경하지 않는다. 클라우드 앱 역할에 `staging/discovery/cloud-app-grants.sql`의 새 테이블 권한을 적용한다.
 2. 서버에서 `CODEX_DISCOVERY_ENABLED=true`, `CODEX_AUTOMATIC_DISCOVERY_ENABLED=true`를 설정한다. 실행기에는 DB 자격 증명을 주지 않는다.
 3. 실행 PC에 로그인된 Codex CLI와 공식 브라우저 MCP 도구를 준비한다. `codex exec`가 실제 `cua_repl` 도구를 호출하는지 확인한다. Codex 인증 파일을 다른 PC나 공개 CI로 복사하지 않는다.
+   Windows에서는 코드와 Git 메타데이터가 모두 같은 로컬 NTFS 드라이브에 있는 독립 clone을 사용한다. C드라이브 폴더여도 `.git`이 Google Drive의 worktree를 가리키면 sandbox 초기화가 실패할 수 있다. 설치기는 다른 드라이브의 Git 메타데이터를 거절하고, 준비 검사는 실제 실행과 같은 workspace-write 권한에서 브라우저 도구를 호출한다.
 4. [원격 연결 가이드](REMOTE-CODEX-DISCOVERY.md)의 대시보드 계정을 비공개 파일로 저장한다. 아래 설정을 `.local/discovery/codex-browser/worker.config.private.json`에 만든다. `worker_id`는 PC마다 새로운 UUID, `codex_path`는 해당 PC에서 확인한 실제 CLI 경로다.
 
 ```json

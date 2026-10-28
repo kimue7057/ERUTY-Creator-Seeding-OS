@@ -1,6 +1,8 @@
 param([string]$Config = '.local/discovery/codex-browser/worker.config.private.json', [string]$NodePath = '', [switch]$Run)
 $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
+$gitMetadata = (& git -C $repoRoot rev-parse --path-format=absolute --git-common-dir).Trim()
+if ($LASTEXITCODE -ne 0 -or [IO.Path]::GetPathRoot($gitMetadata) -ne [IO.Path]::GetPathRoot($repoRoot)) { throw 'Use an independent local clone on the same NTFS drive. Linked Git metadata on a cloud drive can prevent Windows sandbox initialization.' }
 $configPath = (Resolve-Path -LiteralPath (Join-Path $repoRoot $Config)).Path
 $privateRoot = (Join-Path $repoRoot '.local\discovery\codex-browser') + [IO.Path]::DirectorySeparatorChar
 if (-not $configPath.StartsWith($privateRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Worker config must be inside the private discovery directory.' }

@@ -48,7 +48,7 @@ async function terminate(child: ChildProcess) {
 }
 async function preflight() {
   let browser = false;
-  const probe = launch("Read-only browser readiness probe. Your only task is to call the actual cua_repl js tool with exactly await cua.getState(); as its first invocation. Report browser availability briefly. Do not open websites, read credentials, inspect files, call other tools or modify anything. If the browser tool is absent, report that fact.", resolve(root, "worker-preflight", lease.instance_id), "read-only", item => {
+  const probe = launch("Browser readiness probe under the exact workspace permissions used for discovery. Your only task is to call the actual cua_repl js tool with exactly await cua.getState(); as its first invocation. Report browser availability briefly. Do not open websites, read credentials, inspect files, call other tools or modify anything. If the browser tool is absent or initialization fails, report that fact.", resolve(root, "worker-preflight", lease.instance_id), "workspace-write", item => {
     if (item.type === "mcp_tool_call" && item.server === "cua_repl" && item.tool === "js" && item.status === "completed" && !item.error) {
       const result = item.result as { content?: { type: string; text?: string }[] } | undefined;
       browser = Boolean(result?.content?.some(block => { if (block.type !== "text") return false; try { const state = JSON.parse(block.text ?? ""); return Array.isArray(state.browsers) && state.browsers.length > 0; } catch { return false; } }));
