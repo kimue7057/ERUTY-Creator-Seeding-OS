@@ -34,7 +34,7 @@ function launch(prompt: string, directory: string, sandbox: "read-only" | "works
   mkdirSync(directory, { recursive: true });
   const output = createWriteStream(resolve(directory, "events.private.jsonl"), { flags: "a", mode: 0o600 });
   const errors = createWriteStream(resolve(directory, "stderr.private.log"), { flags: "a", mode: 0o600 });
-  const child = spawn(config.codex_path, ["-a", "never", "exec", "--json", "--ephemeral", "--sandbox", sandbox, "-c", "sandbox_workspace_write.network_access=true", "--output-last-message", resolve(directory, "result.private.txt"), "-"], { cwd: process.cwd(), windowsHide: true, env: { ...process.env, DATABASE_URL: "", APP_DATABASE_URL: "", NODE_OPTIONS: "" }, stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(config.codex_path, ["-a", "never", "exec", "--json", "--ephemeral", "--sandbox", sandbox, "-c", "sandbox_workspace_write.network_access=true", ...(process.platform === "win32" ? ["-c", "features.prefer_mxc=true"] : []), "--output-last-message", resolve(directory, "result.private.txt"), "-"], { cwd: process.cwd(), windowsHide: true, env: { ...process.env, DATABASE_URL: "", APP_DATABASE_URL: "", NODE_OPTIONS: "" }, stdio: ["pipe", "pipe", "pipe"] });
   let pending = "";
   child.stdout.on("data", chunk => { output.write(chunk); pending += chunk.toString(); let end; while ((end = pending.indexOf("\n")) >= 0) { const line = pending.slice(0, end); pending = pending.slice(end + 1); try { const event = JSON.parse(line); if (event.item) onItem?.(event.item); } catch { /* Raw event remains private. */ } } });
   child.stderr.pipe(errors); child.stdin.end(prompt);
@@ -48,14 +48,16 @@ async function terminate(child: ChildProcess) {
 }
 async function preflight() {
   let browser = false;
-  const probe = launch("Browser readiness probe under the exact workspace permissions used for discovery. Your only task is to call the actual cua_repl js tool with exactly await cua.getState(); as its first invocation. Report browser availability briefly. Do not open websites, read credentials, inspect files, call other tools or modify anything. If the browser tool is absent or initialization fails, report that fact.", resolve(root, "worker-preflight", lease.instance_id), "workspace-write", item => {
+  const directory = resolve(root, "worker-preflight", lease.instance_id), proof = resolve(directory, "preflight-proof.private.json"), nonce = randomUUID();
+  const probe = launch(`Readiness probe under the exact workspace permissions used for discovery. First call the actual cua_repl js tool with exactly await cua.getState(); as its first invocation. Then use the actual shell tool to run Node.js: fetch ${base.origin}/login (public health check, no login), and write ${JSON.stringify(proof)} with JSON containing nonce ${JSON.stringify(nonce)} and dashboard_status equal to the actual HTTP response status. Read the file back. This one private proof file is the only permitted mutation. Do not read credentials, inspect other files, or navigate browser websites. Briefly report actual availability or errors.`, directory, "workspace-write", item => {
     if (item.type === "mcp_tool_call" && item.server === "cua_repl" && item.tool === "js" && item.status === "completed" && !item.error) {
       const result = item.result as { content?: { type: string; text?: string }[] } | undefined;
       browser = Boolean(result?.content?.some(block => { if (block.type !== "text") return false; try { const state = JSON.parse(block.text ?? ""); return Array.isArray(state.browsers) && state.browsers.length > 0; } catch { return false; } }));
     }
   });
   const timeout = setTimeout(() => void terminate(probe.child), 150000); const code = await probe.done; clearTimeout(timeout);
-  return code === 0 && browser;
+  if (code !== 0 || !browser || !existsSync(proof)) return false;
+  try { const saved = JSON.parse(readFileSync(proof, "utf8").replace(/^\uFEFF/, "")); return saved.nonce === nonce && saved.dashboard_status === 200; } catch { return false; }
 }
 type Assignment = { execution_id: string; request_id: string; authorization: unknown; run_id: string };
 async function execute(job: Assignment) {
