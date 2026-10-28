@@ -23,7 +23,7 @@ test("authenticated automatic assignment accepts real-contract capture batches a
     await f.database.update(users).set({ email: credentials.email, passwordHash: hashPassword(credentials.password) }).where(eq(users.id, f.actor.userId));
     const token = (await browserWorkerAuth(f.database).login(credentials)).token, remote = remoteBrowserService(f.database), worker = host(), campaign = await f.campaign();
     const context = await discoveryService(f.database).getContext(localDiscoveryActor(f.actor), { contract_version: 1, campaign_id: campaign.id });
-    const job = await browserRequestService(f.database).create(f.actor, { campaign_id: campaign.id, platform: "instagram", requested_count: 2, expected_context_sha256: context.context_sha256, idempotency_key: randomUUID() });
+    const job = await browserRequestService(f.database).create(f.actor, { campaign_id: campaign.id, platform: "instagram", requested_count: 1, expected_context_sha256: context.context_sha256, idempotency_key: randomUUID() });
     await remote.execute("worker-heartbeat", token, worker);
     const lease = { worker_id: worker.worker_id, instance_id: worker.instance_id }, assigned = await remote.execute("worker-next", token, lease);
     assert.ok("assignment" in assigned && assigned.assignment); const assignment = assigned.assignment;

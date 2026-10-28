@@ -93,7 +93,7 @@ export function automaticWorkerService(database: typeof db = db) {
       const [run] = await tx.select().from(runs).where(and(eq(runs.id, job.runId!), eq(runs.organizationId, actor.organizationId)));
       const [{ collected }] = await tx.execute(sql`select count(distinct creator_account_id)::int collected from discovery_evidence where organization_id=${actor.organizationId} and run_id=${job.runId} and kind='profile_observation'`).then(r => r.rows as {collected: number}[]);
       const reported = run?.limitations.find(x => x.startsWith("Reported outcome: "))?.replace("Reported outcome: ", "");
-      const state = job.state === "cancelled" ? "cancelled" : run?.status === "awaiting_review" ? reported === "blocked" ? "blocked" : reported === "failed" ? "failed" : collected < job.requestedCount ? "partial" : "completed" : ["blocked", "failed", "partial"].includes(run?.status) ? run.status as "blocked" | "failed" | "partial" : "failed";
+      const state = job.state === "cancelled" ? "cancelled" : run?.status === "awaiting_review" ? reported === "blocked" ? "blocked" : reported === "failed" ? "failed" : reported === "partial" || collected < job.requestedCount ? "partial" : "completed" : ["blocked", "failed", "partial"].includes(run?.status) ? run.status as "blocked" | "failed" | "partial" : "failed";
       await tx.update(executions).set({ state, phase: "finishing", finishedAt: new Date(), updatedAt: new Date(), errorCode: state === "failed" ? data.error_code ?? (data.exit_code ? "cli_failed" : "result_not_submitted") : null }).where(eq(executions.id, row.id));
       return { state };
     }),
