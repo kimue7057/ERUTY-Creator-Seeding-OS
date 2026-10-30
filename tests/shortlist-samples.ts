@@ -13,23 +13,29 @@ import { automaticWorkerService } from "../src/lib/discovery/automatic-worker";
 import { users } from "../src/lib/db/schema";
 import { hashPassword } from "../src/lib/auth/password";
 type Fixture = Parameters<Parameters<typeof withDiscoveryDatabase>[0]>[0];
-export async function seedShortlistCandidate(f: Fixture) {
+export async function seedShortlistCandidate(f: Fixture, platform: "instagram" | "youtube" | "tiktok" = "instagram") {
   const campaign = await f.campaign(), discovery = discoveryService(f.database), requests = browserRequestService(f.database), remote = remoteBrowserService(f.database);
   const credentials = { email: `${randomUUID()}@example.invalid`, password: "synthetic-shortlist-contract-password" };
   await f.database.update(users).set({ email: credentials.email, passwordHash: hashPassword(credentials.password) }).where(eq(users.id, f.actor.userId));
   const token = (await browserWorkerAuth(f.database).login(credentials)).token;
   const context = await discovery.getContext(localDiscoveryActor(f.actor), { contract_version: 1, campaign_id: campaign.id });
-  const request = await requests.create(f.actor, { campaign_id: campaign.id, platform: "instagram", requested_count: 1, expected_context_sha256: context.context_sha256, idempotency_key: randomUUID() });
+  const request = await requests.create(f.actor, { campaign_id: campaign.id, platform, requested_count: 1, expected_context_sha256: context.context_sha256, idempotency_key: randomUUID() });
   const auth = await requests.claim(f.actor, { request_id: request.id, browser_surface: "chrome", execution_reference: "SYNTHETIC shortlist fixture, no actual browser" });
   const sample = observationSample(randomUUID(), "0".repeat(64), randomUUID(), randomUUID().slice(0,8)), at = sample.profile.observed_at;
+  if (platform !== "instagram") {
+    sample.identity.platform = platform;
+    sample.identity.profile_url = `https://www.${platform}.com/@${sample.identity.handle}`;
+    sample.contents[0].url = platform === "youtube" ? `https://www.youtube.com/watch?v=${randomUUID().replaceAll("-", "").slice(0,11)}` : `https://www.tiktok.com/@${sample.identity.handle}/video/7123456789012345678`;
+    if (platform === "youtube") sample.profile.metrics[0].name = "subscribers";
+  }
   // Original addresses retain casing/tracking while persisted evidence is canonical.
-  sample.identity.profile_url = sample.identity.profile_url.replace("eruty_synthetic_", "ERUTY_Synthetic_");
+  if (platform === "instagram") sample.identity.profile_url = sample.identity.profile_url.replace("eruty_synthetic_", "ERUTY_Synthetic_");
   sample.profile.metrics[0].source_url = sample.identity.profile_url;
-  sample.contents[0].url += "?utm_source=synthetic-fixture";
+  sample.contents[0].url += `${sample.contents[0].url.includes("?") ? "&" : "?"}utm_source=synthetic-fixture`;
   sample.contents[0].metrics[0].source_url = sample.contents[0].url;
   const { run_id: _run, search_log_id: _log, expected_context_sha256: _context, ...observation } = sample; void _run; void _log; void _context;
   const captures = [], logs = [];
-  for (const [kind, url] of [["native_search", "https://www.instagram.com/"], ["profile_open", sample.identity.profile_url], ["content_open", sample.contents[0].url]]) {
+  for (const [kind, url] of [["native_search", `https://www.${platform}.com/`], ["profile_open", sample.identity.profile_url], ["content_open", sample.contents[0].url]]) {
     const content = JSON.stringify({ source_url: url, observed_at: at, visible_text: "SYNTHETIC fixture followers 12,345; views 100", ...(kind === "native_search" ? { query: "SYNTHETIC TEST ONLY" } : {}) });
     captures.push({ kind, content, sha256: createHash("sha256").update(content).digest("hex") });
     logs.push({ ...logSample(randomUUID()), event_type: kind, source_url: url, occurred_at: at });

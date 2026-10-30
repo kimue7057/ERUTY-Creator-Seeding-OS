@@ -33,6 +33,13 @@ export function candidateLabel(c: Candidate) {
   return c.state === "queued" ? "평가 대기" : c.state === "running" ? "자동 평가 중" : c.state === "stale" ? "조건 변경 · 재평가 필요" : GROUPS[candidateGroup(c)];
 }
 export function candidateName(c: Candidate) { return c.name || c.handle || "이름 미확인"; }
+export function candidateContent(c: Candidate) {
+  const seen = new Set<string>();
+  return c.evidence.filter(e => e.kind !== "profile_observation").sort((a,b) => b.observed_at.localeCompare(a.observed_at)).filter(e => {
+    if (seen.has(e.url)) return false;
+    seen.add(e.url); return true;
+  });
+}
 export function candidateProfile(c: Candidate) {
   const profile = c.evidence.filter(e => e.kind === "profile_observation").sort((a,b) => b.observed_at.localeCompare(a.observed_at))[0];
   return { country: profile?.facts.country?.code, follower: profile?.facts.metrics.find(m => m.name === (c.platform === "youtube" ? "subscribers" : "followers")) };
