@@ -71,6 +71,12 @@ test("campaign review inbox, focused details, processing states and final select
   await expect(page.getByText('SYNTHETIC insufficient evidence; no real SNS assessment')).toBeVisible();
   await page.getByRole('button', {name:/검토·선정/}).click();
   await expect(page.getByRole('button', {name:'최종 선정',exact:true})).toBeEnabled();
+  const report = page.getByRole('region',{name:'AI 평가 자료'});
+  await expect(report.getByRole('article')).toHaveCount(6);
+  await expect(report.getByRole('article',{name:'제품 적합도 평가'})).toBeVisible();
+  await expect(report.getByRole('article',{name:'제품 적합도 평가'}).getByRole('link')).toHaveCount(1);
+  await expect(report.getByRole('article',{name:'타깃 적합도 평가'})).toContainText('미확인');
+  await page.screenshot({path:'test-results/assessment-report-desktop.png'});
   // The previously untested user journey: unknown information is not a ban on
   // an explicit human decision. Both selection and changing it to exclusion persist.
   await page.getByRole('button',{name:'보류',exact:true}).click();
@@ -84,10 +90,7 @@ test("campaign review inbox, focused details, processing states and final select
   await expect(ack).toBeFocused();
   await expect(page.getByRole('dialog').getByRole('alert')).toContainText('확인란');
   await ack.check();
-  await page.getByRole('button',{name:'선정 확정',exact:true}).click();
-  await expect(page.getByLabel('선정 사유 · 5자 이상 필수')).toBeFocused();
-  await expect(page.getByRole('dialog').getByRole('alert')).toContainText('5자 이상');
-  await page.getByLabel('선정 사유 · 5자 이상 필수').fill('SYNTHETIC human selects despite documented unknowns');
+  await expect(page.getByLabel('검토 메모 · 선택')).toHaveValue('');
   await page.setViewportSize({width:390,height:844});
   const selectBox=await page.getByRole('button',{name:'선정 확정',exact:true}).boundingBox();
   expect(selectBox!.y+selectBox!.height).toBeLessThanOrEqual(844);
@@ -96,7 +99,7 @@ test("campaign review inbox, focused details, processing states and final select
   await expect(page.getByText('최종 선정했습니다. 선정 명단에 반영됩니다.')).toBeVisible();
   await page.waitForTimeout(6500);
   let reviewed=(await shortlistService(database).board(fixture.actor,campaignId)).candidates.find(c=>c.id===informationId)!;
-  expect(reviewed.verdict).toBe('approved');expect(reviewed.recommendation).toBe('needs_info');expect(reviewed.evaluation!.total).toBeNull();
+  expect(reviewed.verdict).toBe('approved');expect(reviewed.recommendation).toBe('needs_info');expect(reviewed.evaluation!.total).toBeNull();expect(reviewed.decision!.reason).toBe('검토 메모 없음');
   await page.getByRole('button',{name:'판정 다시 변경',exact:true}).click();
   await page.getByRole('button',{name:'제외',exact:true}).click();
   await expect(page.getByText('제외했습니다. 제외 목록에 반영됩니다.')).toBeVisible();

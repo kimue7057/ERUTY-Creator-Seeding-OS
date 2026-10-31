@@ -6,7 +6,7 @@ import {campaignCreators,creatorAccounts,discoveryEvidence,discoveryRuns,discove
 import {creatorEvaluations as evaluations,evaluationReviews as reviews,evaluationRequests as requests} from "../db/evaluation-schema";
 import type {ActorScope} from "../auth/permissions";
 import {discoveryHash} from "../discovery/contracts";
-import {EvaluationError,validateScores,evaluationOutput,evaluationReason,RUBRIC} from "./contracts";
+import {EvaluationError,validateScores,evaluationOutput,optionalReviewNote,EMPTY_REVIEW_NOTE,RUBRIC} from "./contracts";
 import {browserRunReviews} from "../db/browser-schema";
 import {browserExecutionAccepted} from "../discovery/browser-review";
 import {creatorAssessments} from "../db/assessment-schema";
@@ -56,7 +56,7 @@ export function evaluationService(database:Pick<typeof db,"transaction">=db){
    const decisions=history.length?await tx.select().from(reviews).where(and(eq(reviews.organizationId,actor.organizationId),inArray(reviews.evaluationId,history.map(e=>e.id)))).orderBy(desc(reviews.createdAt),desc(reviews.id)):[];
    const latest=history[0],latestDecision=decisions.find(d=>d.evaluationId===latest?.id);
    const [automatic]=latest?await tx.select().from(creatorAssessments).where(and(eq(creatorAssessments.organizationId,actor.organizationId),eq(creatorAssessments.evaluationId,latest.id))):[];
-   const automaticApproved=!!automatic&&automatic.state==="completed"&&automatic.inputSha256===assessmentFingerprint(current.snapshot)&&!current.snapshot.evidence.some(e=>["rejected","needs_review"].includes(e.review))&&latestDecision?.unknownsAcknowledged==="yes"&&(automatic.recommendation==="recommended"||(latestDecision?.reason.trim().length??0)>=5)&&await assessmentSourceEligible(tx,actor,current);
+   const automaticApproved=!!automatic&&automatic.state==="completed"&&automatic.inputSha256===assessmentFingerprint(current.snapshot)&&!current.snapshot.evidence.some(e=>["rejected","needs_review"].includes(e.review))&&latestDecision?.unknownsAcknowledged==="yes"&&await assessmentSourceEligible(tx,actor,current);
    return {...current,history,decisions,automatic_assessment:automatic??null,can_outreach:current.campaign.status!=="archived"&&!!latest&&(automaticApproved||latest.inputSha256===current.input_sha256&&current.ready_for_step4)&&latestDecision?.verdict==="approved"};
   }),
   record:(actor:ActorScope,campaignId:string,accountId:string,input:{input_sha256:string;idempotency_key:string;output:unknown;model:string},source:"work_import"|"codex_import"|"openai_api"="work_import")=>transaction(async tx=>{
@@ -93,7 +93,7 @@ export function evaluationService(database:Pick<typeof db,"transaction">=db){
   }),
   fail:(actor:ActorScope,key:string)=>transaction(async tx=>{await evaluationMember(tx,actor,true);await tx.update(requests).set({state:"failed",errorCode:"generation_failed",updatedAt:new Date()}).where(and(eq(requests.organizationId,actor.organizationId),eq(requests.createdBy,actor.userId),eq(requests.idempotencyKey,key),eq(requests.state,"started")));}),
   review:(actor:ActorScope,campaignId:string,accountId:string,input:unknown)=>transaction(async tx=>{
-   const data=z.strictObject({evaluation_id:uuid,idempotency_key:uuid,verdict:z.enum(["approved","hold","rejected"]),reason:evaluationReason,unknowns_acknowledged:z.boolean()}).parse(input),payload=discoveryHash({...data,campaignId,accountId});
+   const data=z.strictObject({evaluation_id:uuid,idempotency_key:uuid,verdict:z.enum(["approved","hold","rejected"]),reason:optionalReviewNote,unknowns_acknowledged:z.boolean()}).parse(input),payload=discoveryHash({...data,campaignId,accountId});
    await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${actor.organizationId}),hashtext(${actor.userId+data.idempotency_key}))`);
    const current=await evaluationContext(tx,actor,campaignId,accountId,true);
    const [saved]=await tx.select().from(reviews).where(and(eq(reviews.organizationId,actor.organizationId),eq(reviews.createdBy,actor.userId),eq(reviews.idempotencyKey,data.idempotency_key)));
@@ -106,7 +106,7 @@ export function evaluationService(database:Pick<typeof db,"transaction">=db){
     if(!used.length||used.some(id=>!current.snapshot.evidence.some(e=>e.id===id&&e.review==="accepted"&&(e.execution_source==="work_manual_task"||e.execution_source==="codex_browser"&&e.browser_execution_reviewed)&&e.method==="sns_browser")))throw new EvaluationError("evaluation_evidence_not_reviewed");
     if(!data.unknowns_acknowledged)throw new EvaluationError("evaluation_unknowns_acknowledgement_required");
    }
-   const [decision]=await tx.insert(reviews).values({organizationId:actor.organizationId,evaluationId:row.id,verdict:data.verdict,reason:data.reason,unknownsAcknowledged:data.unknowns_acknowledged?"yes":"no",idempotencyKey:data.idempotency_key,payloadSha256:payload,createdBy:actor.userId}).returning();await tx.insert(auditEvents).values({organizationId:actor.organizationId,actorId:actor.userId,entityId:decision.id,action:`evaluation.${data.verdict}`});return decision;
+   const [decision]=await tx.insert(reviews).values({organizationId:actor.organizationId,evaluationId:row.id,verdict:data.verdict,reason:data.reason||EMPTY_REVIEW_NOTE,unknownsAcknowledged:data.unknowns_acknowledged?"yes":"no",idempotencyKey:data.idempotency_key,payloadSha256:payload,createdBy:actor.userId}).returning();await tx.insert(auditEvents).values({organizationId:actor.organizationId,actorId:actor.userId,entityId:decision.id,action:`evaluation.${data.verdict}`});return decision;
   }),
  };
 }
