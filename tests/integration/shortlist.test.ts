@@ -98,10 +98,11 @@ test("a human can select information-insufficient or AI-excluded candidates with
       const before = (await svc.board(f.actor, s.campaign.id)).candidates[0];
       assert.equal(before.recommendation, recommendation); assert.equal(before.can_select, true);
       const input = { assessment_id: assignment.assessment_id, idempotency_key: randomUUID(), verdict: "approved", reason: "", acknowledged: true };
-      await assert.rejects(svc.review(f.actor, s.campaign.id, input), code("evaluation_human_reason_required"));
       await assert.rejects(svc.review(f.actor, s.campaign.id, { ...input, reason: "SYNTHETIC human reason", acknowledged: false }), code("evaluation_unknowns_acknowledgement_required"));
       await assert.rejects(svc.review(f.reader, s.campaign.id, { ...input, reason: "SYNTHETIC human reason" }), code("evaluation_forbidden"));
-      await svc.review(f.actor, s.campaign.id, { ...input, reason: "SYNTHETIC human accepts the documented unknowns and selects for campaign fit" });
+      const decision = await svc.review(f.actor, s.campaign.id, input);
+      assert.equal(decision.reason, "검토 메모 없음");
+      assert.equal((await svc.review(f.actor, s.campaign.id, input)).id, decision.id);
       const after = (await svc.board(f.actor, s.campaign.id)).candidates[0];
       assert.equal(after.verdict, "approved"); assert.equal(after.recommendation, recommendation);
       assert.deepEqual(after.evaluation, before.evaluation);

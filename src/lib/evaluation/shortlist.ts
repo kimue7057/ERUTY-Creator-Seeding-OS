@@ -9,7 +9,7 @@ import { creatorAssessments as jobs } from "../db/assessment-schema";
 import { creatorEvaluations, evaluationReviews } from "../db/evaluation-schema";
 import type { ActorScope } from "../auth/permissions";
 import { discoveryHash, DiscoveryError } from "../discovery/contracts";
-import { EvaluationError, evaluationOutput, evaluationReason, validateScores } from "./contracts";
+import { EvaluationError, evaluationOutput, optionalReviewNote, EMPTY_REVIEW_NOTE, validateScores } from "./contracts";
 import { evaluationContext, evaluationMember, type EvaluationContext } from "./service";
 import { assessmentFingerprint, automaticAssessmentSnapshot, campaignConstraintMismatch, shortlistRecommendation, SHORTLIST_POLICY } from "./shortlist-policy";
 
@@ -158,7 +158,7 @@ export function shortlistService(database: typeof db = db) {
       await tx.update(jobs).set({ state: "queued", errorCode: null, workerId: null, instanceId: null, updatedAt: new Date() }).where(eq(jobs.id, id));
     }),
     review: (actor: ActorScope, campaignId: string, input: unknown) => transaction(async tx => {
-      const data = z.strictObject({ assessment_id: z.uuid(), idempotency_key: z.uuid(), verdict: z.enum(["approved", "hold", "rejected"]), reason: evaluationReason.or(z.literal("")), acknowledged: z.boolean() }).parse(input);
+      const data = z.strictObject({ assessment_id: z.uuid(), idempotency_key: z.uuid(), verdict: z.enum(["approved", "hold", "rejected"]), reason: optionalReviewNote, acknowledged: z.boolean() }).parse(input);
       await evaluationMember(tx, actor, true);
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${actor.organizationId}),hashtext(${actor.userId + data.idempotency_key}))`);
       const payload = discoveryHash({ ...data, campaignId });
@@ -171,10 +171,9 @@ export function shortlistService(database: typeof db = db) {
       if (current.campaign.status === "archived" || latest.id !== job.id || assessmentFingerprint(current.snapshot) !== job.inputSha256) throw new EvaluationError("evaluation_stale_input");
       if (data.verdict === "approved") {
         if (!data.acknowledged) throw new EvaluationError("evaluation_unknowns_acknowledgement_required");
-        if (job.recommendation !== "recommended" && data.reason.trim().length < 5) throw new EvaluationError("evaluation_human_reason_required");
         if (!await sourceEligible(tx, actor, current)) throw new EvaluationError("evaluation_discovery_pending");
       }
-      const [decision] = await tx.insert(evaluationReviews).values({ organizationId: actor.organizationId, evaluationId: job.evaluationId, verdict: data.verdict, reason: data.reason || "평가·SNS 원본·미확인 사항을 확인한 사용자 판정입니다.",
+      const [decision] = await tx.insert(evaluationReviews).values({ organizationId: actor.organizationId, evaluationId: job.evaluationId, verdict: data.verdict, reason: data.reason || EMPTY_REVIEW_NOTE,
         unknownsAcknowledged: data.acknowledged ? "yes" : "no", idempotencyKey: data.idempotency_key, payloadSha256: payload, createdBy: actor.userId }).returning();
       await tx.insert(auditEvents).values({ organizationId: actor.organizationId, actorId: actor.userId, entityId: decision.id, action: `evaluation.${data.verdict}` });
       return decision;

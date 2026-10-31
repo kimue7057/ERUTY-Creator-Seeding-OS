@@ -6,7 +6,7 @@ import { EvaluationError } from "@/lib/evaluation/contracts";
 export type ShortlistActionState = { saved: boolean; error: string; message: string; verdict?: "approved" | "hold" | "rejected"; decision?: { reason: string; at: string } };
 function failure(error: unknown): ShortlistActionState {
   const code = error instanceof EvaluationError ? error.code : "";
-  return { saved: false, message: "", error: code === "evaluation_stale_input" ? "조건이나 근거가 바뀌었습니다. 현재 조건으로 다시 평가해 주세요." : code === "evaluation_human_reason_required" ? "AI 추천과 다른 선정 사유를 5자 이상 작성해 주세요." : code === "evaluation_unknowns_acknowledgement_required" ? "평가·근거·미확인 사항을 확인한 뒤 확인란을 선택해 주세요." : code === "evaluation_discovery_pending" ? "SNS 원본 근거를 검증할 수 없거나 근거가 반려·취소되어 선정을 저장할 수 없습니다. 보류·제외 판정은 가능합니다." : "처리하지 못했습니다. 권한과 현재 상태를 확인해 주세요." };
+  return { saved: false, message: "", error: code === "evaluation_stale_input" ? "조건이나 근거가 바뀌었습니다. 현재 조건으로 다시 평가해 주세요." : code === "evaluation_unknowns_acknowledgement_required" ? "평가·근거·미확인 사항을 확인한 뒤 확인란을 선택해 주세요." : code === "evaluation_discovery_pending" ? "SNS 원본 근거를 검증할 수 없거나 근거가 반려·취소되어 선정을 저장할 수 없습니다. 보류·제외 판정은 가능합니다." : "처리하지 못했습니다. 권한과 현재 상태를 확인해 주세요." };
 }
 function refresh(campaignId: string) { revalidatePath(`/campaigns/${campaignId}`); revalidatePath("/evaluations", "layout"); revalidatePath("/campaigns"); revalidatePath("/"); }
 export async function enqueueCampaignAction(campaignId: string, _: ShortlistActionState): Promise<ShortlistActionState> {
