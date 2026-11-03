@@ -1,5 +1,7 @@
 # ERUTY Creator Seeding OS
 
+회사 발신 계정과 선정 크리에이터 연락: [설정·사용 안내](docs/OUTREACH-ACCOUNTS.md). `/settings/accounts`에서 여러 Google/Instagram/TikTok 계정을 등록·인증하고 선정 명단의 `연락하기`로 4단계 초안을 작성합니다. 실제 OAuth 사용에는 회사 개발자 앱 등록이 필요합니다. Gmail 실제 발송 경로가 구현되어 있으며, SNS는 현재 계정 인증·초안까지만 구현되어 있습니다.
+
 캠페인의 **탐색 시작** 요청을 연결된 실행 PC가 자동으로 받아 Codex CLI·스킬·실제 SNS 브라우저로 탐색하는 [자동 발굴 실행](docs/AUTOMATIC-CODEX-DISCOVERY.md)을 제공한다. 플랫폼별 1–20명을 순차 저장하며 대시보드에서 연결 상태·진행·저장 인원·실패를 확인한다. Vercel/Neon은 요청과 결과를 공유하고, SNS 탐색 동안 실행 PC와 Codex 앱은 켜져 있어야 한다. 자동 실행 미설정 환경에는 [수동 직접 발굴](docs/CODEX-BROWSER-DISCOVERY.md)을 유지한다. 자동 실행 환경에서는 SNS 근거를 자동 평가해 추천하고, 사용자가 캠페인에서 최종 선정한다. 수동 실행 환경과 기존 개별 근거 검토 이력은 상세 경로에 보존한다. 기존 파일럿·Work 기록을 보존하며 스킬 원본은 `skills/eruty-codex-discovery/SKILL.md`이다.
 
 MCP 연결 장애는 [요청 추적·오류 코드·격리 회귀·OAuth/Tunnel 복구 절차](docs/MCP-STABILITY.md)로 진단한다. 로컬 테스트 성공과 실제 hosted Work 성공을 구분한다.

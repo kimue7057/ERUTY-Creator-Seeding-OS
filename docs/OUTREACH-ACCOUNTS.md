@@ -1,0 +1,77 @@
+# 발신 계정 연결과 선정 크리에이터 연락
+
+2026-11-03. 사용자 요청으로 STEP 5와 회사 계정 연결을 구현한다. PRD의 고정 디자인 + AI 작성 내용 분리 원칙을 유지한다.
+
+## 사용 흐름
+
+1. **발신 계정**에서 서비스·구분 이름·이메일 또는 SNS 아이디를 등록한다. 이 시점은 `로그인 연결 필요`이며 인증 완료가 아니다.
+2. **로그인 연결**을 누르고 해당 서비스에 로그인한다. 등록한 주소 또는 승인된 Gmail 별칭과 실제 인증 계정이 일치해야 한다.
+3. **캠페인 → 선정 명단 → 연락하기**에서 크리에이터 분석 → 문장 작성 → 디자인 미리보기 → 발신·수신 주소 및 발송으로 진행한다.
+4. 회사 계정 A/B/C를 고르면 그 계정에서 확인된 발신 주소만 선택할 수 있다. 계정을 바꾸면 기존 별칭과 발송 확인이 초기화된다.
+5. 수신 연락처와 이를 직접 확인한 출처를 입력한다. 이전에 저장한 주소를 선택할 수도 있다. 추정 이메일을 만들어 넣지 않는다.
+6. 이메일은 최종 확인과 **이메일 보내기**를 통해 Gmail API가 실제 발송한다. 브라우저를 외부 메일 작성 화면으로 보내는 방식이 아니다.
+
+초안은 서버에 저장되므로 다른 컴퓨터에서도 이어서 작성할 수 있다. 여러 화면의 수정 충돌은 revision으로 차단한다. 최종 선정 취소·원본 변경·캠페인 보관은 저장 및 발송을 차단한다.
+
+## 최초 연결 설정 — 새 개발자 앱 기준
+
+Workspace는 Google의 회사 메일 서비스 이름이다. 별도 Workspace ID나 메일 비밀번호는 필요하지 않다. 개발자 앱의 인증 정보는 배포 서버에만 넣는다. 채팅·Git·일반 입력란에 비밀키를 붙이지 않는다.
+
+### Google 메일
+
+1. 회사 Google 계정으로 [Google Cloud 프로젝트 만들기](https://console.cloud.google.com/projectcreate)에 들어간다. 프로젝트 이름은 `ERUTY Creator Seeding`처럼 구분한다. 회사 조직에 프로젝트를 만든다.
+2. API 라이브러리에서 **Gmail API**를 찾아 사용 설정한다.
+3. **Google Auth Platform → Branding**에 앱 이름·지원 이메일·개발자 연락처를 입력한다. **Audience**는 회사 조직만 사용하면 Internal, 다른 조직 계정도 연결하면 External이다. External 테스트 모드에서는 사용할 계정을 테스트 사용자로 등록한다. 외부 운영 전 서비스의 심사 요건을 확인한다.
+4. **Clients → Create client → Web application**으로 로그인 앱을 만든다. 승인된 리디렉션 URI를 정확히 등록한다:
+
+   `https://eruty-creator-seeding-os.vercel.app/api/outreach/oauth/google/callback`
+
+5. 서버 보안 설정에 발급받은 값을 `OUTREACH_GOOGLE_CLIENT_ID`, `OUTREACH_GOOGLE_CLIENT_SECRET`로 저장하고 재배포한다. `OUTREACH_ENCRYPTION_KEY`는 32바이트 난수의 64자리 hex 값으로 생성하며, 토큰이 저장된 이후 임의로 교체하지 않는다.
+6. ERUTY **발신 계정 → 로그인 연결**에서 회사 메일 계정으로 로그인한다. 기본 권한은 계정 이메일 확인과 `gmail.send`다. 메일함 읽기·삭제 권한은 요청하지 않는다.
+7. 별칭으로 보내려면 **추가 발신 주소도 연결**을 체크한다. 이때 `gmail.settings.basic` 권한이 추가되며, Gmail의 `sendAs.list`에서 기본 주소 또는 `verificationStatus=accepted`인 주소만 표시한다. 해당 권한의 Google 심사 요건은 기본 발송 권한보다 클 수 있다.
+
+회사 이메일이 로그인 가능한 메일함이 아니라 별칭이면 원래 메일함 계정으로 로그인하고 추가 발신 주소 권한을 승인해야 한다. 단순 그룹 주소는 자동으로 발신 주소가 되지 않는다.
+
+공식 문서: [프로젝트](https://developers.google.com/workspace/guides/create-project), [동의 화면·권한](https://developers.google.com/workspace/guides/configure-oauth-consent), [웹 앱 인증 정보](https://developers.google.com/workspace/guides/create-credentials), [발신 별칭](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.settings.sendAs/list), [메일 발송](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/send).
+
+### Instagram
+
+1. [Meta for Developers](https://developers.facebook.com/)에서 회사 앱을 만들고 Instagram API with Instagram Login을 설정한다.
+2. Instagram 계정을 Professional(비즈니스 또는 크리에이터)로 준비하고 앱의 테스트 역할·필요한 접근 권한을 설정한다. 실제 외부 사용자 운영 시 필요한 심사를 진행한다.
+3. 로그인 완료 주소를 등록한다:
+
+   `https://eruty-creator-seeding-os.vercel.app/api/outreach/oauth/instagram/callback`
+
+4. `OUTREACH_INSTAGRAM_CLIENT_ID`, `OUTREACH_INSTAGRAM_CLIENT_SECRET`, 앱이 지원하는 `OUTREACH_INSTAGRAM_API_VERSION`을 서버에 등록한다. 일반 Facebook 앱의 다른 로그인 설정과 Instagram Login 인증 정보를 혼용하지 않는다.
+5. ERUTY에서 등록한 Instagram 계정으로 로그인한다. 계정의 실제 사용자 ID와 아이디를 확인해 저장한다. 만료 시 재연결한다.
+
+**현재 구현은 계정 인증과 발신 계정 선택까지다. Instagram 메시지 전송 어댑터·대화 조회·수신자 연결·웹훅은 아직 구현되지 않았다.** 일반 Send API에서는 수신자가 먼저 해당 프로페셔널 계정으로 연락한 대화 등 서비스 조건을 확인해야 한다. 계정 인증만으로 모든 발굴 후보에게 먼저 DM을 보낼 수 있다고 표시하지 않는다. [Meta 공식 메시지 API 안내](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api).
+
+### TikTok
+
+1. [TikTok for Developers](https://developers.tiktok.com/)에서 앱을 만들고 웹용 Login Kit을 설정한다.
+2. `user.info.basic`, `user.info.profile`을 신청하고 다음 로그인 완료 주소를 등록한다:
+
+   `https://eruty-creator-seeding-os.vercel.app/api/outreach/oauth/tiktok/callback`
+
+3. 앱의 Client key를 `OUTREACH_TIKTOK_CLIENT_ID`, Client secret을 `OUTREACH_TIKTOK_CLIENT_SECRET`로 서버에 등록한다. 앱 검토와 계정 권한 승인을 마친다.
+4. ERUTY에서 TikTok에 로그인해 실제 계정 아이디를 확인한다.
+
+**Login Kit은 계정 확인 기능이다. DM을 보내는 기능이 아니다.** [Business Messaging API](https://business-api.tiktok.com/portal/docs/business-messaging-api-get-started/v1.3)의 별도 앱 접근 승인·비즈니스 계정 승인·메시지 권한과 대상 대화 가능 여부를 확인한 뒤 메시지 어댑터·웹훅을 구현해야 한다. 현재 TikTok 실제 발송 버튼은 활성화하지 않는다. [웹 로그인](https://developers.tiktok.com/docs/en/login-kit-web), [토큰 관리](https://developers.tiktok.com/docs/en/oauth-user-access-token-management), [계정 정보·권한](https://developers.tiktok.com/docs/en/tiktok-api-v2-get-user-info).
+
+## 운영자 설치·제약
+
+- 소유자 전용 DB 연결로 `0016_outreach_accounts`를 적용하고 `scripts/outreach-grants.sql`로 기존 제한된 앱 역할에 권한을 준다. 기존 발굴·평가·선정 기록은 변경하지 않는다.
+- OAuth state는 10분·1회용이며 조직·사용자·현재 로그인 세션·계정에 묶인다. Google은 PKCE를 적용한다. 계정 등록 값만으로 connected를 만들지 않는다.
+- 인증 토큰은 서버에서 AES-256-GCM으로 암호화하고 조직·계정에 묶는다. 공개 계정 조회에 토큰·scope 원문·비밀키가 포함되지 않는다. 앱과 미리보기 환경의 인증 정보는 분리한다.
+- 연결 해제는 ERUTY의 저장 토큰과 진행 중 인증 요청을 폐기한다. 서비스 자체의 동의 철회는 해당 서비스의 앱 권한 설정에서 별도로 한다.
+- 발송 직전 실제 Gmail 계정과 승인된 발신 주소를 조회한다. 발송 시도는 먼저 DB에 기록한다. 네트워크 타임아웃·불명확한 5xx·프로세스 중단은 `unknown` 또는 `sending`으로 남고 자동 재전송하지 않는다. Gmail 보낸편지함의 실제 상태를 사람이 대조해야 한다. 일반 Gmail API에는 exactly-once 전송 보장이 없다.
+- Gmail에서 발송을 접수했다는 기록은 수신·열람·회신을 의미하지 않는다. 회신 수집과 CRM은 이번 범위 밖이다.
+- AI 문장 작성은 별도 opt-in `OUTREACH_AI_ENABLED=true`, `OPENAI_API_KEY`, `OUTREACH_MODEL`이 필요하다. 기존 Codex 발굴/평가 작업자는 새 문장 작성용 서버 API 설정을 대신하지 않는다. 설정이 없으면 기능을 명확하게 비활성화하며 저장된 평가를 AI가 새로 작성한 초안으로 위장하지 않는다.
+- 실제 회사 계정 OAuth, Google 별칭, 실제 메일 수신, Instagram/TikTok 앱 승인 검증은 개발자 앱 등록 후에 진행한다. 합성 테스트는 실제 서비스 연결 증거가 아니다.
+
+## 검증 범위
+
+단위 테스트: 암호화·계정 범위 바인딩·입력 검증·별칭 필터·메일 본문 이스케이프·MIME 주소.
+실제 PostgreSQL 통합 테스트: 조직/역할 격리·OAuth 재사용·다른 세션·다른 계정·만료·연결 해제·revision 충돌·선정 취소·한 번의 발송 요청·불명확한 발송 재시도 차단·SNS 미구현 발송 차단. 외부 서비스는 합성 어댑터다.
+브라우저: 계정 등록·상태·조회 전용 권한·선정 명단 진입·4단계·초안 재조회·발신 계정 변경 시 별칭 초기화·발송 확인 초기화·모바일 가로 넘침. 실제 외부 발송은 하지 않는다.
