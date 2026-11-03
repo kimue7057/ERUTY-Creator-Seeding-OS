@@ -107,8 +107,8 @@ jobs:
           node-version: 24
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Generate ephemeral storage credential
-        run: node -e "const key = require('crypto').randomBytes(32).toString('hex'); console.log('::add-mask::' + key); require('fs').appendFileSync(process.env.GITHUB_ENV, 'S3_SECRET_ACCESS_KEY=' + key + '\n')"
+      - name: Generate ephemeral storage and outreach encryption credentials
+        run: node -e "for (const name of ['S3_SECRET_ACCESS_KEY','OUTREACH_ENCRYPTION_KEY']) { const key = require('crypto').randomBytes(32).toString('hex'); console.log('::add-mask::' + key); require('fs').appendFileSync(process.env.GITHUB_ENV, name + '=' + key + '\n'); }"
       - run: pnpm storage:install
       - name: Start authenticated loopback S3 service
         run: |
