@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useActionState, useState } from "react";
 import { Mail, Instagram, Music2, Plus, ArrowUpRight, CheckCircle2, Link2 } from "lucide-react";
 import { accountAction } from "@/app/(app)/settings/accounts/actions";
@@ -15,7 +16,7 @@ function ConnectionCard({account,available,writable}:{account:PublicSenderAccoun
     <p className="description">{connected ? account.provider==="google"?"메일 발송 권한 연결 · 아래 주소에서 선택할 수 있습니다.":"로그인으로 계정 확인 · DM 발송 연결은 별도로 필요합니다.":"등록한 계정입니다. 서비스 로그인과 권한 승인을 마쳐야 연결됩니다."}</p>
     <div className="sender-addresses"><strong>발신 주소</strong>{account.addresses.length?account.addresses.map(a=><div key={a.address}><span>{a.address}</span><span className="muted">{a.primary?"기본":"승인된 추가 주소"}</span></div>):<p className="description">로그인 연결 후 확인됩니다.</p>}</div>
     {account.provider!=="google"&&<p className="outreach-note">{account.provider==="instagram"?"DM은 프로페셔널 계정과 메시지 권한, 수신자와의 대화 조건을 확인해야 합니다. 현재 버전은 계정 인증까지 연결합니다.":"TikTok 로그인은 계정 확인용입니다. 실제 DM은 Business Messaging 승인과 별도 연결이 필요합니다."}</p>}
-    {!available&&<p className="outreach-note">서비스 연결 설정 대기 · 아래 ‘최초 연결 설정’에서 필요한 항목을 확인하세요.</p>}
+    {!available&&<p className="outreach-note">회사 앱 등록이 필요합니다. <Link className="source-link" href="/settings/connections">연결 정보 등록하기 →</Link></p>}
     {account.verifiedAt&&<p className="description">마지막 계정 확인: {new Date(account.verifiedAt).toLocaleString("ko-KR",{timeZone:"Asia/Seoul"})}</p>}
     {writable&&<form action={action} className="sender-actions"><input type="hidden" name="id" value={account.id}/>
       {account.provider==="google"&&<label className="sender-alias-check"><input type="checkbox" name="aliases"/>추가 발신 주소도 연결 <span className="muted">Google 메일 설정 권한 추가</span></label>}

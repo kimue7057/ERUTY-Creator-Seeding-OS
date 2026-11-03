@@ -2,17 +2,16 @@ import { randomBytes } from "node:crypto";
 import { and, eq, desc, gt, isNull } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db";
-import { auditEvents, memberships } from "../db/schema";
+import { auditEvents } from "../db/schema";
 import { senderAccounts as accounts, senderOAuthStates as states } from "../db/outreach-schema";
 import type { ActorScope } from "../auth/permissions";
 import { hashSecret, seal, unseal } from "./crypto";
 import { normalizeIdentity, OutreachError, registerAccountSchema, type SenderProvider } from "./contracts";
 import { authorizationUrl, exchangeCode, fetchIdentity, matchesExpected, providerConfig, refreshTokens, type ProviderTokens } from "./providers";
+import { resolveProviderConfig } from "./provider-apps";
+import { outreachMember } from "./access";
+export { outreachMember } from "./access";
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-export async function outreachMember(tx: Tx, actor: ActorScope, write = false) {
-  const [member] = await tx.select().from(memberships).where(and(eq(memberships.organizationId,actor.organizationId),eq(memberships.userId,actor.userId))).for("share");
-  if (!member || write && member.role === "reviewer") throw new OutreachError("forbidden");
-}
 export const publicAccountColumns = { id:accounts.id,provider:accounts.provider,label:accounts.label,expectedIdentity:accounts.expectedIdentity,identity:accounts.identity,addresses:accounts.addresses,status:accounts.status,verifiedAt:accounts.verifiedAt,expiresAt:accounts.expiresAt };
 export function accountService(database: Pick<typeof db,"transaction"> = db, fetcher: typeof fetch = fetch) {
   const scoped = (actor: ActorScope, id: string) => and(eq(accounts.organizationId,actor.organizationId),eq(accounts.id,z.uuid().parse(id)));
@@ -27,12 +26,24 @@ export function accountService(database: Pick<typeof db,"transaction"> = db, fet
     const row = await load(tx,actor,id);
     if (row.status !== "connected" || !row.tokenCiphertext) throw new OutreachError("reconnect");
     const old = JSON.parse(unseal(row.tokenCiphertext,context(actor.organizationId,id))) as ProviderTokens;
-    const token = await refreshTokens(row.provider,old,fetcher);
+    const config = await resolveProviderConfig(tx,actor.organizationId,row.provider);
+    if (row.appFingerprint && row.appFingerprint !== config.fingerprint || !row.appFingerprint && config.source === "workspace") throw new OutreachError("reconnect");
+    const token = await refreshTokens(row.provider,old,fetcher,config);
     if (token !== old) await tx.update(accounts).set({tokenCiphertext:seal(JSON.stringify(token),context(actor.organizationId,id)),expiresAt:new Date(token.expiresAt),updatedAt:new Date(),updatedBy:actor.userId}).where(scoped(actor,id));
-    return {row,token};
+    return {row,token,config};
   }
   return {
-    list: (actor:ActorScope) => database.transaction(async tx => { await outreachMember(tx,actor); return tx.select(publicAccountColumns).from(accounts).where(eq(accounts.organizationId,actor.organizationId)).orderBy(desc(accounts.createdAt),accounts.id); }),
+    list: (actor:ActorScope) => database.transaction(async tx => {
+      await outreachMember(tx,actor);
+      const rows=await tx.select({...publicAccountColumns,appFingerprint:accounts.appFingerprint}).from(accounts).where(eq(accounts.organizationId,actor.organizationId)).orderBy(desc(accounts.createdAt),accounts.id);
+      const configs=new Map<SenderProvider,Awaited<ReturnType<typeof resolveProviderConfig>>>();
+      for(const provider of new Set(rows.map(r=>r.provider)))configs.set(provider,await resolveProviderConfig(tx,actor.organizationId,provider));
+      return rows.map(({appFingerprint,...row})=>{
+        const config=configs.get(row.provider)!;
+        const changed=appFingerprint?appFingerprint!==config.fingerprint:config.source==="workspace";
+        return {...row,status:row.status==="connected"&&changed?"reconnect" as const:row.status};
+      });
+    }),
     register: (actor:ActorScope,input:unknown) => database.transaction(async tx => {
       const data = registerAccountSchema.parse(input); await outreachMember(tx,actor,true);
       const [row] = await tx.insert(accounts).values({organizationId:actor.organizationId,provider:data.provider,label:data.label,expectedIdentity:normalizeIdentity(data.identity),createdBy:actor.userId,updatedBy:actor.userId}).onConflictDoNothing().returning(publicAccountColumns);
@@ -40,10 +51,11 @@ export function accountService(database: Pick<typeof db,"transaction"> = db, fet
     }),
     begin: (actor:ActorScope,id:string,sessionHash:string,aliases=false) => database.transaction(async tx => {
       const row = await load(tx,actor,id), state = randomBytes(32).toString("base64url"), verifier=randomBytes(48).toString("base64url");
-      const url = authorizationUrl(row.provider,state,verifier,row.expectedIdentity,aliases);
+      const config = await resolveProviderConfig(tx,actor.organizationId,row.provider);
+      const url = authorizationUrl(row.provider,state,verifier,row.expectedIdentity,aliases,config);
       // A newer connection request invalidates old outstanding callbacks for this account.
       await tx.update(states).set({consumedAt:new Date()}).where(and(eq(states.organizationId,actor.organizationId),eq(states.accountId,id),isNull(states.consumedAt)));
-      await tx.insert(states).values({stateHash:hashSecret(state),organizationId:actor.organizationId,accountId:id,userId:actor.userId,sessionHash,verifierCiphertext:seal(verifier,`${actor.organizationId}:${id}:oauth`),aliases:aliases?"yes":"no",expiresAt:new Date(Date.now()+600000)});
+      await tx.insert(states).values({stateHash:hashSecret(state),organizationId:actor.organizationId,accountId:id,userId:actor.userId,sessionHash,appFingerprint:config.fingerprint,verifierCiphertext:seal(verifier,`${actor.organizationId}:${id}:oauth`),aliases:aliases?"yes":"no",expiresAt:new Date(Date.now()+600000)});
       return url;
     }),
     complete: async (actor:ActorScope,provider:SenderProvider,state:string,sessionHash:string,code:string|null) => {
@@ -57,11 +69,13 @@ export function accountService(database: Pick<typeof db,"transaction"> = db, fet
       return database.transaction(async tx => {
         const row = await load(tx,actor,grant.accountId);
         if (row.provider !== provider || row.updatedAt > grant.createdAt) throw new OutreachError("oauth_expired");
-        const verified = await exchangeCode(provider,z.string().max(4096).parse(code),unseal(grant.verifierCiphertext,`${actor.organizationId}:${row.id}:oauth`),fetcher);
+        const config = await resolveProviderConfig(tx,actor.organizationId,provider);
+        if (grant.appFingerprint !== config.fingerprint) throw new OutreachError("oauth_expired");
+        const verified = await exchangeCode(provider,z.string().max(4096).parse(code),unseal(grant.verifierCiphertext,`${actor.organizationId}:${row.id}:oauth`),fetcher,config);
         if (!matchesExpected(row.expectedIdentity,verified)) throw new OutreachError("wrong_identity");
         const [existing] = await tx.select({id:accounts.id}).from(accounts).where(and(eq(accounts.organizationId,actor.organizationId),eq(accounts.provider,provider),eq(accounts.providerId,verified.id)));
         if (existing && existing.id !== row.id) throw new OutreachError("duplicate");
-        await tx.update(accounts).set({providerId:verified.id,identity:verified.identity,addresses:verified.addresses,scopes:verified.tokens.scopes,status:"connected",tokenCiphertext:seal(JSON.stringify(verified.tokens),context(actor.organizationId,row.id)),expiresAt:new Date(verified.tokens.expiresAt),verifiedAt:new Date(),updatedAt:new Date(),updatedBy:actor.userId}).where(scoped(actor,row.id));
+        await tx.update(accounts).set({providerId:verified.id,identity:verified.identity,addresses:verified.addresses,scopes:verified.tokens.scopes,status:"connected",appFingerprint:config.fingerprint,tokenCiphertext:seal(JSON.stringify(verified.tokens),context(actor.organizationId,row.id)),expiresAt:new Date(verified.tokens.expiresAt),verifiedAt:new Date(),updatedAt:new Date(),updatedBy:actor.userId}).where(scoped(actor,row.id));
         await audit(tx,actor,row.id,"outreach.account_connected"); return row.id;
       });
     },
@@ -73,7 +87,7 @@ export function accountService(database: Pick<typeof db,"transaction"> = db, fet
     }),
     sync: async (actor:ActorScope,id:string) => {
       try { return await database.transaction(async tx => {
-        const {row,token} = await credentials(tx,actor,id), verified=await fetchIdentity(row.provider,token,fetcher);
+        const {row,token,config} = await credentials(tx,actor,id), verified=await fetchIdentity(row.provider,token,fetcher,config);
         if (verified.id !== row.providerId || !matchesExpected(row.expectedIdentity,verified)) throw new OutreachError("wrong_identity");
         await tx.update(accounts).set({identity:verified.identity,addresses:verified.addresses,verifiedAt:new Date(),updatedAt:new Date(),updatedBy:actor.userId}).where(scoped(actor,id));
         await audit(tx,actor,id,"outreach.account_synced");

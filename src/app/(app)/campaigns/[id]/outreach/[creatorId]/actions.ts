@@ -14,6 +14,12 @@ import { and,eq,sql } from "drizzle-orm";
 export async function saveOutreach(input:unknown) {
   const actor=await requireActor();try {const draft=await draftService().save(actor,input);return {draft};}catch(e){return {error:outreachErrorMessage(e)};}
 }
+export async function duplicateOutreach(id:string) {
+  const actor=await requireActor();try {const draft=await draftService().duplicate(actor,id);revalidatePath("/outreach");return {draft};}catch(e){return {error:outreachErrorMessage(e)};}
+}
+export async function refreshOutreachAccounts() {
+  const actor=await requireActor();try {return {accounts:await (await import("@/lib/outreach/accounts")).accountService().list(actor)};}catch(e){return {error:outreachErrorMessage(e)};}
+}
 export async function sendOutreach(id:string,revision:number,confirmed:boolean) {
   const actor=await requireActor();try {const draft=await draftService().send(actor,id,revision,confirmed);revalidatePath(`/campaigns/${draft.campaignId}`);return {draft};}catch(e){return {error:outreachErrorMessage(e),draft:await draftService().get(actor,id).catch(()=>null)};}
 }

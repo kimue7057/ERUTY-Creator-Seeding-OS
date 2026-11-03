@@ -50,7 +50,7 @@ test("selected creator opens four separate stages; sender switching clears stale
   await expect(page.getByRole("heading",{name:"크리에이터 분석",exact:true})).toBeVisible();await page.screenshot({path:`${artifactDir}/step1.png`,fullPage:true});
   await page.getByRole("button",{name:"다음 · 제안 문장",exact:true}).click();
   await page.getByLabel("이메일 제목",{exact:true}).fill("SYNTHETIC 공식 시딩 협업 제안");await page.getByLabel("본문",{exact:true}).fill("SYNTHETIC 예시입니다. 실제 발송하지 않습니다.\n관찰된 콘텐츠에 맞춘 협업을 제안합니다.");await page.screenshot({path:`${artifactDir}/step2.png`,fullPage:true});
-  await page.getByRole("button",{name:"다음 · 템플릿·미리보기",exact:true}).click();await page.getByRole("button",{name:"브랜드 제안서",exact:true}).click();
+  await page.getByRole("button",{name:"다음 · 템플릿·미리보기",exact:true}).click();await page.getByRole("button",{name:"브랜드 소개",exact:true}).click();
   await expect(page.frameLocator("iframe").getByText("SYNTHETIC 예시입니다.",{exact:false})).toBeVisible();await page.screenshot({path:`${artifactDir}/step3.png`,fullPage:true});
   await page.getByRole("button",{name:"다음 · 계정·주소·발송",exact:true}).click();
   const send=page.getByRole("button",{name:"이메일 보내기",exact:true});await expect(send).toBeDisabled();
@@ -70,4 +70,42 @@ test("selected creator opens four separate stages; sender switching clears stale
 });
 test("reviewer can inspect account status but cannot add or connect senders",async({page,context})=>{
   await signIn(context,f.reader);await page.goto("/settings/accounts");await expect(page.getByRole("heading",{name:"발신 계정",exact:true})).toBeVisible();await expect(page.getByRole("button",{name:"계정 추가",exact:true})).toHaveCount(0);
+});
+
+test("templates and company signature save, restore and apply without losing text when designs change",async({page,context})=>{
+  await signIn(context);await page.goto("/settings/templates");
+  await page.getByRole("button",{name:"기본 템플릿 4개 설정",exact:true}).click();await expect(page.locator(".template-library-card")).toHaveCount(4);
+  await page.getByRole("button",{name:"회사 서명·브랜드",exact:true}).click();
+  await page.getByLabel("회사·브랜드 이름",{exact:true}).fill("SYNTHETIC Studio");await page.getByLabel("회사 서명",{exact:true}).fill("SYNTHETIC Studio\nPartnerships Team");
+  await page.getByRole("button",{name:"회사 서명 저장",exact:true}).click();await expect(page.getByText("회사 서명을 저장했습니다.")).toBeVisible();
+  await page.screenshot({path:`${artifactDir}/signature.png`,fullPage:true});
+  await page.getByRole("button",{name:"메시지 템플릿",exact:true}).click();
+  const card=page.locator(".template-library-card").filter({has:page.getByRole("heading",{name:"첫 협업 제안",exact:true})});
+  await card.getByRole("button",{name:"편집·미리보기",exact:true}).click();await page.getByLabel("템플릿 이름",{exact:true}).fill("SYNTHETIC 첫 제안");await page.getByRole("button",{name:"템플릿 저장",exact:true}).click();await expect(page.getByText("템플릿을 저장했습니다.")).toBeVisible();
+  await page.getByRole("button",{name:"닫기",exact:true}).click();await page.screenshot({path:`${artifactDir}/templates.png`,fullPage:true});
+  await page.reload();await expect(page.getByRole("heading",{name:"SYNTHETIC 첫 제안",exact:true})).toBeVisible();
+  for(const width of [320,390,1440]){await page.setViewportSize({width,height:1000});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();}
+  await page.goto(`/campaigns/${seed.campaign.id}/outreach/${seed.accountId}?draft=new`);await page.getByRole("button",{name:"다음 · 제안 문장",exact:true}).click();
+  await page.getByLabel("메시지 템플릿",{exact:true}).selectOption({label:"SYNTHETIC 첫 제안 · 한국어"});await expect(page.getByRole("button",{name:"이 문장으로 본문 적용",exact:true})).toBeDisabled();
+  await page.getByLabel("이 크리에이터에게 제안하는 이유",{exact:true}).fill("SYNTHETIC 관찰 근거를 확인했습니다.");await page.getByRole("button",{name:"이 문장으로 본문 적용",exact:true}).click();
+  const text=await page.getByLabel("본문",{exact:true}).inputValue();expect(text).toContain("SYNTHETIC Studio");expect(text).toContain("SYNTHETIC 관찰 근거");expect(text).not.toContain("{{");
+  await page.getByRole("button",{name:"다음 · 템플릿·미리보기",exact:true}).click();
+  for(const name of ["개인화 레터","브랜드 소개","공식 제안서","짧은 후속 연락"]){await page.getByRole("button",{name,exact:true}).click();await expect(page.frameLocator("iframe").getByText("SYNTHETIC 관찰 근거",{exact:false})).toBeVisible();await expect(page.frameLocator("iframe").getByText("Partnerships Team",{exact:false})).toBeVisible();}
+  await page.getByRole("button",{name:/2.*제안 문장/}).click();await expect(page.getByLabel("본문",{exact:true})).toHaveValue(text);
+  await page.getByRole("button",{name:"초안 저장",exact:true}).click();await expect(page.getByText("초안을 저장했습니다. 다른 컴퓨터에서도 이어서 작성할 수 있습니다.")).toBeVisible();
+  await page.getByRole("link",{name:"초안·발송 기록 →",exact:true}).click();await expect(page.locator(".outreach-record").first()).toContainText("작성 중");await page.screenshot({path:`${artifactDir}/drafts.png`,fullPage:true});
+});
+
+test("admin imports web OAuth credentials and login uses the saved app; secrets are never redisplayed",async({page,context})=>{
+  await signIn(context);await page.goto("/settings/connections");
+  const uri="http://127.0.0.1:3000/api/outreach/oauth/google/callback";
+  await page.getByLabel("Google 인증 파일 가져오기",{exact:true}).setInputFiles({name:"synthetic-oauth.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify({web:{client_id:"synthetic-browser.apps.googleusercontent.com",client_secret:"synthetic-browser-secret",redirect_uris:[uri]}}))});
+  await expect(page.getByLabel("Client ID",{exact:true})).toHaveValue("synthetic-browser.apps.googleusercontent.com");await page.getByRole("button",{name:"연결 정보 저장",exact:true}).click();
+  await expect(page.getByRole("link",{name:"발신 계정 로그인하기 →",exact:true})).toBeVisible();await expect(page.getByLabel("Client secret",{exact:true})).toHaveValue("");
+  await page.screenshot({path:`${artifactDir}/connections.png`,fullPage:true});
+  for(const width of [320,390,1440]){await page.setViewportSize({width,height:1000});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();}
+  await page.getByRole("link",{name:"발신 계정 로그인하기 →",exact:true}).click();
+  const card=page.locator("article").filter({has:page.getByRole("heading",{name:"SYNTHETIC 회사 A",exact:true})});await expect(card.getByRole("button",{name:"로그인 연결",exact:true})).toBeEnabled();
+  await page.route("https://accounts.google.com/**",route=>route.fulfill({contentType:"text/plain",body:"SYNTHETIC OAuth navigation intercepted; no external sign-in"}));
+  await card.getByRole("button",{name:"로그인 연결",exact:true}).click();await expect(page).toHaveURL(/accounts.google.com/);const url=new URL(page.url());expect(url.searchParams.get("client_id")).toBe("synthetic-browser.apps.googleusercontent.com");expect(url.searchParams.get("redirect_uri")).toBe(uri);expect(url.searchParams.get("login_hint")).toBe("sender-a@example.invalid");
 });

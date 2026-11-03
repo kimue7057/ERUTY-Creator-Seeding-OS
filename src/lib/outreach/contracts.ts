@@ -16,6 +16,8 @@ export class OutreachError extends Error {
 }
 export function outreachErrorMessage(error: unknown): string {
   const messages: Record<string, string> = {
+    replacement_required: "기존 연결 정보를 교체하면 연결된 계정의 재로그인이 필요합니다. 교체 확인을 선택하세요.",
+    placeholders_remaining: "메시지에 {{…}} 빈 항목이 남아 있습니다. 실제 내용으로 작성한 뒤 보내세요.",
     forbidden: "이 작업은 관리자 또는 캠페인 매니저만 할 수 있습니다.",
     not_found: "이 계정을 현재 워크스페이스에서 찾을 수 없습니다.",
     not_configured: "서비스의 로그인 연결 설정이 아직 필요합니다. 아래 연결 설정 안내를 확인하세요.",

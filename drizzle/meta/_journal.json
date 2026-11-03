@@ -114,6 +114,7 @@
       "tag": "0015_campaign_shortlist",
       "breakpoints": true
     },
-    { "idx": 16, "version": "7", "when": 1793667600000, "tag": "0016_outreach_accounts", "breakpoints": true }
+    { "idx": 16, "version": "7", "when": 1793667600000, "tag": "0016_outreach_accounts", "breakpoints": true },
+    { "idx": 17, "version": "7", "when": 1793682000000, "tag": "0017_outreach_workspace", "breakpoints": true }
   ]
 }

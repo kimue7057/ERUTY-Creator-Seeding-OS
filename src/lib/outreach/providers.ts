@@ -12,12 +12,12 @@ export function providerConfig(provider: SenderProvider, env: Record<string,stri
   const id = env[`OUTREACH_${prefix}_CLIENT_ID`], secret = env[`OUTREACH_${prefix}_CLIENT_SECRET`];
   const origin = env.APP_ORIGIN;
   const originValid = !!origin && (() => { try { const u = new URL(origin); return u.origin === origin && !u.username && (u.protocol === "https:" || env.NODE_ENV !== "production" && ["localhost","127.0.0.1"].includes(u.hostname)); } catch { return false; } })();
-  const version = env.OUTREACH_INSTAGRAM_API_VERSION;
+  const version = provider === "instagram" ? env.OUTREACH_INSTAGRAM_API_VERSION : undefined;
   return { id, secret, redirectUri: `${origin}/api/outreach/oauth/${provider}/callback`, version,
     configured: !!id && !!secret && originValid && /^[a-fA-F0-9]{64}$/.test(env.OUTREACH_ENCRYPTION_KEY ?? "") && (provider !== "instagram" || /^v\d+\.0$/.test(version ?? "")) };
 }
-export function authorizationUrl(provider: SenderProvider, state: string, verifier: string, identity: string, aliases: boolean) {
-  const config = providerConfig(provider); if (!config.configured) throw new OutreachError("not_configured");
+export function authorizationUrl(provider: SenderProvider, state: string, verifier: string, identity: string, aliases: boolean, config = providerConfig(provider)) {
+  if (!config.configured) throw new OutreachError("not_configured");
   const url = new URL({ google: "https://accounts.google.com/o/oauth2/v2/auth", instagram: "https://www.instagram.com/oauth/authorize", tiktok: "https://www.tiktok.com/v2/auth/authorize/" }[provider]);
   url.searchParams.set(provider === "tiktok" ? "client_key" : "client_id", required(config.id));
   url.searchParams.set("redirect_uri", config.redirectUri); url.searchParams.set("response_type", "code"); url.searchParams.set("state", state);
@@ -51,22 +51,22 @@ export async function googleAddresses(accessToken: string, identity: string, ali
   const parsed = z.object({ sendAs: z.array(z.object({ sendAsEmail: z.email(), displayName: z.string().optional(), isPrimary: z.boolean().optional(), verificationStatus: z.string().optional() })) }).parse(raw);
   return parsed.sendAs.filter(a => a.isPrimary || a.verificationStatus === "accepted").map(a => ({ address: a.sendAsEmail, label: a.displayName || (a.isPrimary ? "기본 이메일" : "승인된 추가 주소"), primary: !!a.isPrimary }));
 }
-export async function fetchIdentity(provider: SenderProvider, token: ProviderTokens, fetcher: typeof fetch = fetch): Promise<ConnectedIdentity> {
+export async function fetchIdentity(provider: SenderProvider, token: ProviderTokens, fetcher: typeof fetch = fetch, config = providerConfig(provider)): Promise<ConnectedIdentity> {
   if (provider === "google") {
     const user = z.object({ sub: z.string(), email: z.email(), email_verified: z.literal(true) }).parse(await providerJson("https://openidconnect.googleapis.com/v1/userinfo", { headers: bearer(token.accessToken) }, fetcher));
     if (!token.scopes.includes(GOOGLE_SEND_SCOPE)) throw new OutreachError("permission_missing");
     return { id: user.sub, identity: user.email, addresses: await googleAddresses(token.accessToken,user.email,token.scopes.includes(GOOGLE_ALIAS_SCOPE),fetcher), tokens: token };
   }
   if (provider === "instagram") {
-    const version = required(providerConfig(provider).version);
+    const version = required(config.version);
     const user = z.object({ user_id: z.union([z.string(),z.number()]).transform(String), username: z.string().regex(/^[\w.]{1,30}$/) }).parse(await providerJson(`https://graph.instagram.com/${version}/me?fields=user_id,username`, { headers: bearer(token.accessToken) }, fetcher));
     return { id: user.user_id, identity: user.username, addresses: [{ address: `@${user.username}`, label: "로그인으로 확인한 계정", primary:true }], tokens:token };
   }
   const raw = z.object({ error: z.object({ code:z.literal("ok") }), data:z.object({ user:z.object({ open_id:z.string(), username:z.string().regex(/^[\w.]{1,30}$/) }) }) }).parse(await providerJson("https://open.tiktokapis.com/v2/user/info/?fields=open_id,username", { headers:bearer(token.accessToken) }, fetcher));
   return { id:raw.data.user.open_id, identity:raw.data.user.username, addresses:[{ address:`@${raw.data.user.username}`,label:"로그인으로 확인한 계정",primary:true }],tokens:token };
 }
-export async function exchangeCode(provider: SenderProvider, code: string, verifier: string, fetcher: typeof fetch = fetch) {
-  const config = providerConfig(provider); if (!config.configured) throw new OutreachError("not_configured");
+export async function exchangeCode(provider: SenderProvider, code: string, verifier: string, fetcher: typeof fetch = fetch, config = providerConfig(provider)) {
+  if (!config.configured) throw new OutreachError("not_configured");
   const form = new URLSearchParams({ grant_type:"authorization_code", code, redirect_uri:config.redirectUri, client_secret:required(config.secret) });
   form.set(provider === "tiktok" ? "client_key" : "client_id", required(config.id));
   if (provider === "google") form.set("code_verifier",verifier);
@@ -82,11 +82,10 @@ export async function exchangeCode(provider: SenderProvider, code: string, verif
     result = tokens(long,short.permissions ?? []);
   } else result = tokens(tokenSchema.parse(raw));
   if (provider === "google" && !result.refreshToken) throw new OutreachError("permission_missing");
-  return fetchIdentity(provider,result,fetcher);
+  return fetchIdentity(provider,result,fetcher,config);
 }
-export async function refreshTokens(provider: SenderProvider, current: ProviderTokens, fetcher: typeof fetch = fetch) {
+export async function refreshTokens(provider: SenderProvider, current: ProviderTokens, fetcher: typeof fetch = fetch, config = providerConfig(provider)) {
   if (current.expiresAt > Date.now() + 120000) return current;
-  const config = providerConfig(provider);
   if (provider === "instagram") throw new OutreachError("reconnect");
   if (!current.refreshToken || !config.configured) throw new OutreachError("reconnect");
   const form = new URLSearchParams({ grant_type:"refresh_token",refresh_token:current.refreshToken,client_secret:required(config.secret),[provider === "google" ? "client_id" : "client_key"]:required(config.id) });
