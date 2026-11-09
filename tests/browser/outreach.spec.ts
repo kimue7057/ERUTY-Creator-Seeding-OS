@@ -61,6 +61,24 @@ test("connection test previews the exact addresses, requires confirmation and di
   for (const width of [320, 390, 1440]) { await page.setViewportSize({ width, height: 1000 }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBeTruthy(); }
   await page.screenshot({ path: `${artifactDir}/connection-test.png`, fullPage: true });
 });
+test("Instagram Unified Login imports the generated URL and launches the configured consent flow",async({page,context})=>{
+  await signIn(context,f.other);await page.goto("/settings/connections");await page.getByRole("button",{name:"Instagram · 등록 필요",exact:true}).click();
+  await expect(page.getByLabel("Instagram 로그인 방식",{exact:true})).toHaveValue("unified");
+  const uri="http://127.0.0.1:3000/api/outreach/oauth/instagram/callback",url=new URL("https://www.facebook.com/dialog/oauth");url.search=new URLSearchParams({client_id:"10000",config_id:"20000",redirect_uri:uri,response_type:"code",state:"<STATE>",prompt:"login"}).toString();
+  await page.getByLabel("Meta 로그인 URL 가져오기",{exact:true}).fill(url.href);await page.getByRole("button",{name:"로그인 URL에서 가져오기",exact:true}).click();
+  await expect(page.getByLabel("Client ID",{exact:true})).toHaveValue("10000");await expect(page.getByLabel("로그인 구성 ID",{exact:true})).toHaveValue("20000");await expect(page.getByLabel("Meta 로그인 URL 가져오기",{exact:true})).toHaveValue("");
+  await page.getByLabel("Client secret",{exact:true}).fill("synthetic-meta-secret");await page.getByLabel("Meta 앱의 API 버전",{exact:true}).fill("v25.0");
+  await page.getByRole("button",{name:"연결 정보 저장",exact:true}).click();await expect(page.getByRole("button",{name:"Instagram · 등록됨",exact:true})).toBeVisible();await expect(page.getByLabel("Client secret",{exact:true})).toHaveValue("");
+  for(const width of [320,390,1440]){await page.setViewportSize({width,height:1000});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();}
+  await page.screenshot({path:`${artifactDir}/instagram-unified.png`,fullPage:true});
+  const account=await accountService(database).register(f.other,{provider:"instagram",label:"SYNTHETIC Unified Instagram",identity:"intended_creator"});
+  await page.getByRole("link",{name:"발신 계정 로그인하기 →",exact:true}).click();
+  const card=page.locator("article").filter({has:page.getByRole("heading",{name:"SYNTHETIC Unified Instagram",exact:true})});
+  await page.route("https://www.facebook.com/**",route=>route.fulfill({contentType:"text/plain",body:"SYNTHETIC consent intercepted; no real login"}));
+  await card.getByRole("button",{name:"로그인 연결",exact:true}).click();await expect(page).toHaveURL(/www.facebook.com\/dialog\/oauth/);
+  const login=new URL(page.url());expect(login.searchParams.get("config_id")).toBe("20000");expect(login.searchParams.get("client_id")).toBe("10000");expect(login.searchParams.get("state")).not.toBe("<STATE>");expect(login.searchParams.has("scope")).toBe(false);
+  expect((await database.select().from(senderAccounts).where(eq(senderAccounts.id,account.id)))[0].status).toBe("pending");
+});
 test("register multiple sender accounts and show setup dependency without pretending connected",async({page,context})=>{
   await signIn(context);await page.goto("/settings/accounts");await expect(page.getByRole("heading",{name:"발신 계정",exact:true})).toBeVisible();
   await page.getByRole("button",{name:"계정 추가",exact:true}).click();await page.getByLabel("서비스",{exact:true}).selectOption("instagram");await page.getByLabel("구분 이름").fill("SYNTHETIC Instagram");await page.getByLabel("SNS 아이디").fill("synthetic_outreach");await page.getByRole("button",{name:"계정 등록",exact:true}).click();
@@ -125,6 +143,7 @@ test("templates and company signature save, restore and apply without losing tex
 test("admin imports web OAuth credentials and login uses the saved app; secrets are never redisplayed",async({page,context})=>{
   await signIn(context);await page.goto("/settings/connections");
   const uri="http://127.0.0.1:3000/api/outreach/oauth/google/callback";
+  await expect(page.getByLabel("Google 인증 파일 가져오기",{exact:true})).toBeEnabled();
   await page.getByLabel("Google 인증 파일 가져오기",{exact:true}).setInputFiles({name:"synthetic-oauth.json",mimeType:"application/json",buffer:Buffer.from(JSON.stringify({web:{client_id:"synthetic-browser.apps.googleusercontent.com",client_secret:"synthetic-browser-secret",redirect_uris:[uri]}}))});
   await expect(page.getByLabel("Client ID",{exact:true})).toHaveValue("synthetic-browser.apps.googleusercontent.com");await page.getByRole("button",{name:"연결 정보 저장",exact:true}).click();
   await expect(page.getByRole("link",{name:"발신 계정 로그인하기 →",exact:true})).toBeVisible();await expect(page.getByLabel("Client secret",{exact:true})).toHaveValue("");

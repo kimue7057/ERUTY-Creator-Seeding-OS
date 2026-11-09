@@ -40,14 +40,18 @@ Workspace는 Google의 회사 메일 서비스 이름이다. 별도 Workspace ID
 
 ### Instagram
 
-1. [Meta for Developers](https://developers.facebook.com/)에서 회사 앱을 만들고 Instagram API with Instagram Login을 설정한다.
-2. Instagram 계정을 Professional(비즈니스 또는 크리에이터)로 준비하고 앱의 테스트 역할·필요한 접근 권한을 설정한다. 실제 외부 사용자 운영 시 필요한 심사를 진행한다.
+1. [Meta for Developers](https://developers.facebook.com/)에서 회사 앱의 Instagram 이용 사례를 연다. **API setup with Unified login**이면 **1. 앱 구성 → 새로운 구성 만들기**로 Instagram 자산을 포함하는 비즈니스 로그인 구성을 만들고 선택한다. 기존 앱의 **API setup with Instagram login**은 별도 방식으로 유지한다.
+2. Instagram 계정을 Professional(비즈니스 또는 크리에이터)로 준비한다. 앱 역할에서 해당 Instagram 계정을 테스터로 추가하고 Instagram에서 초대를 수락한다. 앱의 계정 추가 화면과 로그인 동의에서 사용할 회사 계정을 선택한다. ‘게시되지 않음’은 공개 전 상태이며 기다리는 것만으로 게시되지 않는다. 테스트 역할과 공개 운영의 권한·검수·게시 요건을 구분한다.
 3. 로그인 완료 주소를 등록한다:
 
    `https://eruty-creator-seeding-os.vercel.app/api/outreach/oauth/instagram/callback`
 
-4. ERUTY **서비스 연결 설정 → Instagram**에서 ID·secret·앱이 지원하는 API 버전을 등록한다. 서버 환경변수 `OUTREACH_INSTAGRAM_CLIENT_ID`, `OUTREACH_INSTAGRAM_CLIENT_SECRET`, `OUTREACH_INSTAGRAM_API_VERSION`도 지원한다. 일반 Facebook 앱의 다른 로그인 설정과 Instagram Login 인증 정보를 혼용하지 않는다.
-5. ERUTY에서 등록한 Instagram 계정으로 로그인한다. 계정의 실제 사용자 ID와 아이디를 확인해 저장한다. 만료 시 재연결한다.
+4. ERUTY **서비스 연결 설정 → Instagram**에서 실제 Meta 화면과 같은 로그인 방식을 선택한다. Unified Login은 생성된 로그인 URL을 가져오면 **Meta 앱 ID와 구성 ID(config_id)**가 입력된다. Meta 앱 설정의 기본 정보에 있는 앱 시크릿과 앱이 지원하는 Graph API 버전을 입력하고 저장한다. URL의 임의 state·scope·인증 결과는 가져오지 않으며, 계정 연결 요청 때 서버가 state를 새로 생성한다. 기존 Instagram Login은 Instagram 전용 앱 ID·secret을 사용한다. 수동으로 생성한 액세스 토큰을 붙여 넣는 기능은 없다.
+5. **발신 계정 → 로그인 연결**에서 Meta의 동의를 마친다. Unified Login은 Meta 앱·SYSTEM_USER 토큰의 유효성, 실제 승인된 `instagram_basic` 권한과 공유된 계정 목록을 확인한 후 **등록한 아이디와 일치하는 계정만** 저장한다. 여러 계정 중 첫 계정을 임의로 연결하지 않는다. 명시적으로 확인된 무기한 토큰만 만료일을 비워 두며, 누락된 만료 정보는 무기한으로 추정하지 않는다. 자산 접근 철회·만료·다른 앱/구성으로 교체하면 재연결한다.
+
+서버 환경변수 사용 시 `OUTREACH_INSTAGRAM_CLIENT_ID`, `OUTREACH_INSTAGRAM_CLIENT_SECRET`, `OUTREACH_INSTAGRAM_API_VERSION`에 더해 Unified Login은 `OUTREACH_INSTAGRAM_LOGIN_MODE=unified`, `OUTREACH_INSTAGRAM_CONFIGURATION_ID`가 필요하다. 기존 저장 설정의 기본값은 Instagram Login으로 유지한다. 구성 ID·방식은 암호화된 조직 설정에 저장하므로 추가 DB 마이그레이션은 없다. 기존 Google 연결의 설정 fingerprint는 유지한다.
+
+검증: URL 가져오기·콜백 주소 일치·새 state·구성 바인딩·토큰 유효성/수명/권한·페이지를 나눈 계정 목록·대상 계정 선택·암호화 저장·조직/세션 분리를 합성 응답으로 검증한다. Meta 실제 계정 동의와 Graph 응답 검증은 사용자가 계정을 연결한 뒤 별도로 진행한다. 참고할 Meta 문서: [Unified Login 시작](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/get-started), [인증](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/authentication). 문서 페이지가 접근 제한 응답을 주어 전체 본문 대조는 완료하지 못했으며, 운영 적용 후 실제 인증 결과를 확인해야 한다.
 
 **현재 구현은 계정 인증과 발신 계정 선택까지다. Instagram 메시지 전송 어댑터·대화 조회·수신자 연결·웹훅은 아직 구현되지 않았다.** 일반 Send API에서는 수신자가 먼저 해당 프로페셔널 계정으로 연락한 대화 등 서비스 조건을 확인해야 한다. 계정 인증만으로 모든 발굴 후보에게 먼저 DM을 보낼 수 있다고 표시하지 않는다. [Meta 공식 메시지 API 안내](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api).
 

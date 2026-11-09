@@ -16,6 +16,9 @@ export class OutreachError extends Error {
 }
 export function outreachErrorMessage(error: unknown): string {
   const messages: Record<string, string> = {
+    instagram_no_accounts: "Meta에서 공유된 Instagram 계정을 찾지 못했습니다. 프로페셔널 계정·비즈니스 자산 연결·테스터 초대 수락과 로그인 시 계정 선택을 확인하세요.",
+    instagram_account_not_shared: "등록한 Instagram 계정이 이번 로그인에서 공유되지 않았습니다. 로그인 권한 화면에서 해당 계정을 선택하세요.",
+    instagram_accounts_incomplete: "Meta 계정 목록 전체를 확인하지 못했습니다. 연결할 Instagram 계정만 선택한 뒤 다시 로그인하세요.",
     test_changed: "테스트 요청의 주소가 변경됐습니다. 새 테스트를 시작해 주세요.",
     test_rate_limit: "이 계정에서 최근 10분 동안 테스트 메일 5통을 요청했습니다. 잠시 후 다시 시도해 주세요.",
     replacement_required: "기존 연결 정보를 교체하면 연결된 계정의 재로그인이 필요합니다. 교체 확인을 선택하세요.",

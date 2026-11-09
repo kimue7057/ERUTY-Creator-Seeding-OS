@@ -13,7 +13,7 @@ import { senderAccounts,senderOAuthStates,outreachDrafts } from "../../src/lib/d
 import { GOOGLE_SEND_SCOPE } from "../../src/lib/outreach/providers";
 import { OutreachError } from "../../src/lib/outreach/contracts";
 import { seal } from "../../src/lib/outreach/crypto";
-import { providerAppService } from "../../src/lib/outreach/provider-apps";
+import { providerAppService, resolveProviderConfig } from "../../src/lib/outreach/provider-apps";
 import { templateService } from "../../src/lib/outreach/templates";
 import { defaultBranding } from "../../src/lib/outreach/template-contracts";
 import { outreachProviderApps } from "../../src/lib/db/outreach-schema";
@@ -38,6 +38,29 @@ test("OAuth is single-use, bound to the current session and tenant; public views
     await service.disconnect(f.actor,account.id);
     await assert.rejects(service.complete(f.actor,"google",reconnect.searchParams.get("state")!,"session-a","code"),errorCode("oauth_expired"));
     assert.equal((await f.database.select().from(senderAccounts))[0].tokenCiphertext,null);
+  });
+});
+test("Unified Instagram config is session-bound, encrypted, target-scoped and independent of Google fingerprints",async()=>{
+  await withDiscoveryDatabase(async f=>{
+    const googleBefore=await f.database.transaction(tx=>resolveProviderConfig(tx,f.actor.organizationId,"google"));
+    const apps=providerAppService(f.database),input={provider:"instagram",revision:0,clientId:"10000",clientSecret:"synthetic-meta-secret",version:"v25.0",instagramLoginMode:"unified",configurationId:"20000"};
+    await apps.save(f.actor,input);
+    const googleAfter=await f.database.transaction(tx=>resolveProviderConfig(tx,f.actor.organizationId,"google"));assert.equal(googleAfter.fingerprint,googleBefore.fingerprint);
+    let calls=0;
+    const meta:typeof fetch=async url=>{calls++;const u=new URL(String(url));assert.equal(u.hostname,"graph.facebook.com");
+      if(u.pathname.endsWith("/oauth/access_token"))return Response.json({access_token:"synthetic-system-token"});
+      if(u.pathname.endsWith("/debug_token"))return Response.json({data:{app_id:"10000",type:"SYSTEM_USER",is_valid:true,expires_at:0,scopes:["instagram_basic"]}});
+      return Response.json({data:[{id:"111",username:"not_the_target"},{id:"333",username:"intended_creator"}]});};
+    const svc=accountService(f.database,meta),account=await svc.register(f.actor,{provider:"instagram",label:"Synthetic Instagram",identity:"intended_creator"});
+    const url=new URL(await svc.begin(f.actor,account.id,"session-a"));assert.equal(url.origin,"https://www.facebook.com");assert.equal(url.searchParams.get("config_id"),"20000");
+    await assert.rejects(svc.complete(f.actor,"instagram",url.searchParams.get("state")!,"wrong-session","code"),errorCode("oauth_expired"));assert.equal(calls,0);
+    await svc.complete(f.actor,"instagram",url.searchParams.get("state")!,"session-a","code");
+    const stored=(await f.database.select().from(senderAccounts).where(eq(senderAccounts.id,account.id)))[0];assert.equal(stored.providerId,"333");assert.equal(stored.expiresAt,null);assert.ok(!stored.tokenCiphertext!.includes("synthetic-system-token"));
+    assert.equal((await svc.list(f.actor))[0].status,"connected");await svc.sync(f.actor,account.id);
+    const pending=new URL(await svc.begin(f.actor,account.id,"session-a"));
+    await apps.save(f.actor,{...input,revision:1,replace:true,configurationId:"20001"});
+    assert.equal((await svc.list(f.actor))[0].status,"reconnect");await assert.rejects(svc.complete(f.actor,"instagram",pending.searchParams.get("state")!,"session-a","code"),errorCode("oauth_expired"));
+    await assert.rejects(svc.sync(f.actor,account.id),errorCode("reconnect"));assert.equal((await svc.list(f.other)).length,0);
   });
 });
 test("wrong provider identity, missing consent, expired states and duplicate account registrations do not connect",async()=>{

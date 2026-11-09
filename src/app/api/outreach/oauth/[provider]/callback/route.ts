@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { currentActor, SESSION_COOKIE, tokenHash } from "@/lib/auth/session";
 import { accountService } from "@/lib/outreach/accounts";
 import { providerSchema, OutreachError } from "@/lib/outreach/contracts";
+export const maxDuration = 60;
 export async function GET(request:Request,{params}:{params:Promise<{provider:string}>}) {
   const origin=process.env.APP_ORIGIN; if(!origin) return new Response("Service unavailable",{status:503});
   const destination=new URL("/settings/accounts",origin),query=new URL(request.url).searchParams;

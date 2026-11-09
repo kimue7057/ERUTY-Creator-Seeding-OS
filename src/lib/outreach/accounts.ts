@@ -29,7 +29,7 @@ export function accountService(database: Pick<typeof db,"transaction"> = db, fet
     const config = await resolveProviderConfig(tx,actor.organizationId,row.provider);
     if (row.appFingerprint && row.appFingerprint !== config.fingerprint || !row.appFingerprint && config.source === "workspace") throw new OutreachError("reconnect");
     const token = await refreshTokens(row.provider,old,fetcher,config);
-    if (token !== old) await tx.update(accounts).set({tokenCiphertext:seal(JSON.stringify(token),context(actor.organizationId,id)),expiresAt:new Date(token.expiresAt),updatedAt:new Date(),updatedBy:actor.userId}).where(scoped(actor,id));
+    if (token !== old) await tx.update(accounts).set({tokenCiphertext:seal(JSON.stringify(token),context(actor.organizationId,id)),expiresAt:token.expiresAt === null ? null : new Date(token.expiresAt),updatedAt:new Date(),updatedBy:actor.userId}).where(scoped(actor,id));
     return {row,token,config};
   }
   return {
@@ -71,11 +71,11 @@ export function accountService(database: Pick<typeof db,"transaction"> = db, fet
         if (row.provider !== provider || row.updatedAt > grant.createdAt) throw new OutreachError("oauth_expired");
         const config = await resolveProviderConfig(tx,actor.organizationId,provider);
         if (grant.appFingerprint !== config.fingerprint) throw new OutreachError("oauth_expired");
-        const verified = await exchangeCode(provider,z.string().max(4096).parse(code),unseal(grant.verifierCiphertext,`${actor.organizationId}:${row.id}:oauth`),fetcher,config);
+        const verified = await exchangeCode(provider,z.string().max(4096).parse(code),unseal(grant.verifierCiphertext,`${actor.organizationId}:${row.id}:oauth`),fetcher,config,row.expectedIdentity);
         if (!matchesExpected(row.expectedIdentity,verified)) throw new OutreachError("wrong_identity");
         const [existing] = await tx.select({id:accounts.id}).from(accounts).where(and(eq(accounts.organizationId,actor.organizationId),eq(accounts.provider,provider),eq(accounts.providerId,verified.id)));
         if (existing && existing.id !== row.id) throw new OutreachError("duplicate");
-        await tx.update(accounts).set({providerId:verified.id,identity:verified.identity,addresses:verified.addresses,scopes:verified.tokens.scopes,status:"connected",appFingerprint:config.fingerprint,tokenCiphertext:seal(JSON.stringify(verified.tokens),context(actor.organizationId,row.id)),expiresAt:new Date(verified.tokens.expiresAt),verifiedAt:new Date(),updatedAt:new Date(),updatedBy:actor.userId}).where(scoped(actor,row.id));
+        await tx.update(accounts).set({providerId:verified.id,identity:verified.identity,addresses:verified.addresses,scopes:verified.tokens.scopes,status:"connected",appFingerprint:config.fingerprint,tokenCiphertext:seal(JSON.stringify(verified.tokens),context(actor.organizationId,row.id)),expiresAt:verified.tokens.expiresAt === null ? null : new Date(verified.tokens.expiresAt),verifiedAt:new Date(),updatedAt:new Date(),updatedBy:actor.userId}).where(scoped(actor,row.id));
         await audit(tx,actor,row.id,"outreach.account_connected"); return row.id;
       });
     },
@@ -89,10 +89,10 @@ export function accountService(database: Pick<typeof db,"transaction"> = db, fet
       try { return await database.transaction(async tx => {
         const {row,token,config} = await credentials(tx,actor,id), verified=await fetchIdentity(row.provider,token,fetcher,config);
         if (verified.id !== row.providerId || !matchesExpected(row.expectedIdentity,verified)) throw new OutreachError("wrong_identity");
-        await tx.update(accounts).set({identity:verified.identity,addresses:verified.addresses,verifiedAt:new Date(),updatedAt:new Date(),updatedBy:actor.userId}).where(scoped(actor,id));
+        await tx.update(accounts).set({identity:verified.identity,addresses:verified.addresses,scopes:verified.tokens.scopes,tokenCiphertext:seal(JSON.stringify(verified.tokens),context(actor.organizationId,row.id)),expiresAt:verified.tokens.expiresAt === null ? null : new Date(verified.tokens.expiresAt),verifiedAt:new Date(),updatedAt:new Date(),updatedBy:actor.userId}).where(scoped(actor,id));
         await audit(tx,actor,id,"outreach.account_synced");
       }); } catch(error) {
-        if (error instanceof OutreachError && ["reconnect","wrong_identity","permission_missing"].includes(error.code)) await database.transaction(async tx => {await load(tx,actor,id);await tx.update(accounts).set({status:"reconnect",updatedAt:new Date()}).where(scoped(actor,id));});
+        if (error instanceof OutreachError && ["reconnect","wrong_identity","permission_missing","instagram_no_accounts","instagram_account_not_shared"].includes(error.code)) await database.transaction(async tx => {await load(tx,actor,id);await tx.update(accounts).set({status:"reconnect",updatedAt:new Date()}).where(scoped(actor,id));});
         throw error;
       }
     },

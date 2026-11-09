@@ -16,9 +16,13 @@ export async function resolveProviderConfig(tx: OutreachTx, organizationId: stri
   if (row) {
     const saved = providerAppInputSchema.parse(JSON.parse(unseal(row.credentialsCiphertext, `${organizationId}:${provider}:provider-app`)));
     const prefix = { google: "GOOGLE", instagram: "INSTAGRAM", tiktok: "TIKTOK" }[provider];
-    config = providerConfig(provider, { ...process.env, [`OUTREACH_${prefix}_CLIENT_ID`]: saved.clientId, [`OUTREACH_${prefix}_CLIENT_SECRET`]: saved.clientSecret, OUTREACH_INSTAGRAM_API_VERSION: saved.version });
+    config = providerConfig(provider, { ...process.env, [`OUTREACH_${prefix}_CLIENT_ID`]: saved.clientId, [`OUTREACH_${prefix}_CLIENT_SECRET`]: saved.clientSecret, OUTREACH_INSTAGRAM_API_VERSION: saved.version, OUTREACH_INSTAGRAM_LOGIN_MODE: saved.instagramLoginMode, OUTREACH_INSTAGRAM_CONFIGURATION_ID: saved.configurationId });
   }
-  return { ...config, fingerprint: hashSecret(JSON.stringify([config.id, config.secret, config.version, config.redirectUri])), revision: row?.revision ?? 0, source: row ? "workspace" : "environment" };
+  // Keep existing Gmail/legacy fingerprints stable; only Unified Login adds a
+  // mode/configuration binding, invalidating that provider's old grants.
+  const binding = [config.id, config.secret, config.version, config.redirectUri];
+  if (provider === "instagram" && config.instagramLoginMode === "unified") binding.push("unified", config.configurationId);
+  return { ...config, fingerprint: hashSecret(JSON.stringify(binding)), revision: row?.revision ?? 0, source: row ? "workspace" : "environment" };
 }
 export function providerAppService(database: Pick<typeof db, "transaction"> = db) {
   return {
@@ -27,7 +31,7 @@ export function providerAppService(database: Pick<typeof db, "transaction"> = db
       const statuses = [];
       for (const provider of ["google", "instagram", "tiktok"] as const) {
         const config = await resolveProviderConfig(tx, actor.organizationId, provider);
-        statuses.push({ provider, configured: config.configured, revision: config.revision, source: config.source, redirectUri: config.redirectUri, clientHint: config.id ? `…${config.id.slice(-24)}` : "", version: config.version ?? "" });
+        statuses.push({ provider, configured: config.configured, revision: config.revision, source: config.source, redirectUri: config.redirectUri, clientHint: config.id ? `…${config.id.slice(-24)}` : "", version: config.version ?? "", instagramLoginMode: config.instagramLoginMode === "unified" ? "unified" as const : "instagram" as const, configurationId: provider === "instagram" ? config.configurationId : "" });
       }
       return statuses;
     }),
