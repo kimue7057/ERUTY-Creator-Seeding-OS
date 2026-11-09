@@ -12,7 +12,10 @@ const timestamp = z.number().int().nonnegative().max(8640000000000);
 const debugSchema = z.object({ data: z.object({
   app_id: z.string(), is_valid: z.boolean(), type: z.string(),
   expires_at: timestamp, data_access_expires_at: timestamp.optional(), scopes: z.array(z.string()),
+  granular_scopes: z.unknown().optional(),
 }) });
+const granularScopeSchema = z.array(z.object({ scope: z.string(), target_ids: z.array(idSchema.max(50)).optional() })).max(200);
+type InspectedToken = { token: ProviderTokens; targets: string[]; grantMetadata: "missing" | "valid" | "invalid" };
 function graphBase(config: Config) {
   if (!config.id || !config.secret || !/^v\d+\.0$/.test(config.version ?? "") || !/^\d+$/.test(config.configurationId)) throw new OutreachError("not_configured");
   return `https://graph.facebook.com/${config.version}`;
@@ -49,7 +52,7 @@ export async function checkUnifiedAppCredentials(config: Config, fetcher: typeof
   // and does not prove the app has no owner or that Instagram is connected.
   return { credentialsVerified: true as const, ownership };
 }
-async function inspectToken(accessToken: string, config: Config, fetcher: typeof fetch, signal: AbortSignal): Promise<ProviderTokens> {
+async function inspectToken(accessToken: string, config: Config, fetcher: typeof fetch, signal: AbortSignal): Promise<InspectedToken> {
   const url = new URL(`${graphBase(config)}/debug_token`); url.searchParams.set("input_token", accessToken);
   const { data } = await graphJson(url, `${config.id}|${config.secret}`, fetcher, signal, "token_inspection", debugSchema);
   if (!data.is_valid) throw new InstagramConnectionError("reconnect", { stage: "token_inspection", reason: "token_invalid" });
@@ -61,7 +64,10 @@ async function inspectToken(accessToken: string, config: Config, fetcher: typeof
   if (expiresAt !== null && expiresAt <= Date.now() + 120000) throw new InstagramConnectionError("reconnect", { stage: "token_inspection", reason: "token_expired" });
   // Only an inspected SYSTEM_USER token with explicit expires_at=0 may be
   // non-expiring. Missing expiry in the code-exchange response proves nothing.
-  return { accessToken, expiresAt, scopes: data.scopes, tokenKind: "meta_system_user" };
+  const granular = granularScopeSchema.safeParse(data.granular_scopes);
+  const targets = granular.success ? [...new Set(granular.data.filter(g => g.scope === "instagram_basic").flatMap(g => g.target_ids ?? []))] : [];
+  return { token: { accessToken, expiresAt, scopes: data.scopes, tokenKind: "meta_system_user" }, targets,
+    grantMetadata: data.granular_scopes === undefined ? "missing" : granular.success ? "valid" : "invalid" };
 }
 async function sharedAccounts(token: ProviderTokens, config: Config, fetcher: typeof fetch, signal: AbortSignal) {
   const accounts = new Map<string, z.infer<typeof accountSchema>>(), cursors = new Set<string>();
@@ -82,13 +88,32 @@ async function sharedAccounts(token: ProviderTokens, config: Config, fetcher: ty
   }
   throw new OutreachError("instagram_accounts_incomplete");
 }
+async function grantedAccounts(token: ProviderTokens, targets: string[], config: Config, fetcher: typeof fetch, signal: AbortSignal) {
+  // Use only Instagram-basic targets supplied by Meta's inspected token, never
+  // caller-supplied IDs, inferred handles, ad/Page targets, or stored old grants.
+  if (targets.length > 20) throw new OutreachError("instagram_accounts_incomplete");
+  const accounts: z.infer<typeof accountSchema>[] = [];
+  for (const id of targets) {
+    const url = new URL(`${graphBase(config)}/${id}`);
+    url.search = new URLSearchParams({ fields: "id,username,ig_id", appsecret_proof: createHmac("sha256", config.secret!).update(token.accessToken).digest("hex") }).toString();
+    // An FB Page can also have id/username. Requiring the IG-specific ig_id
+    // prevents a Page from being accepted as an Instagram sender.
+    const account = await graphJson(url, token.accessToken, fetcher, signal, "account_lookup", accountSchema.extend({ ig_id: z.union([idSchema, z.number().int().positive()]) }));
+    if (account.id !== id) throw instagramStageError("account_lookup", new OutreachError("provider_invalid"));
+    accounts.push({ id: account.id, username: account.username });
+  }
+  return accounts;
+}
 async function identity(token: ProviderTokens, config: Config, expectedIdentity: string | undefined, fetcher: typeof fetch, signal: AbortSignal): Promise<ConnectedIdentity> {
-  const verified = await inspectToken(token.accessToken, config, fetcher, signal);
-  const accounts = await sharedAccounts(verified, config, fetcher, signal);
-  if (!accounts.length) throw new OutreachError("instagram_no_accounts");
+  const inspected = await inspectToken(token.accessToken, config, fetcher, signal), verified = inspected.token;
+  let accounts = await sharedAccounts(verified, config, fetcher, signal);
+  const assignedCount = accounts.length;
+  if (!assignedCount && inspected.targets.length) accounts = await grantedAccounts(verified, inspected.targets, config, fetcher, signal);
+  if (!accounts.length) throw new InstagramConnectionError("instagram_no_accounts", { stage: "account_lookup", reason: "no_accounts", assignedAccountCount: assignedCount, grantedTargetCount: inspected.targets.length, grantMetadata: inspected.grantMetadata });
   const matches = accounts.filter(a => token.instagramAccountId ? a.id === token.instagramAccountId : expectedIdentity && normalizeIdentity(a.username) === normalizeIdentity(expectedIdentity));
   if (matches.length !== 1) throw new OutreachError("instagram_account_not_shared");
   const selected = matches[0];
+  if (!assignedCount) console.info(JSON.stringify({ event: "outreach.instagram_account_resolved", source: "inspected_instagram_grant", grantedTargetCount: inspected.targets.length }));
   return { id: selected.id, identity: selected.username, addresses: [{ address: `@${selected.username}`, label: "Meta에서 확인한 Instagram 계정", primary: true }], tokens: { ...verified, instagramAccountId: selected.id } };
 }
 export async function exchangeUnifiedCode(code: string, config: Config, expectedIdentity: string | undefined, fetcher: typeof fetch): Promise<ConnectedIdentity> {

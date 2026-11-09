@@ -47,7 +47,7 @@ Workspace는 Google의 회사 메일 서비스 이름이다. 별도 Workspace ID
    `https://eruty-creator-seeding-os.vercel.app/api/outreach/oauth/instagram/callback`
 
 4. ERUTY **서비스 연결 설정 → Instagram**에서 실제 Meta 화면과 같은 로그인 방식을 선택한다. Unified Login은 생성된 로그인 URL을 가져오면 **Meta 앱 ID와 구성 ID(config_id)**가 입력된다. Meta 앱 설정의 기본 정보에 있는 앱 시크릿과 앱이 지원하는 Graph API 버전을 입력하고 저장한다. URL의 임의 state·scope·인증 결과는 가져오지 않으며, 계정 연결 요청 때 서버가 state를 새로 생성한다. 기존 Instagram Login은 Instagram 전용 앱 ID·secret을 사용한다. 수동으로 생성한 액세스 토큰을 붙여 넣는 기능은 없다.
-5. **발신 계정 → 로그인 연결**에서 Meta의 동의를 마친다. Unified Login은 Meta 앱·SYSTEM_USER 토큰의 유효성, 실제 승인된 `instagram_basic` 권한과 공유된 계정 목록을 확인한 후 **등록한 아이디와 일치하는 계정만** 저장한다. 여러 계정 중 첫 계정을 임의로 연결하지 않는다. 명시적으로 확인된 무기한 토큰만 만료일을 비워 두며, 누락된 만료 정보는 무기한으로 추정하지 않는다. 자산 접근 철회·만료·다른 앱/구성으로 교체하면 재연결한다.
+5. **발신 계정 → 로그인 연결**에서 Meta의 동의를 마친다. Unified Login은 Meta 앱·SYSTEM_USER 토큰의 유효성, 실제 승인된 `instagram_basic` 권한과 공유된 계정 목록을 확인한 후 **등록한 아이디와 일치하는 계정만** 저장한다. 할당 목록이 비었을 때에만, 현재 `debug_token` 응답의 `granular_scopes`가 명시한 **instagram_basic 대상 ID**를 추가 확인한다. ID마다 같은 토큰으로 `id,username,ig_id`를 조회하고 응답 ID가 요청 ID와 일치하며 Instagram 전용 `ig_id`가 있을 때만 후보로 인정한다. Page/광고 권한의 대상, 사용자가 입력한 임의 ID나 이전 인증에 저장된 ID로 대체하지 않는다. 대상이 없거나 잘못된 응답이면 실패하며, 최대 20개와 전체 45초로 제한한다. 여러 계정 중 첫 계정을 임의로 연결하지 않는다. 명시적으로 확인된 무기한 토큰만 만료일을 비워 두며, 누락된 만료 정보는 무기한으로 추정하지 않는다. 자산 접근 철회·만료·다른 앱/구성으로 교체하면 재연결한다.
 
 서버 환경변수 사용 시 `OUTREACH_INSTAGRAM_CLIENT_ID`, `OUTREACH_INSTAGRAM_CLIENT_SECRET`, `OUTREACH_INSTAGRAM_API_VERSION`에 더해 Unified Login은 `OUTREACH_INSTAGRAM_LOGIN_MODE=unified`, `OUTREACH_INSTAGRAM_CONFIGURATION_ID`가 필요하다. 기존 저장 설정의 기본값은 Instagram Login으로 유지한다. 구성 ID·방식은 암호화된 조직 설정에 저장하므로 추가 DB 마이그레이션은 없다. 기존 Google 연결의 설정 fingerprint는 유지한다.
 
@@ -55,7 +55,9 @@ Workspace는 Google의 회사 메일 서비스 이름이다. 별도 Workspace ID
 
 인증 실패는 `app_credentials`(저장된 앱 점검), `code_exchange`(인증 정보 발급), `token_inspection`(토큰 검증), `account_lookup`(공유 계정 조회)로 구분한다. Meta의 모든 HTTP 400/401/403 응답을 인증 만료로 표시하지 않는다. 앱 불일치·잘못된 토큰 유형도 설정 오류로 구분한다. 숫자 오류 코드 1만으로 시크릿 오류라고 단정하지 않으며, Meta 응답이 명시한 시크릿 오류·앱 ID 오류·리디렉션 불일치·이미 사용된 코드는 고정된 사유로 변환한다. 서버의 `outreach.oauth_failed` 또는 `outreach.instagram_app_check_failed` 로그에는 단계·정해진 사유·숫자 HTTP/Meta 오류 코드만 기록하며, 요청 URL·인증 코드·토큰·시크릿·원본 오류 본문은 남기지 않는다. 이미 사용한 로그인 인증 코드는 재사용할 수 없으므로 오류 수정 뒤에는 새 연결 요청이 필요하다.
 
-검증: URL 가져오기·콜백 주소 일치·새 state·구성 바인딩·토큰 유효성/수명/권한·페이지를 나눈 계정 목록·대상 계정 선택·암호화 저장·조직/세션 분리·실패 단계 분류와 비밀 정보 제거를 합성 응답으로 검증한다. Meta 실제 계정 동의와 Graph 응답 검증은 사용자가 계정을 연결한 뒤 별도로 진행한다. 참고할 Meta 문서: [Unified Login 시작](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/get-started), [인증](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/authentication). 문서 페이지가 접근 제한 응답을 주어 전체 본문 대조는 완료하지 못했으며, 운영 적용 후 실제 인증 결과를 확인해야 한다.
+계정을 확인하지 못한 로그에는 할당 계정 수·Instagram 권한 대상 수·세부 권한 정보의 유무/형식만 남긴다. 대상 ID·계정명은 로그에 남기지 않는다. 권한 대상 경로의 성공 로그도 경로와 대상 개수만 기록한다.
+
+검증: URL 가져오기·콜백 주소 일치·새 state·구성 바인딩·토큰 유효성/수명/권한·페이지를 나눈 계정 목록·대상 계정 선택·권한 대상 프로필 검증·암호화 저장·조직/세션 분리·실패 단계 분류와 비밀 정보 제거를 합성 응답으로 검증한다. v27.0의 합성 응답에서 빈 할당 목록과 명시된 권한 대상을 처리하며, Page/잘못된 ID/권한 거절/자산 철회는 연결되지 않는다. 이 추가 경로가 실제 회사 계정의 빈 목록 문제를 해결하는지는 새 사용자 인증에서 검증해야 한다. 참고할 Meta 문서: [Unified Login 시작](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/get-started), [인증](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/authentication), [공식 IGUser SDK](https://github.com/meta/facebook-python-business-sdk/blob/main/facebook_business/adobjects/iguser.py). 문서 페이지가 접근 제한 응답을 주어 전체 본문 대조는 완료하지 못했으며, 운영 적용 후 실제 인증 결과를 확인해야 한다.
 
 **현재 구현은 계정 인증과 발신 계정 선택까지다. Instagram 메시지 전송 어댑터·대화 조회·수신자 연결·웹훅은 아직 구현되지 않았다.** 일반 Send API에서는 수신자가 먼저 해당 프로페셔널 계정으로 연락한 대화 등 서비스 조건을 확인해야 한다. 계정 인증만으로 모든 발굴 후보에게 먼저 DM을 보낼 수 있다고 표시하지 않는다. [Meta 공식 메시지 API 안내](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api).
 

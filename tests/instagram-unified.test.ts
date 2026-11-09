@@ -49,6 +49,36 @@ test("unverified lifetime, wrong app, expired token, missing grants and unshared
   await assert.rejects(exchangeCode("instagram", "code", "v", mock(debug, { data: [{ id: "333", username: "intended_creator" }], paging: { cursors: { after: "repeated" } } }), config, "intended_creator"));
 });
 
+test("an empty assigned list can resolve an explicitly inspected Instagram target through a verified IG profile on v27",async()=>{
+  const paths:string[]=[];
+  const fetcher:typeof fetch=async(url,init)=>{
+    const u=new URL(String(url));paths.push(u.pathname);assert.equal(u.origin,"https://graph.facebook.com");assert.ok(u.pathname.startsWith("/v27.0/"));
+    if(u.pathname.endsWith("/debug_token"))return Response.json({data:{...debug,granular_scopes:[{scope:"ads_management",target_ids:["999"]},{scope:"instagram_basic",target_ids:["333","333"]}]}});
+    if(u.pathname.endsWith("/assigned_instagram_accounts"))return Response.json({data:[]});
+    if(u.pathname.endsWith("/333")){assert.equal(u.searchParams.get("fields"),"id,username,ig_id");assert.equal(new Headers(init?.headers).get("Authorization"),"Bearer synthetic-system-token");assert.match(u.searchParams.get("appsecret_proof")!,/^[a-f0-9]{64}$/);return Response.json({id:"333",username:"intended_creator",ig_id:"12345"});}
+    return mock()(url,init);
+  };
+  const account=await exchangeCode("instagram","code","v",fetcher,{...config,version:"v27.0"},"@intended_creator");
+  assert.equal(account.id,"333");assert.equal(account.identity,"intended_creator");assert.equal(account.tokens.instagramAccountId,"333");assert.equal(paths.filter(p=>p.endsWith("/333")).length,1);assert.ok(!paths.some(p=>p.endsWith("/999")));
+  assert.ok(!("targets" in account.tokens));
+});
+
+test("grant resolution cannot accept Facebook Pages, another account, mismatched IDs or denied profile access",async()=>{
+  for(const profile of [Response.json({id:"333",username:"intended_creator"}),Response.json({id:"999",username:"intended_creator",ig_id:"12345"}),Response.json({id:"333",username:"another_creator",ig_id:"12345"}),Response.json({error:{code:200,message:"synthetic-private"}},{status:403})]){
+    const fetcher:typeof fetch=async(url,init)=>{const path=new URL(String(url)).pathname;if(path.endsWith("/debug_token"))return Response.json({data:{...debug,granular_scopes:[{scope:"instagram_basic",target_ids:["333"]}]}});if(path.endsWith("/333"))return profile;return mock(debug,{data:[]})(url,init);};
+    await assert.rejects(exchangeCode("instagram","code","v",fetcher,config,"intended_creator"));
+  }
+});
+
+test("missing, malformed and unrelated grants never authorize guessed IDs, and excessive targets stop before profile requests",async()=>{
+  for(const grants of [undefined,[],[{scope:"ads_management",target_ids:["333"]}],[{scope:"instagram_basic"}],[{scope:"instagram_basic",target_ids:["https://evil.invalid"]}]]){
+    const fetcher:typeof fetch=async(url,init)=>{if(new URL(String(url)).pathname.endsWith("/debug_token"))return Response.json({data:{...debug,granular_scopes:grants}});return mock(debug,{data:[]})(url,init);};
+    await assert.rejects(exchangeCode("instagram","code","v",fetcher,config,"intended_creator"),(error:unknown)=>{assert.ok(error instanceof InstagramConnectionError);assert.equal(error.code,"instagram_no_accounts");assert.equal(error.diagnostic.assignedAccountCount,0);assert.equal(error.diagnostic.grantedTargetCount,0);assert.doesNotMatch(JSON.stringify(error),/synthetic-system-token|intended_creator|evil/);return true;});
+  }
+  const fetcher:typeof fetch=async(url,init)=>new URL(String(url)).pathname.endsWith("/debug_token")?Response.json({data:{...debug,granular_scopes:[{scope:"instagram_basic",target_ids:Array.from({length:21},(_,i)=>String(i+1))}]}}):mock(debug,{data:[]})(url,init);
+  await assert.rejects(exchangeCode("instagram","code","v",fetcher,config,"intended_creator"),(error:unknown)=>error instanceof OutreachError&&error.code==="instagram_accounts_incomplete");
+});
+
 test("Meta HTTP failures retain the exact failing stage without exposing provider payloads", async () => {
   for (const [suffix, stage] of [["/oauth/access_token", "code_exchange"], ["/debug_token", "token_inspection"], ["/me/assigned_instagram_accounts", "account_lookup"]] as const) {
     const fetcher: typeof fetch = async (url, init) => new URL(String(url)).pathname.endsWith(suffix)

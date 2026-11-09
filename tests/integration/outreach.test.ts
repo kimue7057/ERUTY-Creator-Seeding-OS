@@ -94,6 +94,25 @@ test("failed Meta verification preserves the pending account, consumes the login
   });
 });
 
+test("a Meta-inspected IG grant can connect despite an empty assigned list, but a later revoked grant cannot reuse the stored account ID",async()=>{
+  await withDiscoveryDatabase(async f=>{
+    await providerAppService(f.database).save(f.actor,{provider:"instagram",revision:0,clientId:"10000",clientSecret:"synthetic-meta-secret",version:"v27.0",instagramLoginMode:"unified",configurationId:"20000"});
+    let revoked=false;
+    const svc=accountService(f.database,async url=>{
+      const path=new URL(String(url)).pathname;
+      if(path.endsWith("/oauth/access_token"))return Response.json({access_token:"synthetic-granted-token"});
+      if(path.endsWith("/debug_token"))return Response.json({data:{app_id:"10000",type:"SYSTEM_USER",is_valid:true,expires_at:0,scopes:["instagram_basic"],granular_scopes:[{scope:"instagram_basic",target_ids:revoked?[]:["333"]}]}});
+      if(path.endsWith("/assigned_instagram_accounts"))return Response.json({data:[]});
+      assert.equal(path,"/v27.0/333");assert.equal(revoked,false);return Response.json({id:"333",username:"intended_creator",ig_id:"12345"});
+    });
+    const account=await svc.register(f.actor,{provider:"instagram",label:"Synthetic grant target",identity:"intended_creator"}),state=new URL(await svc.begin(f.actor,account.id,"session-a")).searchParams.get("state")!;
+    await svc.complete(f.actor,"instagram",state,"session-a","synthetic-code");
+    const stored=(await f.database.select().from(senderAccounts).where(eq(senderAccounts.id,account.id)))[0];assert.equal(stored.providerId,"333");assert.equal(stored.status,"connected");assert.doesNotMatch(stored.tokenCiphertext!,/synthetic-granted-token/);
+    await svc.sync(f.actor,account.id);revoked=true;
+    await assert.rejects(svc.sync(f.actor,account.id),errorCode("instagram_no_accounts"));assert.equal((await svc.list(f.actor))[0].status,"reconnect");
+  });
+});
+
 test("saved Meta app checks enforce actual admin membership, tenant and revision without connecting an account or storing an app token",async()=>{
   await withDiscoveryDatabase(async f=>{
     let calls=0;
