@@ -87,13 +87,22 @@ test("malformed and oversized provider failures stay bounded, and non-Meta respo
 
 test("Meta credential checks use the saved app only and never expose the issued app token", async () => {
   const result = await checkUnifiedAppCredentials(config, async (url, init) => {
-    const u = new URL(String(url)); assert.equal(u.origin, "https://graph.facebook.com"); assert.equal(u.searchParams.get("grant_type"), "client_credentials"); assert.equal(u.searchParams.get("client_id"), "10000"); assert.equal(u.searchParams.get("client_secret"), "synthetic-secret"); assert.equal(u.searchParams.has("code"), false); assert.equal(init?.redirect, "error");
-    return Response.json({ access_token: "synthetic-private-app-token" });
+    const u = new URL(String(url)); assert.equal(u.origin, "https://graph.facebook.com"); assert.equal(u.searchParams.has("code"), false); assert.equal(init?.redirect, "error");
+    if(u.pathname.endsWith("/oauth/access_token")) {assert.equal(u.searchParams.get("grant_type"), "client_credentials"); assert.equal(u.searchParams.get("client_id"), "10000"); assert.equal(u.searchParams.get("client_secret"), "synthetic-secret");return Response.json({ access_token: "synthetic-private-app-token" });}
+    assert.equal(u.pathname,"/v25.0/10000");assert.equal(u.searchParams.get("fields"),"id,business{id,name}");assert.equal(new Headers(init?.headers).get("Authorization"),"Bearer synthetic-private-app-token");assert.match(u.searchParams.get("appsecret_proof")!,/^[a-f0-9]{64}$/);
+    return Response.json({id:"10000",business:{id:"90000",name:"Synthetic owner"},access_token:"never-return-this"});
   });
-  assert.deepEqual(result, { credentialsVerified: true });
+  assert.deepEqual(result, { credentialsVerified: true, ownership:{status:"confirmed",business:{id:"90000",name:"Synthetic owner"}} });
   await assert.rejects(checkUnifiedAppCredentials(config, async () => Response.json({ error: { message: "Error validating client secret. synthetic-private-secret", code: 1 } }, { status: 400 })), (error: unknown) => {
     assert.ok(error instanceof InstagramConnectionError); assert.equal(error.code, "instagram_client_secret_invalid"); assert.equal(error.diagnostic.stage, "app_credentials"); assert.equal(error.diagnostic.metaReason, "invalid_client_secret"); assert.doesNotMatch(JSON.stringify(error), /synthetic-private/); return true;
   });
+});
+
+test("missing and inaccessible app owner metadata never prove an owner is absent or invalidate valid app credentials",async()=>{
+  for(const [response,status] of [[Response.json({id:"10000"}),"not_returned"],[Response.json({id:"10000",business:null}),"not_returned"],[Response.json({error:{code:200,message:"synthetic-private"}},{status:403}),"unavailable"],[Response.json({id:"99999",business:{id:"90000",name:"Wrong app owner"}}),"unavailable"]] as const){
+    const result=await checkUnifiedAppCredentials(config,async url=>new URL(String(url)).pathname.endsWith("/oauth/access_token")?Response.json({access_token:"synthetic-private-app-token"}):response);
+    assert.deepEqual(result,{credentialsVerified:true,ownership:{status,business:null}});assert.doesNotMatch(JSON.stringify(result),/synthetic-private|Wrong app owner/);
+  }
 });
 
 test("Meta message classification keeps only fixed labels and never guesses from error code 1 alone", async () => {

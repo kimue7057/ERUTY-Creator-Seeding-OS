@@ -27,10 +27,27 @@ async function graphJson<T>(url: URL, authorization: string | undefined, fetcher
 export async function checkUnifiedAppCredentials(config: Config, fetcher: typeof fetch = fetch) {
   const url = new URL(`${graphBase(config)}/oauth/access_token`);
   url.search = new URLSearchParams({ client_id: config.id!, client_secret: config.secret!, grant_type: "client_credentials" }).toString();
-  // This checks the saved app credentials only. The app token is discarded,
+  const signal = AbortSignal.timeout(20000);
+  // The app token is used only for this read-only app metadata check. It is
   // never returned, persisted, or used as an Instagram sender identity.
-  await graphJson(url, undefined, fetcher, AbortSignal.timeout(15000), "app_credentials", z.object({ access_token: z.string().min(1).max(16384) }));
-  return { credentialsVerified: true as const };
+  const appToken = await graphJson(url, undefined, fetcher, signal, "app_credentials", z.object({ access_token: z.string().min(1).max(16384) }));
+  const ownerSchema = z.object({ id: idSchema, name: z.string().min(1).max(300).optional() });
+  type Ownership = { status: "confirmed"; business: z.infer<typeof ownerSchema> } | { status: "not_returned" | "unavailable"; business: null };
+  let ownership: Ownership;
+  try {
+    const metadataUrl = new URL(`${graphBase(config)}/${config.id}`);
+    metadataUrl.search = new URLSearchParams({ fields: "id,business{id,name}", appsecret_proof: createHmac("sha256", config.secret!).update(appToken.access_token).digest("hex") }).toString();
+    const app = await graphJson(metadataUrl, appToken.access_token, fetcher, signal, "app_ownership", z.object({ id: idSchema, business: ownerSchema.nullable().optional() }));
+    if (app.id !== config.id) throw instagramStageError("app_ownership", new OutreachError("provider_invalid"));
+    ownership = app.business ? { status: "confirmed", business: app.business } : { status: "not_returned", business: null };
+  } catch (error) {
+    const safe = instagramStageError("app_ownership", error);
+    console.warn(JSON.stringify({ event: "outreach.instagram_app_ownership_unavailable", code: safe.code, diagnostic: safe.diagnostic }));
+    ownership = { status: "unavailable", business: null };
+  }
+  // Missing or inaccessible owner metadata does not invalidate credentials,
+  // and does not prove the app has no owner or that Instagram is connected.
+  return { credentialsVerified: true as const, ownership };
 }
 async function inspectToken(accessToken: string, config: Config, fetcher: typeof fetch, signal: AbortSignal): Promise<ProviderTokens> {
   const url = new URL(`${graphBase(config)}/debug_token`); url.searchParams.set("input_token", accessToken);

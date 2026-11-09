@@ -51,7 +51,7 @@ Workspace는 Google의 회사 메일 서비스 이름이다. 별도 Workspace ID
 
 서버 환경변수 사용 시 `OUTREACH_INSTAGRAM_CLIENT_ID`, `OUTREACH_INSTAGRAM_CLIENT_SECRET`, `OUTREACH_INSTAGRAM_API_VERSION`에 더해 Unified Login은 `OUTREACH_INSTAGRAM_LOGIN_MODE=unified`, `OUTREACH_INSTAGRAM_CONFIGURATION_ID`가 필요하다. 기존 저장 설정의 기본값은 Instagram Login으로 유지한다. 구성 ID·방식은 암호화된 조직 설정에 저장하므로 추가 DB 마이그레이션은 없다. 기존 Google 연결의 설정 fingerprint는 유지한다.
 
-관리자는 저장한 Unified Login 설정에서 **저장된 앱 설정 점검**으로 앱 ID·시크릿을 확인할 수 있다. 서버가 해당 조직의 저장된 설정과 revision을 확인한 뒤 Meta에 `client_credentials` 요청을 한 번 보낸다. 응답의 앱 토큰은 반환·저장하지 않으며 계정 상태도 바꾸지 않는다. 점검 성공은 앱 ID·시크릿 확인만 의미하며, 로그인 구성·리디렉션·Instagram 권한이나 계정 연결 성공을 증명하지 않는다.
+관리자는 저장한 Unified Login 설정에서 **저장된 앱 설정 점검**으로 앱 ID·시크릿을 확인할 수 있다. 서버가 해당 조직의 저장된 설정과 revision을 확인한 뒤 Meta에 `client_credentials` 요청을 보내고, 발급된 앱 토큰으로 해당 앱의 `id,business{id,name}`을 읽어 소유 포트폴리오를 확인한다. 반환된 앱 ID가 일치할 때만 소유 정보를 표시한다. 소유 정보 누락이나 조회 권한 부족은 소유자 없음으로 단정하지 않으며 유효한 인증 정보도 무효화하지 않는다. 앱 토큰은 반환·저장하지 않고 계정 상태도 바꾸지 않는다. 점검 성공은 로그인 구성·리디렉션·Instagram 권한이나 계정 연결 성공을 증명하지 않는다.
 
 인증 실패는 `app_credentials`(저장된 앱 점검), `code_exchange`(인증 정보 발급), `token_inspection`(토큰 검증), `account_lookup`(공유 계정 조회)로 구분한다. Meta의 모든 HTTP 400/401/403 응답을 인증 만료로 표시하지 않는다. 앱 불일치·잘못된 토큰 유형도 설정 오류로 구분한다. 숫자 오류 코드 1만으로 시크릿 오류라고 단정하지 않으며, Meta 응답이 명시한 시크릿 오류·앱 ID 오류·리디렉션 불일치·이미 사용된 코드는 고정된 사유로 변환한다. 서버의 `outreach.oauth_failed` 또는 `outreach.instagram_app_check_failed` 로그에는 단계·정해진 사유·숫자 HTTP/Meta 오류 코드만 기록하며, 요청 URL·인증 코드·토큰·시크릿·원본 오류 본문은 남기지 않는다. 이미 사용한 로그인 인증 코드는 재사용할 수 없으므로 오류 수정 뒤에는 새 연결 요청이 필요하다.
 
