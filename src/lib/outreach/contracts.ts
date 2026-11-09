@@ -16,6 +16,8 @@ export class OutreachError extends Error {
 }
 export function outreachErrorMessage(error: unknown): string {
   const messages: Record<string, string> = {
+    test_changed: "테스트 요청의 주소가 변경됐습니다. 새 테스트를 시작해 주세요.",
+    test_rate_limit: "이 계정에서 최근 10분 동안 테스트 메일 5통을 요청했습니다. 잠시 후 다시 시도해 주세요.",
     replacement_required: "기존 연결 정보를 교체하면 연결된 계정의 재로그인이 필요합니다. 교체 확인을 선택하세요.",
     placeholders_remaining: "메시지에 {{…}} 빈 항목이 남아 있습니다. 실제 내용으로 작성한 뒤 보내세요.",
     forbidden: "이 작업은 관리자 또는 캠페인 매니저만 할 수 있습니다.",

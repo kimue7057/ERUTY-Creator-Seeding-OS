@@ -6,6 +6,7 @@ import { accountAction } from "@/app/(app)/settings/accounts/actions";
 import { providerNames, senderStates, type SenderProvider } from "@/lib/outreach/contracts";
 import type { PublicSenderAccount } from "@/lib/outreach/accounts";
 import { useHydrated } from "@/components/use-hydrated";
+import { ConnectionTest } from "./connection-test";
 const icons={google:Mail,instagram:Instagram,tiktok:Music2};
 function ConnectionCard({account,available,writable}:{account:PublicSenderAccount;available:boolean;writable:boolean}) {
   const [state,action,pending]=useActionState(accountAction,{}),[confirm,setConfirm]=useState(false),Icon=icons[account.provider];
@@ -26,6 +27,7 @@ function ConnectionCard({account,available,writable}:{account:PublicSenderAccoun
       {confirm&&<div className="sender-disconnect"><p>ERUTY에 저장된 인증 정보를 삭제합니다. Google·SNS 자체의 앱 권한은 해당 서비스 설정에서 별도로 철회할 수 있습니다.</p><button className="btn" name="action" value="disconnect" disabled={pending} onClick={()=>setConfirm(false)}>연결 해제 확인</button><button className="btn" type="button" onClick={()=>setConfirm(false)}>취소</button></div>}
       <p role="status" className={state.error?"form-error":"description"}>{state.error??state.message}</p>
     </form>}
+    {writable&&connected&&account.provider==="google"&&<ConnectionTest accountId={account.id} addresses={account.addresses}/>}
   </article>;
 }
 export function AccountManager({accounts,availability,writable}:{accounts:PublicSenderAccount[];availability:Record<SenderProvider,boolean>;writable:boolean}) {

@@ -18,6 +18,15 @@ export const senderAccounts = pgTable("outreach_sender_accounts", {
   check("sender_provider", sql`${t.provider} in ('google','instagram','tiktok')`), check("sender_status", sql`${t.status} in ('pending','connected','reconnect','disconnected')`),
   check("sender_connected", sql`${t.status}<>'connected' or (${t.providerId} is not null and ${t.identity} is not null and ${t.tokenCiphertext} is not null and ${t.verifiedAt} is not null)`),
 ]);
+export const outreachConnectionTests = pgTable("outreach_connection_tests", {
+  id: uuid().primaryKey(), organizationId: uuid("organization_id").notNull(), accountId: uuid("account_id").notNull(),
+  fromAddress: text("from_address").notNull(), toAddress: text("to_address").notNull(), subject: text().notNull(), body: text().notNull(),
+  status: text({ enum: ["sending", "sent", "failed", "unknown"] }).notNull().default("sending"),
+  errorCode: text("error_code"), providerMessageId: text("provider_message_id"), sentAt: timestamp("sent_at", { withTimezone: true }),
+  createdBy: uuid("created_by").notNull(), ...dates(),
+}, t => [foreignKey({ columns: [t.organizationId, t.accountId], foreignColumns: [senderAccounts.organizationId, senderAccounts.id] }),
+  foreignKey({ columns: [t.organizationId, t.createdBy], foreignColumns: [memberships.organizationId, memberships.userId] }),
+  check("connection_test_status", sql`${t.status} in ('sending','sent','failed','unknown')`)]);
 export const senderOAuthStates = pgTable("outreach_oauth_states", {
   stateHash: text("state_hash").primaryKey(), organizationId: uuid("organization_id").notNull(), accountId: uuid("account_id").notNull(), userId: uuid("user_id").notNull(),
   sessionHash: text("session_hash").notNull(), appFingerprint: text("app_fingerprint"), verifierCiphertext: text("verifier_ciphertext").notNull(), aliases: text({ enum:["yes","no"] }).notNull(),

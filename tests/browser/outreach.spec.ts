@@ -35,6 +35,32 @@ async function signIn(context:BrowserContext,actor=f.actor){
   await database.insert(sessions).values({tokenHash:hash,userId:actor.userId,organizationId:actor.organizationId,expiresAt:new Date(Date.now()+600000)});
   await context.addCookies([{name:"eruty_session",value:token,domain:"127.0.0.1",path:"/",httpOnly:true,sameSite:"Lax"}]);
 }
+
+test("connection test previews the exact addresses, requires confirmation and displays the send receipt", async ({ page, context }) => {
+  await signIn(context);
+  const noOrigin = await context.request.post("/api/outreach/test-email", { data: {} }); expect(noOrigin.status()).toBe(403);
+  const invalid = await context.request.post("/api/outreach/test-email", { headers: { Origin: "http://127.0.0.1:3000" }, data: { confirmed: false } }); expect(invalid.status()).toBe(422);
+  let sends = 0;
+  await page.route("**/api/outreach/test-email", async route => {
+    if (route.request().method() !== "POST") { await route.continue(); return; }
+    const data = route.request().postDataJSON(); sends++;
+    expect(data.confirmed).toBe(true); expect(data.fromAddress).toBe("alias-sender-a@example.invalid"); expect(data.toAddress).toBe("recipient@example.invalid");
+    await route.fulfill({ json: { test: { ...data, status: "sent", errorCode: null, providerMessageId: "synthetic-receipt", createdAt: new Date().toISOString(), sentAt: new Date().toISOString() } } });
+  });
+  await page.goto("/settings/accounts");
+  const card = page.locator("article").filter({ has: page.getByRole("heading", { name: "SYNTHETIC 회사 A", exact: true }) });
+  await card.getByRole("button", { name: "테스트 메일 보내기", exact: true }).click();
+  const send = card.getByRole("button", { name: "테스트 메일 1통 발송", exact: true }); await expect(send).toBeDisabled();
+  await card.getByLabel("테스트 수신 주소", { exact: true }).fill("recipient@example.invalid");
+  const consent = card.getByRole("checkbox", { name: "위 발신·수신 주소와 내용을 확인하고 실제 발송합니다.", exact: true }); await consent.check();
+  await card.getByLabel("테스트 발신 주소", { exact: true }).selectOption("alias-sender-a@example.invalid"); await expect(consent).not.toBeChecked(); await expect(send).toBeDisabled();
+  await expect(card.getByText("[ERUTY] 이메일 연결 테스트", { exact: true })).toBeVisible();
+  await consent.check(); await expect(send).toBeEnabled(); await send.click();
+  await expect(card.getByText(/recipient@example.invalid으로 발송했습니다/)).toBeVisible(); expect(sends).toBe(1);
+  await expect(card.getByRole("button", { name: "테스트 메일 1통 발송", exact: true })).toHaveCount(0);
+  for (const width of [320, 390, 1440]) { await page.setViewportSize({ width, height: 1000 }); expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBeTruthy(); }
+  await page.screenshot({ path: `${artifactDir}/connection-test.png`, fullPage: true });
+});
 test("register multiple sender accounts and show setup dependency without pretending connected",async({page,context})=>{
   await signIn(context);await page.goto("/settings/accounts");await expect(page.getByRole("heading",{name:"발신 계정",exact:true})).toBeVisible();
   await page.getByRole("button",{name:"계정 추가",exact:true}).click();await page.getByLabel("서비스",{exact:true}).selectOption("instagram");await page.getByLabel("구분 이름").fill("SYNTHETIC Instagram");await page.getByLabel("SNS 아이디").fill("synthetic_outreach");await page.getByRole("button",{name:"계정 등록",exact:true}).click();
