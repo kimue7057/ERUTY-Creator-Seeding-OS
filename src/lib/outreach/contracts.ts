@@ -16,6 +16,11 @@ export class OutreachError extends Error {
 }
 export function outreachErrorMessage(error: unknown): string {
   const messages: Record<string, string> = {
+    instagram_code_exchange_failed: "Meta 로그인 후 인증 정보를 발급받는 단계에서 실패했습니다. 서비스 연결 설정의 Meta 앱 ID·시크릿과 로그인 완료 주소를 확인해야 합니다.",
+    instagram_token_inspection_failed: "Meta에서 발급한 인증 정보를 검증하지 못했습니다. 연결은 완료되지 않았습니다. 서버에 기록된 검증 오류를 확인해야 합니다.",
+    instagram_account_lookup_failed: "Meta 로그인은 진행됐지만 Instagram 계정 조회에 실패했습니다. 앱의 Instagram 권한과 공유된 계정 설정을 확인해야 합니다.",
+    instagram_app_mismatch: "Meta에서 발급한 인증 정보가 ERUTY에 등록한 앱과 다릅니다. Meta 앱 ID·시크릿·구성 ID가 같은 앱의 값인지 확인하세요.",
+    instagram_token_type: "Meta 구성이 Unified Login에서 사용하는 시스템 사용자 인증을 발급하지 않았습니다. Meta의 로그인 구성에서 액세스 토큰 유형을 확인하세요.",
     instagram_no_accounts: "Meta에서 공유된 Instagram 계정을 찾지 못했습니다. 프로페셔널 계정·비즈니스 자산 연결·테스터 초대 수락과 로그인 시 계정 선택을 확인하세요.",
     instagram_account_not_shared: "등록한 Instagram 계정이 이번 로그인에서 공유되지 않았습니다. 로그인 권한 화면에서 해당 계정을 선택하세요.",
     instagram_accounts_incomplete: "Meta 계정 목록 전체를 확인하지 못했습니다. 연결할 Instagram 계정만 선택한 뒤 다시 로그인하세요.",

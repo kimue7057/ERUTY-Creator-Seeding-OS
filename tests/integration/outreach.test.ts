@@ -12,6 +12,7 @@ import { draftService } from "../../src/lib/outreach/drafts";
 import { senderAccounts,senderOAuthStates,outreachDrafts } from "../../src/lib/db/outreach-schema";
 import { GOOGLE_SEND_SCOPE } from "../../src/lib/outreach/providers";
 import { OutreachError } from "../../src/lib/outreach/contracts";
+import { InstagramConnectionError } from "../../src/lib/outreach/instagram-errors";
 import { seal } from "../../src/lib/outreach/crypto";
 import { providerAppService, resolveProviderConfig } from "../../src/lib/outreach/provider-apps";
 import { templateService } from "../../src/lib/outreach/templates";
@@ -75,6 +76,21 @@ test("wrong provider identity, missing consent, expired states and duplicate acc
     state=new URL(await service.begin(f.actor,account.id,"session")).searchParams.get("state")!;
     await f.database.update(senderOAuthStates).set({expiresAt:new Date(0)});
     await assert.rejects(service.complete(f.actor,"google",state,"session","code"),errorCode("oauth_expired"));
+  });
+});
+
+test("failed Meta verification preserves the pending account, consumes the login attempt and retains only safe diagnostics",async()=>{
+  await withDiscoveryDatabase(async f=>{
+    await providerAppService(f.database).save(f.actor,{provider:"instagram",revision:0,clientId:"10000",clientSecret:"synthetic-meta-secret",version:"v26.0",instagramLoginMode:"unified",configurationId:"20000"});
+    const svc=accountService(f.database,async url=>String(url).includes("/oauth/access_token")?Response.json({access_token:"synthetic-private-token"}):Response.json({error:{code:190,message:"synthetic-private-token"}},{status:400}));
+    const account=await svc.register(f.actor,{provider:"instagram",label:"Synthetic Instagram",identity:"intended_creator"});
+    const state=new URL(await svc.begin(f.actor,account.id,"session-a")).searchParams.get("state")!;
+    await assert.rejects(svc.complete(f.actor,"instagram",state,"session-a","synthetic-code"),(error:unknown)=>{
+      assert.ok(error instanceof InstagramConnectionError);assert.equal(error.code,"instagram_token_inspection_failed");assert.equal(error.diagnostic.graphCode,190);assert.doesNotMatch(JSON.stringify(error),/synthetic-private-token/);return true;
+    });
+    const stored=(await f.database.select().from(senderAccounts).where(eq(senderAccounts.id,account.id)))[0];
+    assert.equal(stored.status,"pending");assert.equal(stored.tokenCiphertext,null);assert.equal(stored.verifiedAt,null);
+    await assert.rejects(svc.complete(f.actor,"instagram",state,"session-a","synthetic-code"),errorCode("oauth_expired"));
   });
 });
 async function approvedFixture(f:Parameters<Parameters<typeof withDiscoveryDatabase>[0]>[0]) {

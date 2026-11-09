@@ -51,7 +51,9 @@ Workspace는 Google의 회사 메일 서비스 이름이다. 별도 Workspace ID
 
 서버 환경변수 사용 시 `OUTREACH_INSTAGRAM_CLIENT_ID`, `OUTREACH_INSTAGRAM_CLIENT_SECRET`, `OUTREACH_INSTAGRAM_API_VERSION`에 더해 Unified Login은 `OUTREACH_INSTAGRAM_LOGIN_MODE=unified`, `OUTREACH_INSTAGRAM_CONFIGURATION_ID`가 필요하다. 기존 저장 설정의 기본값은 Instagram Login으로 유지한다. 구성 ID·방식은 암호화된 조직 설정에 저장하므로 추가 DB 마이그레이션은 없다. 기존 Google 연결의 설정 fingerprint는 유지한다.
 
-검증: URL 가져오기·콜백 주소 일치·새 state·구성 바인딩·토큰 유효성/수명/권한·페이지를 나눈 계정 목록·대상 계정 선택·암호화 저장·조직/세션 분리를 합성 응답으로 검증한다. Meta 실제 계정 동의와 Graph 응답 검증은 사용자가 계정을 연결한 뒤 별도로 진행한다. 참고할 Meta 문서: [Unified Login 시작](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/get-started), [인증](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/authentication). 문서 페이지가 접근 제한 응답을 주어 전체 본문 대조는 완료하지 못했으며, 운영 적용 후 실제 인증 결과를 확인해야 한다.
+인증 실패는 `code_exchange`(인증 정보 발급), `token_inspection`(토큰 검증), `account_lookup`(공유 계정 조회)로 구분한다. Meta의 모든 HTTP 400/401/403 응답을 인증 만료로 표시하지 않는다. 앱 불일치·잘못된 토큰 유형도 설정 오류로 구분한다. 서버의 `outreach.oauth_failed` 로그에는 단계·정해진 사유·숫자 HTTP/Meta 오류 코드만 기록하며, 요청 URL·인증 코드·토큰·시크릿·원본 오류 본문은 남기지 않는다. 이미 사용한 로그인 인증 코드는 재사용할 수 없으므로 오류 수정 뒤에는 새 연결 요청이 필요하다.
+
+검증: URL 가져오기·콜백 주소 일치·새 state·구성 바인딩·토큰 유효성/수명/권한·페이지를 나눈 계정 목록·대상 계정 선택·암호화 저장·조직/세션 분리·실패 단계 분류와 비밀 정보 제거를 합성 응답으로 검증한다. Meta 실제 계정 동의와 Graph 응답 검증은 사용자가 계정을 연결한 뒤 별도로 진행한다. 참고할 Meta 문서: [Unified Login 시작](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/get-started), [인증](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/authentication). 문서 페이지가 접근 제한 응답을 주어 전체 본문 대조는 완료하지 못했으며, 운영 적용 후 실제 인증 결과를 확인해야 한다.
 
 **현재 구현은 계정 인증과 발신 계정 선택까지다. Instagram 메시지 전송 어댑터·대화 조회·수신자 연결·웹훅은 아직 구현되지 않았다.** 일반 Send API에서는 수신자가 먼저 해당 프로페셔널 계정으로 연락한 대화 등 서비스 조건을 확인해야 한다. 계정 인증만으로 모든 발굴 후보에게 먼저 DM을 보낼 수 있다고 표시하지 않는다. [Meta 공식 메시지 API 안내](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api).
 

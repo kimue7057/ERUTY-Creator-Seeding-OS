@@ -2,7 +2,9 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parseInstagramLoginUrl, providerAppInputSchema } from "../src/lib/outreach/app-contracts";
 import { authorizationUrl, exchangeCode, fetchIdentity, providerConfig, refreshTokens } from "../src/lib/outreach/providers";
-import { OutreachError } from "../src/lib/outreach/contracts";
+import { OutreachError, outreachErrorMessage } from "../src/lib/outreach/contracts";
+import { InstagramConnectionError } from "../src/lib/outreach/instagram-errors";
+import { providerJson, ProviderHttpError } from "../src/lib/outreach/provider-http";
 const uri = "https://example.invalid/api/outreach/oauth/instagram/callback";
 const config = providerConfig("instagram", { APP_ORIGIN: "https://example.invalid", OUTREACH_ENCRYPTION_KEY: "a".repeat(64), OUTREACH_INSTAGRAM_CLIENT_ID: "10000", OUTREACH_INSTAGRAM_CLIENT_SECRET: "synthetic-secret", OUTREACH_INSTAGRAM_API_VERSION: "v25.0", OUTREACH_INSTAGRAM_LOGIN_MODE: "unified", OUTREACH_INSTAGRAM_CONFIGURATION_ID: "20000" });
 const debug = { app_id: "10000", is_valid: true, type: "SYSTEM_USER", expires_at: 0, scopes: ["instagram_basic", "instagram_manage_messages"] };
@@ -44,4 +46,40 @@ test("unverified lifetime, wrong app, expired token, missing grants and unshared
   await assert.rejects(exchangeCode("instagram", "code", "v", mock(debug, { data: [] }), config, "intended_creator"), (e: unknown) => e instanceof OutreachError && e.code === "instagram_no_accounts");
   await assert.rejects(exchangeCode("instagram", "code", "v", mock(debug, { data: [{ id: "1", username: "other" }] }), config, "intended_creator"));
   await assert.rejects(exchangeCode("instagram", "code", "v", mock(debug, { data: [{ id: "333", username: "intended_creator" }], paging: { cursors: { after: "repeated" } } }), config, "intended_creator"));
+});
+
+test("Meta HTTP failures retain the exact failing stage without exposing provider payloads", async () => {
+  for (const [suffix, stage] of [["/oauth/access_token", "code_exchange"], ["/debug_token", "token_inspection"], ["/me/assigned_instagram_accounts", "account_lookup"]] as const) {
+    const fetcher: typeof fetch = async (url, init) => new URL(String(url)).pathname.endsWith(suffix)
+      ? Response.json({ error: { code: 100, error_subcode: 123, message: "synthetic-private-token synthetic-code", error_data: { secret: "synthetic-secret" } } }, { status: 400 }) : mock()(url, init);
+    await assert.rejects(exchangeCode("instagram", "synthetic-code", "v", fetcher, config, "intended_creator"), (error: unknown) => {
+      assert.ok(error instanceof InstagramConnectionError);
+      assert.equal(error.code, `instagram_${stage}_failed`);
+      assert.deepEqual(error.diagnostic, { stage, reason: "http_error", httpStatus: 400, graphCode: 100, graphSubcode: 123 });
+      assert.doesNotMatch(JSON.stringify(error), /synthetic-(private-token|code|secret)/);
+      assert.doesNotMatch(outreachErrorMessage(error), /만료/);
+      return true;
+    });
+  }
+});
+
+test("wrong Meta app and token kind are configuration errors, while invalid or expired tokens require reconnect", async () => {
+  for (const [data, code, reason] of [
+    [{ ...debug, app_id: "999" }, "instagram_app_mismatch", "app_mismatch"],
+    [{ ...debug, type: "USER" }, "instagram_token_type", "token_type"],
+    [{ ...debug, is_valid: false }, "reconnect", "token_invalid"],
+    [{ ...debug, expires_at: 1 }, "reconnect", "token_expired"],
+  ] as const) await assert.rejects(exchangeCode("instagram", "code", "v", mock(data), config, "intended_creator"), (error: unknown) => {
+    assert.ok(error instanceof InstagramConnectionError); assert.equal(error.code, code); assert.equal(error.diagnostic.reason, reason); return true;
+  });
+});
+
+test("malformed and oversized provider failures stay bounded, and non-Meta response semantics are preserved", async () => {
+  for (const response of [new Response("synthetic-private-body", { status: 403 }), Response.json({ error: { code: "synthetic-secret", error_subcode: -1 } }, { status: 400 }), new Response("x".repeat(1048577), { status: 401 })]) {
+    await assert.rejects(providerJson("https://example.invalid", {}, async () => response), (error: unknown) => {
+      assert.ok(error instanceof ProviderHttpError); assert.equal(error.code, "reconnect"); assert.equal(error.providerCode, undefined); assert.equal(error.providerSubcode, undefined); assert.doesNotMatch(JSON.stringify(error), /synthetic/); return true;
+    });
+  }
+  assert.deepEqual(await providerJson("https://example.invalid", {}, async () => Response.json({ error: { code: "ok" }, data: { user: {} } })), { error: { code: "ok" }, data: { user: {} } });
+  await assert.rejects(exchangeCode("instagram", "code", "v", async () => { throw new Error("synthetic-secret"); }, config, "intended_creator"), (error: unknown) => error instanceof InstagramConnectionError && error.diagnostic.stage === "code_exchange" && error.diagnostic.reason === "unavailable");
 });

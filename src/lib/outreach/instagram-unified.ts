@@ -2,6 +2,7 @@ import { createHmac } from "node:crypto";
 import { z } from "zod";
 import { normalizeIdentity, OutreachError } from "./contracts";
 import { providerJson } from "./provider-http";
+import { InstagramConnectionError, instagramStageError, type InstagramStage } from "./instagram-errors";
 import type { ConnectedIdentity, ProviderTokens } from "./providers";
 
 type Config = { id?: string; secret?: string; version?: string; redirectUri: string; configurationId: string };
@@ -16,19 +17,23 @@ function graphBase(config: Config) {
   if (!config.id || !config.secret || !/^v\d+\.0$/.test(config.version ?? "") || !/^\d+$/.test(config.configurationId)) throw new OutreachError("not_configured");
   return `https://graph.facebook.com/${config.version}`;
 }
-async function graphJson(url: URL, authorization: string, fetcher: typeof fetch, signal: AbortSignal) {
-  const raw = await providerJson(url.href, { headers: { Authorization: `Bearer ${authorization}` }, signal }, fetcher);
-  if (raw && typeof raw === "object" && "error" in raw) throw new OutreachError("provider_invalid");
-  return raw;
+async function graphJson<T>(url: URL, authorization: string | undefined, fetcher: typeof fetch, signal: AbortSignal, stage: InstagramStage, schema: z.ZodType<T>): Promise<T> {
+  try {
+    const raw = await providerJson(url.href, { headers: authorization ? { Authorization: `Bearer ${authorization}` } : undefined, signal }, fetcher);
+    if (raw && typeof raw === "object" && "error" in raw) throw new OutreachError("provider_invalid");
+    return schema.parse(raw);
+  } catch (error) { throw instagramStageError(stage, error); }
 }
 async function inspectToken(accessToken: string, config: Config, fetcher: typeof fetch, signal: AbortSignal): Promise<ProviderTokens> {
   const url = new URL(`${graphBase(config)}/debug_token`); url.searchParams.set("input_token", accessToken);
-  const { data } = debugSchema.parse(await graphJson(url, `${config.id}|${config.secret}`, fetcher, signal));
-  if (!data.is_valid || data.app_id !== config.id || data.type !== "SYSTEM_USER") throw new OutreachError("reconnect");
-  if (!data.scopes.includes("instagram_basic")) throw new OutreachError("permission_missing");
+  const { data } = await graphJson(url, `${config.id}|${config.secret}`, fetcher, signal, "token_inspection", debugSchema);
+  if (!data.is_valid) throw new InstagramConnectionError("reconnect", { stage: "token_inspection", reason: "token_invalid" });
+  if (data.app_id !== config.id) throw new InstagramConnectionError("instagram_app_mismatch", { stage: "token_inspection", reason: "app_mismatch" });
+  if (data.type !== "SYSTEM_USER") throw new InstagramConnectionError("instagram_token_type", { stage: "token_inspection", reason: "token_type" });
+  if (!data.scopes.includes("instagram_basic")) throw new InstagramConnectionError("permission_missing", { stage: "token_inspection", reason: "permission_missing" });
   const expirations = [data.expires_at, data.data_access_expires_at].filter((v): v is number => v !== undefined && v > 0).map(v => v * 1000);
   const expiresAt = expirations.length ? Math.min(...expirations) : null;
-  if (expiresAt !== null && expiresAt <= Date.now() + 120000) throw new OutreachError("reconnect");
+  if (expiresAt !== null && expiresAt <= Date.now() + 120000) throw new InstagramConnectionError("reconnect", { stage: "token_inspection", reason: "token_expired" });
   // Only an inspected SYSTEM_USER token with explicit expires_at=0 may be
   // non-expiring. Missing expiry in the code-exchange response proves nothing.
   return { accessToken, expiresAt, scopes: data.scopes, tokenKind: "meta_system_user" };
@@ -42,7 +47,7 @@ async function sharedAccounts(token: ProviderTokens, config: Config, fetcher: ty
     url.searchParams.set("fields", "id,username"); url.searchParams.set("limit", "100");
     url.searchParams.set("appsecret_proof", createHmac("sha256", config.secret!).update(token.accessToken).digest("hex"));
     if (after) url.searchParams.set("after", after);
-    const result = z.object({ data: z.array(accountSchema), paging: z.object({ cursors: z.object({ after: z.string().min(1).max(4096).optional() }).optional(), next: z.string().optional() }).optional() }).parse(await graphJson(url, token.accessToken, fetcher, signal));
+    const result = await graphJson(url, token.accessToken, fetcher, signal, "account_lookup", z.object({ data: z.array(accountSchema), paging: z.object({ cursors: z.object({ after: z.string().min(1).max(4096).optional() }).optional(), next: z.string().optional() }).optional() }));
     for (const account of result.data) accounts.set(account.id, account);
     const cursor = result.paging?.cursors?.after;
     if (!result.data.length || !cursor && !result.paging?.next) return [...accounts.values()];
@@ -65,8 +70,7 @@ export async function exchangeUnifiedCode(code: string, config: Config, expected
   if (!expectedIdentity) throw new OutreachError("instagram_account_not_shared");
   const signal = AbortSignal.timeout(45000), url = new URL(`${graphBase(config)}/oauth/access_token`);
   url.search = new URLSearchParams({ client_id: config.id!, client_secret: config.secret!, redirect_uri: config.redirectUri, code }).toString();
-  const raw = await providerJson(url.href, { signal }, fetcher);
-  const result = z.object({ access_token: z.string().min(1).max(16384) }).parse(raw);
+  const result = await graphJson(url, undefined, fetcher, signal, "code_exchange", z.object({ access_token: z.string().min(1).max(16384) }));
   return identity({ accessToken: result.access_token, expiresAt: null, scopes: [] }, config, expectedIdentity, fetcher, signal);
 }
 export async function unifiedIdentity(token: ProviderTokens, config: Config, fetcher: typeof fetch): Promise<ConnectedIdentity> {
