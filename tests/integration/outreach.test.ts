@@ -94,14 +94,14 @@ test("failed Meta verification preserves the pending account, consumes the login
   });
 });
 
-test("a Meta-inspected IG grant can connect despite an empty assigned list, but a later revoked grant cannot reuse the stored account ID",async()=>{
+test("a Meta-inspected messaging grant can connect without basic target IDs, but a later revoked grant cannot reuse the stored account ID",async()=>{
   await withDiscoveryDatabase(async f=>{
     await providerAppService(f.database).save(f.actor,{provider:"instagram",revision:0,clientId:"10000",clientSecret:"synthetic-meta-secret",version:"v27.0",instagramLoginMode:"unified",configurationId:"20000"});
     let revoked=false;
     const svc=accountService(f.database,async url=>{
       const path=new URL(String(url)).pathname;
       if(path.endsWith("/oauth/access_token"))return Response.json({access_token:"synthetic-granted-token"});
-      if(path.endsWith("/debug_token"))return Response.json({data:{app_id:"10000",type:"SYSTEM_USER",is_valid:true,expires_at:0,scopes:["instagram_basic"],granular_scopes:[{scope:"instagram_basic",target_ids:revoked?[]:["333"]}]}});
+      if(path.endsWith("/debug_token"))return Response.json({data:{app_id:"10000",type:"SYSTEM_USER",is_valid:true,expires_at:0,scopes:["instagram_basic","instagram_manage_messages"],granular_scopes:[{scope:"instagram_basic"},{scope:"instagram_manage_messages",target_ids:revoked?[]:["333"]}]}});
       if(path.endsWith("/assigned_instagram_accounts"))return Response.json({data:[]});
       assert.equal(path,"/v27.0/333");assert.equal(revoked,false);return Response.json({id:"333",username:"intended_creator",ig_id:"12345"});
     });

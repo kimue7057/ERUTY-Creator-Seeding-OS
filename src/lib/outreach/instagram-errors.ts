@@ -2,8 +2,9 @@ import { OutreachError } from "./contracts";
 import { ProviderHttpError, type MetaErrorReason } from "./provider-http";
 
 export type InstagramStage = "app_credentials" | "app_ownership" | "code_exchange" | "token_inspection" | "account_lookup";
-type Reason = "http_error" | "unavailable" | "response_invalid" | "token_invalid" | "app_mismatch" | "token_type" | "token_expired" | "permission_missing" | "no_accounts";
-type Diagnostic = { stage: InstagramStage; reason: Reason; httpStatus?: number; graphCode?: number; graphSubcode?: number; metaReason?: MetaErrorReason; assignedAccountCount?: number; grantedTargetCount?: number; grantMetadata?: "missing" | "valid" | "invalid" };
+export type InstagramGrantCounts = Record<"basic" | "messages" | "comments" | "publishing" | "insights", { granted: boolean; entryPresent: boolean; targetIdsPresent: boolean; targetCount: number }>;
+type Reason = "http_error" | "unavailable" | "response_invalid" | "token_invalid" | "app_mismatch" | "token_type" | "token_expired" | "permission_missing" | "no_accounts" | "account_not_shared";
+type Diagnostic = { stage: InstagramStage; reason: Reason; httpStatus?: number; graphCode?: number; graphSubcode?: number; metaReason?: MetaErrorReason; assignedAccountCount?: number; grantedTargetCount?: number; grantMetadata?: "missing" | "valid" | "invalid"; instagramGrants?: InstagramGrantCounts };
 export class InstagramConnectionError extends OutreachError {
   constructor(code: string, public diagnostic: Diagnostic) { super(code); }
 }

@@ -63,6 +63,25 @@ test("an empty assigned list can resolve an explicitly inspected Instagram targe
   assert.ok(!("targets" in account.tokens));
 });
 
+test("a granted Instagram messaging target works without basic target IDs, while ungranted scopes and ad targets cannot authorize a sender",async()=>{
+  for(const granted of [true,false]){
+    let profileCalls=0;
+    const fetcher:typeof fetch=async(url,init)=>{
+      const path=new URL(String(url)).pathname;
+      if(path.endsWith("/debug_token"))return Response.json({data:{...debug,scopes:granted?debug.scopes:["instagram_basic"],granular_scopes:[{scope:"instagram_basic"},{scope:"instagram_manage_messages",target_ids:["333","333"]},{scope:"ads_management",target_ids:["999"]}]}});
+      if(path.endsWith("/333")){profileCalls++;return Response.json({id:"333",username:"intended_creator",ig_id:"12345"});}
+      return mock(debug,{data:[]})(url,init);
+    };
+    if(granted){assert.equal((await exchangeCode("instagram","code","v",fetcher,config,"intended_creator")).id,"333");assert.equal(profileCalls,1);}
+    else await assert.rejects(exchangeCode("instagram","code","v",fetcher,config,"intended_creator"),(error:unknown)=>{
+      assert.ok(error instanceof InstagramConnectionError);assert.equal(error.code,"instagram_no_accounts");assert.equal(profileCalls,0);
+      assert.deepEqual(error.diagnostic.instagramGrants?.basic,{granted:true,entryPresent:true,targetIdsPresent:false,targetCount:0});
+      assert.deepEqual(error.diagnostic.instagramGrants?.messages,{granted:false,entryPresent:true,targetIdsPresent:true,targetCount:1});
+      assert.doesNotMatch(JSON.stringify(error),/intended_creator|synthetic-system-token|333|999/);return true;
+    });
+  }
+});
+
 test("grant resolution cannot accept Facebook Pages, another account, mismatched IDs or denied profile access",async()=>{
   for(const profile of [Response.json({id:"333",username:"intended_creator"}),Response.json({id:"999",username:"intended_creator",ig_id:"12345"}),Response.json({id:"333",username:"another_creator",ig_id:"12345"}),Response.json({error:{code:200,message:"synthetic-private"}},{status:403})]){
     const fetcher:typeof fetch=async(url,init)=>{const path=new URL(String(url)).pathname;if(path.endsWith("/debug_token"))return Response.json({data:{...debug,granular_scopes:[{scope:"instagram_basic",target_ids:["333"]}]}});if(path.endsWith("/333"))return profile;return mock(debug,{data:[]})(url,init);};
