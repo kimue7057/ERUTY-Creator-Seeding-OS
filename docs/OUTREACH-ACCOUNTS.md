@@ -51,7 +51,9 @@ Workspace는 Google의 회사 메일 서비스 이름이다. 별도 Workspace ID
 
 서버 환경변수 사용 시 `OUTREACH_INSTAGRAM_CLIENT_ID`, `OUTREACH_INSTAGRAM_CLIENT_SECRET`, `OUTREACH_INSTAGRAM_API_VERSION`에 더해 Unified Login은 `OUTREACH_INSTAGRAM_LOGIN_MODE=unified`, `OUTREACH_INSTAGRAM_CONFIGURATION_ID`가 필요하다. 기존 저장 설정의 기본값은 Instagram Login으로 유지한다. 구성 ID·방식은 암호화된 조직 설정에 저장하므로 추가 DB 마이그레이션은 없다. 기존 Google 연결의 설정 fingerprint는 유지한다.
 
-인증 실패는 `code_exchange`(인증 정보 발급), `token_inspection`(토큰 검증), `account_lookup`(공유 계정 조회)로 구분한다. Meta의 모든 HTTP 400/401/403 응답을 인증 만료로 표시하지 않는다. 앱 불일치·잘못된 토큰 유형도 설정 오류로 구분한다. 서버의 `outreach.oauth_failed` 로그에는 단계·정해진 사유·숫자 HTTP/Meta 오류 코드만 기록하며, 요청 URL·인증 코드·토큰·시크릿·원본 오류 본문은 남기지 않는다. 이미 사용한 로그인 인증 코드는 재사용할 수 없으므로 오류 수정 뒤에는 새 연결 요청이 필요하다.
+관리자는 저장한 Unified Login 설정에서 **저장된 앱 설정 점검**으로 앱 ID·시크릿을 확인할 수 있다. 서버가 해당 조직의 저장된 설정과 revision을 확인한 뒤 Meta에 `client_credentials` 요청을 한 번 보낸다. 응답의 앱 토큰은 반환·저장하지 않으며 계정 상태도 바꾸지 않는다. 점검 성공은 앱 ID·시크릿 확인만 의미하며, 로그인 구성·리디렉션·Instagram 권한이나 계정 연결 성공을 증명하지 않는다.
+
+인증 실패는 `app_credentials`(저장된 앱 점검), `code_exchange`(인증 정보 발급), `token_inspection`(토큰 검증), `account_lookup`(공유 계정 조회)로 구분한다. Meta의 모든 HTTP 400/401/403 응답을 인증 만료로 표시하지 않는다. 앱 불일치·잘못된 토큰 유형도 설정 오류로 구분한다. 숫자 오류 코드 1만으로 시크릿 오류라고 단정하지 않으며, Meta 응답이 명시한 시크릿 오류·앱 ID 오류·리디렉션 불일치·이미 사용된 코드는 고정된 사유로 변환한다. 서버의 `outreach.oauth_failed` 또는 `outreach.instagram_app_check_failed` 로그에는 단계·정해진 사유·숫자 HTTP/Meta 오류 코드만 기록하며, 요청 URL·인증 코드·토큰·시크릿·원본 오류 본문은 남기지 않는다. 이미 사용한 로그인 인증 코드는 재사용할 수 없으므로 오류 수정 뒤에는 새 연결 요청이 필요하다.
 
 검증: URL 가져오기·콜백 주소 일치·새 state·구성 바인딩·토큰 유효성/수명/권한·페이지를 나눈 계정 목록·대상 계정 선택·암호화 저장·조직/세션 분리·실패 단계 분류와 비밀 정보 제거를 합성 응답으로 검증한다. Meta 실제 계정 동의와 Graph 응답 검증은 사용자가 계정을 연결한 뒤 별도로 진행한다. 참고할 Meta 문서: [Unified Login 시작](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/get-started), [인증](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/authentication). 문서 페이지가 접근 제한 응답을 주어 전체 본문 대조는 완료하지 못했으며, 운영 적용 후 실제 인증 결과를 확인해야 한다.
 

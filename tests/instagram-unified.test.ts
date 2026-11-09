@@ -5,6 +5,7 @@ import { authorizationUrl, exchangeCode, fetchIdentity, providerConfig, refreshT
 import { OutreachError, outreachErrorMessage } from "../src/lib/outreach/contracts";
 import { InstagramConnectionError } from "../src/lib/outreach/instagram-errors";
 import { providerJson, ProviderHttpError } from "../src/lib/outreach/provider-http";
+import { checkUnifiedAppCredentials } from "../src/lib/outreach/instagram-unified";
 const uri = "https://example.invalid/api/outreach/oauth/instagram/callback";
 const config = providerConfig("instagram", { APP_ORIGIN: "https://example.invalid", OUTREACH_ENCRYPTION_KEY: "a".repeat(64), OUTREACH_INSTAGRAM_CLIENT_ID: "10000", OUTREACH_INSTAGRAM_CLIENT_SECRET: "synthetic-secret", OUTREACH_INSTAGRAM_API_VERSION: "v25.0", OUTREACH_INSTAGRAM_LOGIN_MODE: "unified", OUTREACH_INSTAGRAM_CONFIGURATION_ID: "20000" });
 const debug = { app_id: "10000", is_valid: true, type: "SYSTEM_USER", expires_at: 0, scopes: ["instagram_basic", "instagram_manage_messages"] };
@@ -82,4 +83,23 @@ test("malformed and oversized provider failures stay bounded, and non-Meta respo
   }
   assert.deepEqual(await providerJson("https://example.invalid", {}, async () => Response.json({ error: { code: "ok" }, data: { user: {} } })), { error: { code: "ok" }, data: { user: {} } });
   await assert.rejects(exchangeCode("instagram", "code", "v", async () => { throw new Error("synthetic-secret"); }, config, "intended_creator"), (error: unknown) => error instanceof InstagramConnectionError && error.diagnostic.stage === "code_exchange" && error.diagnostic.reason === "unavailable");
+});
+
+test("Meta credential checks use the saved app only and never expose the issued app token", async () => {
+  const result = await checkUnifiedAppCredentials(config, async (url, init) => {
+    const u = new URL(String(url)); assert.equal(u.origin, "https://graph.facebook.com"); assert.equal(u.searchParams.get("grant_type"), "client_credentials"); assert.equal(u.searchParams.get("client_id"), "10000"); assert.equal(u.searchParams.get("client_secret"), "synthetic-secret"); assert.equal(u.searchParams.has("code"), false); assert.equal(init?.redirect, "error");
+    return Response.json({ access_token: "synthetic-private-app-token" });
+  });
+  assert.deepEqual(result, { credentialsVerified: true });
+  await assert.rejects(checkUnifiedAppCredentials(config, async () => Response.json({ error: { message: "Error validating client secret. synthetic-private-secret", code: 1 } }, { status: 400 })), (error: unknown) => {
+    assert.ok(error instanceof InstagramConnectionError); assert.equal(error.code, "instagram_client_secret_invalid"); assert.equal(error.diagnostic.stage, "app_credentials"); assert.equal(error.diagnostic.metaReason, "invalid_client_secret"); assert.doesNotMatch(JSON.stringify(error), /synthetic-private/); return true;
+  });
+});
+
+test("Meta message classification keeps only fixed labels and never guesses from error code 1 alone", async () => {
+  for (const [message, expected] of [["Error validating client secret.", "instagram_client_secret_invalid"], ["Invalid App ID", "instagram_client_id_invalid"], ["Error validating verification code. Please make sure your redirect_uri is identical", "instagram_redirect_mismatch"], ["This authorization code has been used.", "oauth_expired"], ["Unknown synthetic-private-provider-response", "instagram_code_exchange_failed"]]) {
+    await assert.rejects(exchangeCode("instagram", "synthetic-code", "v", async () => Response.json({ error: { message, code: 1 } }, { status: 400 }), config, "intended_creator"), (error: unknown) => {
+      assert.ok(error instanceof InstagramConnectionError); assert.equal(error.code, expected); assert.doesNotMatch(JSON.stringify(error), /synthetic-private/); return true;
+    });
+  }
 });

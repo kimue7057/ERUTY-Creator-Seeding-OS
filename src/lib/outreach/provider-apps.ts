@@ -1,4 +1,5 @@
 import { and, eq } from "drizzle-orm";
+import { z } from "zod";
 import { db } from "../db";
 import { auditEvents } from "../db/schema";
 import { outreachProviderApps as apps } from "../db/outreach-schema";
@@ -8,6 +9,7 @@ import { providerConfig } from "./providers";
 import { providerAppInputSchema } from "./app-contracts";
 import { hashSecret, seal, unseal } from "./crypto";
 import { OutreachError, type SenderProvider } from "./contracts";
+import { checkUnifiedAppCredentials } from "./instagram-unified";
 
 export async function resolveProviderConfig(tx: OutreachTx, organizationId: string, provider: SenderProvider) {
   // Shared lock makes the credentials stable for the entire OAuth/send transaction.
@@ -24,8 +26,17 @@ export async function resolveProviderConfig(tx: OutreachTx, organizationId: stri
   if (provider === "instagram" && config.instagramLoginMode === "unified") binding.push("unified", config.configurationId);
   return { ...config, fingerprint: hashSecret(JSON.stringify(binding)), revision: row?.revision ?? 0, source: row ? "workspace" : "environment" };
 }
-export function providerAppService(database: Pick<typeof db, "transaction"> = db) {
+export function providerAppService(database: Pick<typeof db, "transaction"> = db, fetcher: typeof fetch = fetch) {
   return {
+    checkInstagram: (actor: ActorScope, input: unknown) => database.transaction(async tx => {
+      await outreachMember(tx, actor, true, true);
+      const { revision } = z.object({ revision: z.number().int().nonnegative() }).strict().parse(input);
+      const config = await resolveProviderConfig(tx, actor.organizationId, "instagram");
+      if (config.revision !== revision) throw new OutreachError("draft_changed");
+      if (!config.configured || config.instagramLoginMode !== "unified") throw new OutreachError("not_configured");
+      const result = await checkUnifiedAppCredentials(config, fetcher);
+      return { ...result, revision, checkedAt: new Date().toISOString() };
+    }),
     status: (actor: ActorScope) => database.transaction(async tx => {
       await outreachMember(tx, actor);
       const statuses = [];

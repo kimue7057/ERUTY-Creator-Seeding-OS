@@ -69,6 +69,7 @@ test("Instagram Unified Login imports the generated URL and launches the configu
   await expect(page.getByLabel("Client ID",{exact:true})).toHaveValue("10000");await expect(page.getByLabel("로그인 구성 ID",{exact:true})).toHaveValue("20000");await expect(page.getByLabel("Meta 로그인 URL 가져오기",{exact:true})).toHaveValue("");
   await page.getByLabel("Client secret",{exact:true}).fill("synthetic-meta-secret");await page.getByLabel("Meta 앱의 API 버전",{exact:true}).fill("v25.0");
   await page.getByRole("button",{name:"연결 정보 저장",exact:true}).click();await expect(page.getByRole("button",{name:"Instagram · 등록됨",exact:true})).toBeVisible();await expect(page.getByLabel("Client secret",{exact:true})).toHaveValue("");
+  await expect(page.getByRole("button",{name:"저장된 앱 설정 점검",exact:true})).toBeEnabled();
   for(const width of [320,390,1440]){await page.setViewportSize({width,height:1000});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();}
   await page.screenshot({path:`${artifactDir}/instagram-unified.png`,fullPage:true});
   const account=await accountService(database).register(f.other,{provider:"instagram",label:"SYNTHETIC Unified Instagram",identity:"intended_creator"});

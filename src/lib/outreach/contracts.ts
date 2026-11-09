@@ -16,6 +16,10 @@ export class OutreachError extends Error {
 }
 export function outreachErrorMessage(error: unknown): string {
   const messages: Record<string, string> = {
+    instagram_client_secret_invalid: "Meta가 저장된 앱 시크릿을 유효하지 않다고 확인했습니다. Meta 앱 설정 → 기본 정보의 앱 시크릿을 다시 복사해 서비스 연결 설정에 저장하세요.",
+    instagram_client_id_invalid: "Meta가 저장된 앱 ID를 유효하지 않다고 확인했습니다. Meta 앱 설정의 앱 ID를 확인해 서비스 연결 설정에 저장하세요.",
+    instagram_redirect_mismatch: "Meta가 로그인 완료 주소 불일치를 반환했습니다. Meta에 등록한 주소와 ERUTY의 로그인 완료 주소를 정확히 일치시켜 주세요.",
+    instagram_app_credentials_failed: "저장된 Meta 앱 인증 정보를 확인하지 못했습니다. 서버의 앱 점검 오류를 확인해야 합니다. 계정 연결은 완료되지 않았습니다.",
     instagram_code_exchange_failed: "Meta 로그인 후 인증 정보를 발급받는 단계에서 실패했습니다. 서비스 연결 설정의 Meta 앱 ID·시크릿과 로그인 완료 주소를 확인해야 합니다.",
     instagram_token_inspection_failed: "Meta에서 발급한 인증 정보를 검증하지 못했습니다. 연결은 완료되지 않았습니다. 서버에 기록된 검증 오류를 확인해야 합니다.",
     instagram_account_lookup_failed: "Meta 로그인은 진행됐지만 Instagram 계정 조회에 실패했습니다. 앱의 Instagram 권한과 공유된 계정 설정을 확인해야 합니다.",

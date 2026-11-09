@@ -93,6 +93,22 @@ test("failed Meta verification preserves the pending account, consumes the login
     await assert.rejects(svc.complete(f.actor,"instagram",state,"session-a","synthetic-code"),errorCode("oauth_expired"));
   });
 });
+
+test("saved Meta app checks enforce actual admin membership, tenant and revision without connecting an account or storing an app token",async()=>{
+  await withDiscoveryDatabase(async f=>{
+    let calls=0;
+    const apps=providerAppService(f.database,async url=>{calls++;assert.equal(new URL(String(url)).searchParams.get("client_secret"),"synthetic-meta-secret");return Response.json({access_token:"synthetic-private-app-token"});});
+    await apps.save(f.actor,{provider:"instagram",revision:0,clientId:"10000",clientSecret:"synthetic-meta-secret",version:"v26.0",instagramLoginMode:"unified",configurationId:"20000"});
+    const account=await accountService(f.database).register(f.actor,{provider:"instagram",label:"Synthetic app check",identity:"intended_creator"});
+    await assert.rejects(apps.checkInstagram({...f.reader,role:"admin"},{revision:1}),errorCode("forbidden"));
+    await assert.rejects(apps.checkInstagram(f.other,{revision:0}),errorCode("not_configured"));
+    await assert.rejects(apps.checkInstagram(f.actor,{revision:0}),errorCode("draft_changed"));
+    await assert.rejects(apps.checkInstagram(f.actor,{revision:1,clientSecret:"client-controlled"}));assert.equal(calls,0);
+    const result=await apps.checkInstagram(f.actor,{revision:1});assert.equal(result.credentialsVerified,true);assert.equal(calls,1);assert.doesNotMatch(JSON.stringify(result),/synthetic-private-app-token/);
+    const stored=(await f.database.select().from(senderAccounts).where(eq(senderAccounts.id,account.id)))[0];assert.equal(stored.status,"pending");assert.equal(stored.tokenCiphertext,null);
+    const saved=(await f.database.select().from(outreachProviderApps))[0];assert.equal(saved.revision,1);assert.doesNotMatch(saved.credentialsCiphertext,/synthetic-private-app-token/);
+  });
+});
 async function approvedFixture(f:Parameters<Parameters<typeof withDiscoveryDatabase>[0]>[0]) {
   const seeded=await seedShortlistCandidate(f),svc=shortlistService(f.database);
   await svc.enqueue(f.actor,seeded.campaign.id,seeded.accountId);const assignment=(await svc.next(f.actor,seeded.worker)).assignment!;

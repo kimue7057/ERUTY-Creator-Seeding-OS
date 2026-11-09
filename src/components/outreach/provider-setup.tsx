@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useState, useTransition } from "react";
-import { saveProviderApp } from "@/app/(app)/settings/connections/actions";
+import { checkInstagramApp, saveProviderApp } from "@/app/(app)/settings/connections/actions";
 import { providerNames, type SenderProvider } from "@/lib/outreach/contracts";
 import { parseGoogleClientFile, parseInstagramLoginUrl } from "@/lib/outreach/app-contracts";
 import type { ProviderAppStatus } from "@/lib/outreach/provider-apps";
@@ -32,6 +32,7 @@ function ProviderForm({status,admin,onSaved}:{status:ProviderAppStatus;admin:boo
   return <div className="setup-columns"><section className="surface outreach-stage"><p className="eyebrow">1 · 회사 앱 등록</p><h2>{providerNames[status.provider]} 연결</h2>
     <p className="description">{status.configured?`연결 정보가 등록되어 있습니다 (${status.clientHint}). 이제 발신 계정에서 로그인하세요.`:"회사 개발자 앱에서 발급한 연결 정보를 등록하세요. 계정 비밀번호는 입력하지 않습니다."}</p>
     {status.configured&&<Link className="btn btn-primary mt-5" href="/settings/accounts">발신 계정 로그인하기 →</Link>}
+    {admin&&status.provider==="instagram"&&status.configured&&status.instagramLoginMode==="unified"&&<div className="outreach-note"><strong>저장된 Meta 앱 설정 점검</strong><p className="description">저장된 앱 ID·시크릿을 Meta에 확인합니다. 점검 성공은 Instagram 계정 연결 완료와 다릅니다. 아래에서 수정 중인 값은 저장한 뒤 점검하세요.</p><button className="btn" type="button" disabled={busy||!hydrated} onClick={()=>startTransition(async()=>{const result=await checkInstagramApp({revision:status.revision});setNotice(result.error??"Meta가 저장된 앱 ID·시크릿을 확인했습니다. 발신 계정에서 로그인 연결을 진행하세요.");})}>{busy?"처리 중…":"저장된 앱 설정 점검"}</button></div>}
     <div className="outreach-note"><strong>로그인 완료 주소</strong><p className="setup-uri">{status.redirectUri}</p><button className="btn" onClick={()=>{navigator.clipboard.writeText(status.redirectUri).then(()=>setNotice("로그인 완료 주소를 복사했습니다.")).catch(()=>setNotice("주소를 선택해 복사하세요."));}}>주소 복사</button></div>
     {admin?<form className="outreach-settings-form" onSubmit={e=>{e.preventDefault();startTransition(async()=>{const result=await saveProviderApp({provider:status.provider,revision:status.revision,clientId,clientSecret:secret,version,replace,instagramLoginMode,configurationId});if(result.error)setNotice(result.error);else if(result.statuses){setSecret("");onSaved(result.statuses);setNotice("연결 정보를 저장했습니다. 발신 계정에서 로그인 연결을 진행하세요.");}});}}>
       <fieldset disabled={busy||!hydrated} className="contents">

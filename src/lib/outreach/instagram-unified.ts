@@ -24,6 +24,14 @@ async function graphJson<T>(url: URL, authorization: string | undefined, fetcher
     return schema.parse(raw);
   } catch (error) { throw instagramStageError(stage, error); }
 }
+export async function checkUnifiedAppCredentials(config: Config, fetcher: typeof fetch = fetch) {
+  const url = new URL(`${graphBase(config)}/oauth/access_token`);
+  url.search = new URLSearchParams({ client_id: config.id!, client_secret: config.secret!, grant_type: "client_credentials" }).toString();
+  // This checks the saved app credentials only. The app token is discarded,
+  // never returned, persisted, or used as an Instagram sender identity.
+  await graphJson(url, undefined, fetcher, AbortSignal.timeout(15000), "app_credentials", z.object({ access_token: z.string().min(1).max(16384) }));
+  return { credentialsVerified: true as const };
+}
 async function inspectToken(accessToken: string, config: Config, fetcher: typeof fetch, signal: AbortSignal): Promise<ProviderTokens> {
   const url = new URL(`${graphBase(config)}/debug_token`); url.searchParams.set("input_token", accessToken);
   const { data } = await graphJson(url, `${config.id}|${config.secret}`, fetcher, signal, "token_inspection", debugSchema);
