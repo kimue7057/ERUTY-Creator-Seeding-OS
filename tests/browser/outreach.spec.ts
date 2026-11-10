@@ -177,3 +177,24 @@ test("company system-user connection is admin-only and clears the secret even wh
   await signIn(context,f.reader);await page.goto("/settings/accounts");
   await expect(page.getByText("회사 시스템 사용자 토큰으로 연결",{exact:true})).toHaveCount(0);
 });
+
+test("system-user form identifies format and account mismatch errors, then submits real server-action fields without real Meta requests",async({page,context})=>{
+  const app=providerAppService(database),status=(await app.status(f.actor)).find(s=>s.provider==="instagram")!;
+  if(!status.configured)await app.save(f.actor,{provider:"instagram",revision:0,clientId:"10000",clientSecret:"synthetic-app-secret",version:"v27.0",instagramLoginMode:"unified",configurationId:"20000"});
+  const service=accountService(database);let account=(await service.list(f.actor)).find(a=>a.provider==="instagram"&&a.expectedIdentity==="synthetic_company");
+  if(!account)account=await service.register(f.actor,{provider:"instagram",label:"SYNTHETIC real action",identity:"synthetic_company"});
+  await signIn(context);await page.goto("/settings/accounts");
+  const card=page.locator("article").filter({has:page.getByText("@synthetic_company",{exact:true})});
+  await card.getByText("회사 시스템 사용자 토큰으로 연결",{exact:true}).click();
+  const token=card.getByLabel("Meta 시스템 사용자 토큰",{exact:true}),confirm=card.getByRole("checkbox",{name:/회사가 관리하는 앱·자산의 토큰/}),submit=card.getByRole("button",{name:"시스템 사용자 토큰 검증 후 연결",exact:true});
+  await token.fill("synthetic browser token with spaces");await confirm.check();await submit.click();
+  await expect(card.getByText("토큰 중간에 공백 또는 줄바꿈이 있습니다. Meta의 토큰 복사 기능으로 다시 복사해 붙여넣으세요.",{exact:true})).toBeVisible();await expect(token).toHaveValue("");
+  await token.fill("synthetic-browser-meta-other");await confirm.check();await submit.click();
+  await expect(card.getByRole("note",{name:"Meta에서 확인된 Instagram 계정"})).toContainText("@another_company");
+  await expect(card.getByRole("link",{name:"@another_company ↗",exact:true})).toHaveAttribute("href","https://www.instagram.com/another_company/");
+  await expect(card.locator(".badge")).toHaveText("로그인 연결 필요");await expect(token).toHaveValue("");
+  await page.screenshot({path:`${artifactDir}/instagram-account-mismatch.png`,fullPage:true});
+  await token.fill("synthetic-browser-meta-success");await confirm.check();await submit.click();
+  await expect(card.locator(".badge")).toHaveText("계정 연결됨");
+  await page.reload();await expect(card.locator(".badge")).toHaveText("계정 연결됨");
+});

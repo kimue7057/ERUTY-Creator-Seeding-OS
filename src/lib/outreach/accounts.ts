@@ -6,7 +6,7 @@ import { auditEvents } from "../db/schema";
 import { senderAccounts as accounts, senderOAuthStates as states } from "../db/outreach-schema";
 import type { ActorScope } from "../auth/permissions";
 import { hashSecret, seal, unseal } from "./crypto";
-import { normalizeIdentity, OutreachError, registerAccountSchema, instagramSystemUserInputSchema, type SenderProvider } from "./contracts";
+import { normalizeIdentity, OutreachError, registerAccountSchema, parseInstagramSystemUserInput, type SenderProvider } from "./contracts";
 import { verifyInstagramSystemUserToken } from "./instagram-unified";
 import { authorizationUrl, exchangeCode, fetchIdentity, matchesExpected, providerConfig, refreshTokens, type ProviderTokens } from "./providers";
 import { resolveProviderConfig } from "./provider-apps";
@@ -83,7 +83,9 @@ export function accountService(database: Pick<typeof db,"transaction"> = db, fet
     connectInstagramSystemUser: (actor:ActorScope,id:string,input:unknown) => database.transaction(async tx => {
       // Check the actual current membership, not a role supplied by the client.
       await outreachMember(tx,actor,true,true);
-      const data=instagramSystemUserInputSchema.parse(input),row=await load(tx,actor,id);
+      const data=parseInstagramSystemUserInput(input);
+      if(!z.uuid().safeParse(id).success)throw new OutreachError("connection_form_invalid");
+      const row=await load(tx,actor,id);
       if(row.provider!=="instagram")throw new OutreachError("not_found");
       const config=await resolveProviderConfig(tx,actor.organizationId,"instagram");
       if(!config.configured||config.instagramLoginMode!=="unified")throw new OutreachError("not_configured");

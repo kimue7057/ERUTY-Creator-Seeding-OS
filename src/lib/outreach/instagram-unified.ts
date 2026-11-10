@@ -2,7 +2,7 @@ import { createHmac } from "node:crypto";
 import { z } from "zod";
 import { normalizeIdentity, OutreachError } from "./contracts";
 import { providerJson } from "./provider-http";
-import { InstagramConnectionError, instagramStageError, type InstagramStage, type InstagramGrantCounts } from "./instagram-errors";
+import { InstagramAccountSelectionError, InstagramConnectionError, instagramStageError, type InstagramStage, type InstagramGrantCounts } from "./instagram-errors";
 import type { ConnectedIdentity, ProviderTokens } from "./providers";
 
 type Config = { id?: string; secret?: string; version?: string; redirectUri: string; configurationId: string };
@@ -123,7 +123,7 @@ async function identity(token: ProviderTokens, config: Config, expectedIdentity:
   }
   if (!accounts.length) throw new InstagramConnectionError("instagram_no_accounts", { stage: "account_lookup", reason: "no_accounts", ...resolution });
   const matches = accounts.filter(a => token.instagramAccountId ? a.id === token.instagramAccountId : expectedIdentity && normalizeIdentity(a.username) === normalizeIdentity(expectedIdentity));
-  if (matches.length !== 1) throw new InstagramConnectionError("instagram_account_not_shared", { stage: "account_lookup", reason: "account_not_shared", ...resolution });
+  if (matches.length !== 1) throw new InstagramAccountSelectionError("instagram_account_not_shared", { stage: "account_lookup", reason: "account_not_shared", ...resolution },accounts.map(account=>account.username));
   const selected = matches[0];
   if (!assignedCount) console.info(JSON.stringify({ event: "outreach.instagram_account_resolved", source: "inspected_instagram_grant", ...resolution }));
   return { id: selected.id, identity: selected.username, addresses: [{ address: `@${selected.username}`, label: "Meta에서 확인한 Instagram 계정", primary: true }], tokens: { ...verified, instagramAccountId: selected.id } };
@@ -146,6 +146,9 @@ export async function verifyInstagramSystemUserToken(accessToken: string, config
   try {
     return await identity({ accessToken, expiresAt: null, scopes: [] }, config, expectedIdentity, fetcher, AbortSignal.timeout(45000));
   } catch (error) {
+    if(error instanceof InstagramAccountSelectionError){
+      throw new InstagramAccountSelectionError("instagram_system_user_account_mismatch",error.diagnostic,error.verifiedAccounts.map(account=>account.username));
+    }
     if (error instanceof InstagramConnectionError && error.code === "instagram_no_accounts") {
       throw new InstagramConnectionError("instagram_system_user_no_accounts", error.diagnostic);
     }

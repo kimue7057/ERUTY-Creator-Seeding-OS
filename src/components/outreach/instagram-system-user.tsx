@@ -31,6 +31,7 @@ export function InstagramSystemUser({account,revision}:{account:PublicSenderAcco
       <label className="outreach-confirm"><input name="confirmed" type="checkbox" required checked={confirmed} disabled={pending} onChange={event=>setConfirmed(event.target.checked)}/>회사가 관리하는 앱·자산의 토큰이며, @{account.expectedIdentity}의 기존 인증 정보를 검증 후 교체하는 데 동의합니다.</label>
       <button className="btn btn-primary" disabled={!hydrated||pending||!token.trim()||!confirmed}>{pending?"Meta 앱·계정 확인 중…":"시스템 사용자 토큰 검증 후 연결"}</button>
       <p role="status" className={state.error?"form-error":"description"}>{state.error??state.message}</p>
+      {state.instagramAccounts?.length?<div className="outreach-note" role="note" aria-label="Meta에서 확인된 Instagram 계정"><strong>이 토큰으로 확인된 Instagram 계정</strong><p className="description">ERUTY에 등록한 대상: @{account.expectedIdentity}</p><ul>{state.instagramAccounts.map(found=><li key={found.username}><a className="source-link" href={found.profileUrl} target="_blank" rel="noopener noreferrer">@{found.username} ↗</a></li>)}</ul><p className="description">이름이 다르면 Meta에서 할당한 Instagram 자산을 확인하세요. 확인 없이 다른 계정으로 연결하지 않습니다.</p></div>:null}
     </form>
     <p className="description mt-3">토큰은 검증 성공 후 서버에 암호화해 저장하며 다시 표시하지 않습니다. 토큰을 채팅으로 보내지 마세요. 계정 연결 후에도 현재 버전의 Instagram DM 발송·수신 기능은 제공되지 않습니다.</p>
   </details>;

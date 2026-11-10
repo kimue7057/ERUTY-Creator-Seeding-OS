@@ -20,8 +20,28 @@ export const senderStates = { pending: "로그인 연결 필요", connected: "�
 export class OutreachError extends Error {
   constructor(public code: string) { super(code); }
 }
+export function parseInstagramSystemUserInput(input:unknown) {
+  const result=instagramSystemUserInputSchema.safeParse(input);
+  if(result.success)return result.data;
+  const fields=new Set(result.error.issues.map(issue=>issue.path[0]));
+  if(fields.has("accessToken")){
+    const value=input&&typeof input==="object"&&"accessToken" in input?input.accessToken:undefined;
+    if(typeof value!=="string"||!value.trim())throw new OutreachError("instagram_token_required");
+    if(/\s/.test(value.trim()))throw new OutreachError("instagram_token_whitespace");
+    throw new OutreachError("instagram_token_format");
+  }
+  if(fields.has("confirmed"))throw new OutreachError("connection_confirmation_required");
+  throw new OutreachError("connection_form_invalid");
+}
 export function outreachErrorMessage(error: unknown): string {
   const messages: Record<string, string> = {
+    instagram_token_required: "Meta 시스템 사용자 토큰을 붙여넣으세요.",
+    instagram_token_whitespace: "토큰 중간에 공백 또는 줄바꿈이 있습니다. Meta의 토큰 복사 기능으로 다시 복사해 붙여넣으세요.",
+    instagram_token_format: "Meta에서 발급한 액세스 토큰 전체를 입력하세요. 앱 ID나 앱 시크릿을 입력하는 칸이 아닙니다.",
+    connection_confirmation_required: "해당 계정의 인증 정보 교체 확인란을 체크하세요.",
+    connection_form_invalid: "연결 화면의 정보를 읽지 못했습니다. 발신 계정 페이지를 새로고침한 뒤 다시 시도하세요.",
+    instagram_connection_data_invalid: "ERUTY의 Instagram 연결 설정을 읽지 못했습니다. 서비스 연결 설정을 확인해야 합니다. 토큰의 유효성을 확인한 상태는 아닙니다.",
+    instagram_system_user_account_mismatch: "토큰으로 조회된 Instagram 계정이 등록된 아이디와 다릅니다. 아래 확인된 계정과 Meta의 자산 할당을 비교하세요.",
     instagram_client_secret_invalid: "Meta가 저장된 앱 시크릿을 유효하지 않다고 확인했습니다. Meta 앱 설정 → 기본 정보의 앱 시크릿을 다시 복사해 서비스 연결 설정에 저장하세요.",
     instagram_client_id_invalid: "Meta가 저장된 앱 ID를 유효하지 않다고 확인했습니다. Meta 앱 설정의 앱 ID를 확인해 서비스 연결 설정에 저장하세요.",
     instagram_redirect_mismatch: "Meta가 로그인 완료 주소 불일치를 반환했습니다. Meta에 등록한 주소와 ERUTY의 로그인 완료 주소를 정확히 일치시켜 주세요.",

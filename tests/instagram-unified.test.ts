@@ -2,13 +2,26 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { parseInstagramLoginUrl, providerAppInputSchema } from "../src/lib/outreach/app-contracts";
 import { authorizationUrl, exchangeCode, fetchIdentity, providerConfig, refreshTokens } from "../src/lib/outreach/providers";
-import { OutreachError, outreachErrorMessage } from "../src/lib/outreach/contracts";
-import { InstagramConnectionError } from "../src/lib/outreach/instagram-errors";
+import { OutreachError, outreachErrorMessage, parseInstagramSystemUserInput } from "../src/lib/outreach/contracts";
+import { InstagramAccountSelectionError, InstagramConnectionError } from "../src/lib/outreach/instagram-errors";
 import { providerJson, ProviderHttpError } from "../src/lib/outreach/provider-http";
 import { checkUnifiedAppCredentials, verifyInstagramSystemUserToken } from "../src/lib/outreach/instagram-unified";
 const uri = "https://example.invalid/api/outreach/oauth/instagram/callback";
 const config = providerConfig("instagram", { APP_ORIGIN: "https://example.invalid", OUTREACH_ENCRYPTION_KEY: "a".repeat(64), OUTREACH_INSTAGRAM_CLIENT_ID: "10000", OUTREACH_INSTAGRAM_CLIENT_SECRET: "synthetic-secret", OUTREACH_INSTAGRAM_API_VERSION: "v25.0", OUTREACH_INSTAGRAM_LOGIN_MODE: "unified", OUTREACH_INSTAGRAM_CONFIGURATION_ID: "20000" });
 const debug = { app_id: "10000", is_valid: true, type: "SYSTEM_USER", expires_at: 0, scopes: ["instagram_basic", "instagram_manage_messages"] };
+test("token form errors identify the required field without echoing secrets or claiming an email is invalid",()=>{
+  const input={accessToken:"synthetic-private-token-value",revision:1,updatedAt:new Date().toISOString(),confirmed:true};
+  const cases:[unknown,string][]=[[{...input,accessToken:""},"instagram_token_required"],[{...input,accessToken:"synthetic private token value"},"instagram_token_whitespace"],[{...input,accessToken:"short"},"instagram_token_format"],[{...input,confirmed:false},"connection_confirmation_required"],[{...input,revision:NaN},"connection_form_invalid"],[{...input,updatedAt:"invalid-date"},"connection_form_invalid"]];
+  for(const [invalid,code] of cases)assert.throws(()=>parseInstagramSystemUserInput(invalid),(error:unknown)=>{
+    assert.ok(error instanceof OutreachError);assert.equal(error.code,code);assert.doesNotMatch(outreachErrorMessage(error),/이메일|synthetic-private|synthetic private/);assert.doesNotMatch(JSON.stringify(error),/synthetic-private|synthetic private/);return true;
+  });
+  assert.equal(parseInstagramSystemUserInput({...input,accessToken:`  ${input.accessToken}\n`}).accessToken,input.accessToken);
+});
+test("verified account suggestions stay out of serialized diagnostics and are bounded to the authorized profile names",()=>{
+  const error=new InstagramAccountSelectionError("instagram_system_user_account_mismatch",{stage:"account_lookup",reason:"account_not_shared"},Array.from({length:10},(_,i)=>`authorized_profile_${i}`));
+  assert.equal(error.verifiedAccounts.length,5);assert.equal(error.verifiedAccounts[0].profileUrl,"https://www.instagram.com/authorized_profile_0/");
+  assert.doesNotMatch(JSON.stringify(error),/authorized_profile|profileUrl|usernames/);
+});
 test("first-party token verification makes no OAuth exchange and rejects wrong token kinds or unassigned assets",async()=>{
   for(const [data,accounts,code] of [[debug,{data:[{id:"333",username:"intended_creator"}]},null],[{...debug,type:"USER"},{data:[]},"instagram_token_type"],[{...debug,app_id:"999"},{data:[]},"instagram_app_mismatch"],[debug,{data:[]},"instagram_system_user_no_accounts"]] as const){
     const paths:string[]=[];

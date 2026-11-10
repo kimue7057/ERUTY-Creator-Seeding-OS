@@ -50,7 +50,7 @@ test("failed first-party token checks preserve an existing connection and never 
   const account=await svc.register(f.actor,{provider:"instagram",label:"Synthetic company",identity:"intended_creator"});
   await svc.connectInstagramSystemUser(f.actor,account.id,{accessToken:"synthetic-first-party-token",revision:1,updatedAt:account.updatedAt.toISOString(),confirmed:true});
   const [baseline]=await f.database.select().from(senderAccounts).where(eq(senderAccounts.id,account.id));
-  for(const [nextDebug,nextAccounts,code] of [[{...debug,type:"USER"},{data:[]},"instagram_token_type"],[{...debug,app_id:"999"},{data:[]},"instagram_app_mismatch"],[{...debug,expires_at:1},{data:[]},"reconnect"],[{...debug,scopes:[]},{data:[]},"permission_missing"],[debug,{data:[]},"instagram_system_user_no_accounts"],[debug,{data:[{id:"444",username:"other_creator"}]},"instagram_account_not_shared"]] as const){
+  for(const [nextDebug,nextAccounts,code] of [[{...debug,type:"USER"},{data:[]},"instagram_token_type"],[{...debug,app_id:"999"},{data:[]},"instagram_app_mismatch"],[{...debug,expires_at:1},{data:[]},"reconnect"],[{...debug,scopes:[]},{data:[]},"permission_missing"],[debug,{data:[]},"instagram_system_user_no_accounts"],[debug,{data:[{id:"444",username:"other_creator"}]},"instagram_system_user_account_mismatch"]] as const){
    inspected=nextDebug;assigned=nextAccounts;
    await assert.rejects(svc.connectInstagramSystemUser(f.actor,account.id,{accessToken:"synthetic-rejected-token",revision:1,updatedAt:baseline.updatedAt.toISOString(),confirmed:true}),hasCode(code));
    assert.deepEqual((await f.database.select().from(senderAccounts).where(eq(senderAccounts.id,account.id)))[0],baseline);

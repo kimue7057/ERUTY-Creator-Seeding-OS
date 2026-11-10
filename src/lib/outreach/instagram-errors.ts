@@ -8,6 +8,18 @@ type Diagnostic = { stage: InstagramStage; reason: Reason; httpStatus?: number; 
 export class InstagramConnectionError extends OutreachError {
   constructor(code: string, public diagnostic: Diagnostic) { super(code); }
 }
+export type VerifiedInstagramAccount = {username:string;profileUrl:string};
+export class InstagramAccountSelectionError extends InstagramConnectionError {
+  // Authorized account names may be shown to the administrator who supplied
+  // this token, but must not appear in JSON error logs or public diagnostics.
+  #usernames: string[];
+  constructor(code:string,diagnostic:Diagnostic,usernames:readonly string[]){
+    super(code,diagnostic);this.#usernames=[...new Set(usernames)].slice(0,5);
+  }
+  get verifiedAccounts():VerifiedInstagramAccount[]{
+    return this.#usernames.map(username=>({username,profileUrl:`https://www.instagram.com/${username}/`}));
+  }
+}
 export function instagramStageError(stage: InstagramStage, error: unknown): InstagramConnectionError {
   if (error instanceof InstagramConnectionError) return error;
   const metaReason = error instanceof ProviderHttpError ? error.metaReason : undefined;

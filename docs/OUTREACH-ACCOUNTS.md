@@ -76,6 +76,8 @@ Workspace는 Google의 회사 메일 서비스 이름이다. 별도 Workspace ID
 
 참고: Meta 공식 SDK의 [시스템 사용자 할당 Instagram 조회](https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/systemuser.py)와 [Instagram 사용자 필드](https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/iguser.py). 이 SDK는 조회 경로·필드를 보여주며 회사의 실제 자산 할당이나 Meta 검수 통과를 증명하지 않는다.
 
+토큰 입력 검증은 빈 값·형식·중간 공백/줄바꿈·교체 확인 누락·화면 메타정보 오류를 구분한다. 로그에는 고정된 입력 오류 코드만 기록하고 토큰·입력값·Zod 이슈 원문은 남기지 않는다. 유효한 토큰으로 계정을 조회했지만 등록한 아이디와 다르면, 해당 토큰을 제출한 현재 관리자 화면에 Meta가 반환한 계정 이름과 원본 프로필 링크를 최대 5개 표시한다. 이 목록은 실패 토큰과 함께 DB에 저장하거나 일반 오류 로그/OAuth 리디렉션에 넣지 않으며, 등록 계정을 자동으로 바꾸거나 일치 검사를 완화하지 않는다. 브라우저 테스트는 로컬 전용 Meta 응답 fixture를 사용하는 실제 서버 액션으로 형식 오류 → 다른 계정 안내 → 일치 계정 연결·새로고침을 검증한다. fixture는 Playwright가 시작한 로컬 서버에서만 로드하고 실제 Meta 요청은 차단한다.
+
 ### TikTok
 
 1. [TikTok for Developers](https://developers.tiktok.com/)에서 앱을 만들고 웹용 Login Kit을 설정한다.
