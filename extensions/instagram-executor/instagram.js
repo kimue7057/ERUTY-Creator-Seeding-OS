@@ -1,6 +1,6 @@
 /* global chrome */
 (()=>{
-  const prepared=new Map(),opened=new Map();
+  const prepared=new Map(),opened=new Map(),preparation=new Map();
   const normalize=s=>(s??"").replace(/\s+/g," ").trim();
   const visible=e=>!!e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=="hidden";
   const fail=reason=>{throw new Error(reason);};
@@ -41,7 +41,8 @@
     if(c.action==="probe")return{sender:sender(c.sender)};
     if(c.action==="diagnostic"){
       validate(c);const controls=[...document.querySelectorAll('button,[role="button"],a,[role="link"]')].filter(e=>visible(e)&&/메시지|message/i.test(name(e))&&e.getBoundingClientRect().top<600).slice(0,8);
-      return{diagnostic:{path_kind:location.pathname.replace(/^\/|\/$/g,'').toLowerCase()===c.recipient?"recipient_profile":/^\/direct\/t\//.test(location.pathname)?"direct_thread":"other",document_visible:document.visibilityState==="visible",message_controls:controls.map(e=>({label:["메시지 보내기","메시지","Message","Send message"].includes(name(e))?name(e):"other",kind:e.tagName==="BUTTON"||e.getAttribute('role')==="button"?"button":e.tagName==="A"||e.getAttribute('role')==="link"?"link":"other",enabled:!e.disabled&&e.getAttribute('aria-disabled')!=="true"})),editor_count:Math.min(20,[...document.querySelectorAll('[contenteditable="true"][role="textbox"]')].filter(visible).length),recipient_headers:Math.min(20,[...document.querySelectorAll('a[aria-label][href]')].filter(a=>visible(a)&&path(a)===c.recipient&&/프로필 페이지|profile page/i.test(a.getAttribute('aria-label'))).length)}};
+      const editors=[...document.querySelectorAll('[contenteditable="true"][role="textbox"]')].filter(visible),editor=editors.length===1?editors[0]:null;
+      return{diagnostic:{path_kind:location.pathname.replace(/^\/|\/$/g,'').toLowerCase()===c.recipient?"recipient_profile":/^\/direct\/t\//.test(location.pathname)?"direct_thread":"other",document_visible:document.visibilityState==="visible",...preparation.get(c.job_id),editor_state:!editor?"unavailable":editor.innerText===c.body?"exact":!editor.innerText.trim()?"empty":"different",message_controls:controls.map(e=>({label:["메시지 보내기","메시지","Message","Send message"].includes(name(e))?name(e):"other",kind:e.tagName==="BUTTON"||e.getAttribute('role')==="button"?"button":e.tagName==="A"||e.getAttribute('role')==="link"?"link":"other",enabled:!e.disabled&&e.getAttribute('aria-disabled')!=="true"})),editor_count:Math.min(20,editors.length),recipient_headers:Math.min(20,[...document.querySelectorAll('a[aria-label][href]')].filter(a=>visible(a)&&path(a)===c.recipient&&/프로필 페이지|profile page/i.test(a.getAttribute('aria-label'))).length)}};
     }
     if(c.action==="profile"){profile(c);return{};}
     if(c.action==="open"){profile(c);if(opened.has(c.job_id))return{};const controls=buttons(document).filter(e=>/^(메시지 보내기|Message|Send message)$/i.test(name(e)));if(controls.length!==1)fail("recipient_unavailable");opened.set(c.job_id,{before:messageLinks()});controls[0].click();return{};}
@@ -49,12 +50,20 @@
     const {root,editor}=thread(c);
     if(c.action==="prepare"){
       const previous=prepared.get(c.job_id);if(previous){if(previous.sent)fail("unconfirmed_result");if(editor.innerText!==c.body)fail("unconfirmed_result");return{observation:observation(c,root,editor)};}
-      if(editor.innerText.trim())fail("unconfirmed_result");
-      const count=outgoing(root,editor,c).length;editor.focus();
-      const selection=window.getSelection(),range=document.createRange();range.selectNodeContents(editor);selection.removeAllRanges();selection.addRange(range);
-      // Lexical's normal editable input path; no private Instagram endpoints.
-      if(!document.execCommand('insertText',false,c.body))fail("unconfirmed_result");
-      if(editor.innerText!==c.body)fail("unconfirmed_result");prepared.set(c.job_id,{root,editor,count,sent:false});return{observation:observation(c,root,editor)};
+      preparation.set(c.job_id,{prepare_step:"draft_check"});
+      const count=outgoing(root,editor,c).length;if(count)fail("unconfirmed_result");
+      // An unchanged, exact approved draft is usable; unrelated text is never
+      // cleared or overwritten. The rendered text, not execCommand's boolean,
+      // proves the result of the normal editable input path.
+      if(editor.innerText!==c.body){
+        if(editor.innerText.trim())fail("unconfirmed_result");editor.focus();
+        const selection=window.getSelection(),range=document.createRange();range.selectNodeContents(editor);selection.removeAllRanges();selection.addRange(range);
+        preparation.set(c.job_id,{prepare_step:"input"});const inserted=document.execCommand('insertText',false,c.body);
+        preparation.set(c.job_id,{prepare_step:"text_check",input_reported_success:inserted});
+      }
+      if(editor.innerText!==c.body)fail("unconfirmed_result");
+      preparation.set(c.job_id,{...preparation.get(c.job_id),prepare_step:"observation"});
+      prepared.set(c.job_id,{root,editor,count,sent:false});const observed=observation(c,root,editor);preparation.set(c.job_id,{...preparation.get(c.job_id),prepare_step:"ready"});return{observation:observed};
     }
     const state=prepared.get(c.job_id);if(!state||state.editor!==editor||state.root!==root)fail("unconfirmed_result");
     if(c.action==="send"){

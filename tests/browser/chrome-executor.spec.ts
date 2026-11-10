@@ -49,3 +49,21 @@ test("synthetic conversation fallback accepts only a newly selected site message
 test("synthetic profile links cannot supply a conversation fallback or authorize a different recipient",async({page})=>{
   await fixture(page);await page.evaluate(()=>history.pushState(null,'','/synthetic_recipient/'));await page.locator('section').evaluate(section=>{const a=document.createElement('a');a.href='/direct/t/synthetic_bio_injection/';a.textContent='Messages';section.appendChild(a);const b=document.createElement('button');b.textContent='Message';section.appendChild(b);});const c=command();await dispatch(page,{...c,action:"open"});expect((await dispatch(page,{...c,action:"conversation_link"})).ok).toBe(false);expect((await dispatch(page,{...c,recipient:'synthetic_other',action:'prepare'})).ok).toBe(false);expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
 });
+
+test("synthetic rendered text is verified even when the input command reports false",async({page})=>{
+  await fixture(page);const c=command();await page.evaluate(()=>{const insert=document.execCommand.bind(document);document.execCommand=(command,show,value)=>{insert(command,show,value);return false;};});
+  expect((await dispatch(page,{...c,action:"prepare"})).ok).toBe(true);await expect(page.locator('[contenteditable]')).toHaveText(body);
+  expect((await dispatch(page,{...c,action:"send",permit:permit(c.job_id)})).ok).toBe(true);expect((await dispatch(page,{...c,action:"verify"})).ok).toBe(true);expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(1);
+});
+
+test("synthetic unchanged approved draft is usable while unrelated text is preserved",async({page})=>{
+  await fixture(page);const c=command();await page.locator('[contenteditable]').fill('SYNTHETIC unrelated draft');expect((await dispatch(page,{...c,action:"prepare"})).ok).toBe(false);await expect(page.locator('[contenteditable]')).toHaveText('SYNTHETIC unrelated draft');expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
+  const diagnostic=await dispatch(page,{...c,action:"diagnostic"});expect(JSON.stringify(diagnostic)).toContain('"editor_state":"different"');expect(JSON.stringify(diagnostic)).not.toContain('unrelated draft');
+  await page.locator('[contenteditable]').fill(body);await page.evaluate(()=>{document.execCommand=()=>{throw Error('An exact draft must not be changed');};});
+  expect((await dispatch(page,{...c,action:"prepare"})).ok).toBe(true);expect((await dispatch(page,{...c,action:"send",permit:permit(c.job_id)})).ok).toBe(true);expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(1);
+});
+
+test("synthetic existing matching outgoing message stops before editing or sending",async({page})=>{
+  await fixture(page);const c=command();await page.locator('#messages').evaluate((messages,text)=>{const row=document.createElement('div'),span=document.createElement('span'),action=document.createElement('button');span.textContent=text;action.setAttribute('aria-label','Reply to synthetic_company message');row.append(span,action);messages.appendChild(row);},body);
+  expect((await dispatch(page,{...c,action:"prepare"})).ok).toBe(false);await expect(page.locator('[contenteditable]')).toBeEmpty();expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
+});

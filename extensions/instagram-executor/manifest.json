@@ -1,7 +1,7 @@
 {
   "manifest_version":3,
   "name":"ERUTY 회사 Instagram 연락 실행기",
-  "version":"0.1.4",
+  "version":"0.1.5",
   "description":"ERUTY에서 확정한 회사 계정·수신자·문장으로 DM 1건을 실행하고 결과를 기록합니다.",
   "minimum_chrome_version":"120",
   "key":"MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAq6G7pYr05K+jI2uesy7KD7arqrDYdkvzlIQ0q3ZodZ4U5hlCNt9hjTbdIHSf96RaR4TQLDcDEiPfLQvZUCV+QNyZhSZysw82bobvtcssbQMvmtBw5y0iC6UGlOFvANHkrbHr4nWiEH+JNbUVQdUoLIViu4bGAufugui6Mg64NW48L3/abgj1QCb3okkpjyMLfb25JrmpYm/H4R/w2Q+cWo3dXl6pKO0AB9BX+3py21/PnSjS/Q9dAmfro+MOr9qOlX7dxSa1/CZhMWW2vpvgVkhRYxe67wRdbmxzCNtQWQac0cMb+zvFaN5LFN4mhpwOYuJbs3ThCspPP/QMxctEdwIDAQAB",
