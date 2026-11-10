@@ -9,6 +9,8 @@ import { seedShortlistCandidate,goodShortlistEvaluation } from "../shortlist-sam
 import { shortlistService } from "../../src/lib/evaluation/shortlist";
 import { accountService } from "../../src/lib/outreach/accounts";
 import { providerAppService } from "../../src/lib/outreach/provider-apps";
+import { automaticWorkerService } from "../../src/lib/discovery/automatic-worker";
+import { browserWorkerAuth } from "../../src/lib/discovery/remote-auth";
 import { senderAccounts } from "../../src/lib/db/outreach-schema";
 import { sessions } from "../../src/lib/db/schema";
 import * as schema from "../../src/lib/db/schema";
@@ -29,6 +31,22 @@ test.beforeAll(async()=>{
     await database.update(senderAccounts).set({status:"connected",identity,providerId:identity,verifiedAt:new Date(),tokenCiphertext:"synthetic-unusable-token",addresses:[{address:identity,label:"Primary",primary:true},{address:`alias-${identity}`,label:"Approved alias",primary:false}]}).where(eq(senderAccounts.id,account.id));
   }
   await mkdir(artifactDir,{recursive:true});
+});
+
+test("first DM queues one approved browser task without inbound conversation and records the real worker API result",async({page,context})=>{
+  const accounts=accountService(database);let account=(await accounts.list(f.actor)).find(a=>a.expectedIdentity==="synthetic_browser_company");if(!account)account=await accounts.register(f.actor,{provider:"instagram",label:"SYNTHETIC browser sender",identity:"synthetic_browser_company"});
+  const worker={worker_id:crypto.randomUUID(),instance_id:crypto.randomUUID(),name:"SYNTHETIC contact executor",browser_surface:"iab" as const,platforms:["instagram" as const],ready:true,outreach_ready:true},lease={worker_id:worker.worker_id,instance_id:worker.instance_id};await automaticWorkerService(database).heartbeat(f.actor,worker);
+  await signIn(context);await page.goto(`/outreach/instagram/new?account=${account.id}`);await expect(page.getByRole("heading",{name:"Instagram 첫 연락",exact:true})).toBeVisible();
+  const send=page.getByRole("button",{name:"회사 Instagram으로 첫 DM 보내기",exact:true});await expect(send).toBeDisabled();await page.getByLabel("첫 DM 수신 아이디",{exact:true}).fill("@synthetic_first_contact");await page.getByLabel("첫 DM 본문",{exact:true}).fill("SYNTHETIC first contact proposal");await expect(send).toBeDisabled();await page.getByRole("checkbox",{name:/이 회사 계정으로 위 수신자에게/}).check();await expect(send).toBeEnabled();
+  for(const width of [320,390,1440]){await page.setViewportSize({width,height:1000});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();}await page.screenshot({path:`${artifactDir}/instagram-first-contact.png`,fullPage:true});await send.click();await expect(page.getByText("브라우저 발송 요청을 저장했습니다. 아래에서 진행 상태를 확인하세요.",{exact:true})).toBeVisible();await expect(page.locator(".browser-outreach-receipt")).toHaveCount(1);
+  const [operator]=await database.select().from(schema.users).where(eq(schema.users.id,f.actor.userId)),session=await browserWorkerAuth(database).login({email:operator.email,password:"synthetic-shortlist-contract-password"});
+  const headers={"content-type":"application/json","x-eruty-outreach":"1",authorization:`Bearer ${session.token}`};
+  const assignment=await context.request.post("/api/outreach/browser/next",{headers,data:lease});expect(assignment.status()).toBe(200);const grant=(await assignment.json()).assignment;expect(grant.job_id).toBeTruthy();
+  const observation=()=>({sender:"synthetic_browser_company",recipient:"synthetic_first_contact",body:"SYNTHETIC first contact proposal",source_url:"https://www.instagram.com/synthetic_first_contact/",observed_at:new Date().toISOString(),visible_text:"SYNTHETIC rendered outgoing: SYNTHETIC first contact proposal"});
+  const arm=await context.request.post("/api/outreach/browser/arm",{headers,data:{...grant,observation:observation()}});expect(arm.status()).toBe(200);expect((await arm.json()).send_permitted).toBe(true);
+  const done=await context.request.post("/api/outreach/browser/finish",{headers,data:{...grant,outcome:"sent",reason:"confirmed_on_screen",observation:observation()}});expect(done.status()).toBe(200);
+  await page.reload();await expect(page.locator(".browser-outreach-receipt")).toContainText("브라우저 전송 확인");await expect(page.locator(".browser-outreach-receipt")).toHaveCount(1);await page.screenshot({path:`${artifactDir}/instagram-first-contact-receipt.png`,fullPage:true});await browserWorkerAuth(database).logout(session.token);
+  await automaticWorkerService(database).heartbeat(f.actor,{...worker,ready:false,outreach_ready:false});await page.reload();await page.getByLabel("첫 DM 수신 아이디",{exact:true}).fill("@synthetic_second");await page.getByLabel("첫 DM 본문",{exact:true}).fill("SYNTHETIC no worker");await page.getByRole("checkbox",{name:/이 회사 계정으로 위 수신자에게/}).check();await expect(send).toBeDisabled();
 });
 test.afterAll(async()=>{if(hashes.length)await database.delete(sessions).where(inArray(sessions.tokenHash,hashes));await client.end();await pool.end();});
 async function signIn(context:BrowserContext,actor=f.actor){
@@ -212,4 +230,13 @@ test("Instagram inbox loads real server actions with synthetic Meta, confirms ex
   await page.screenshot({path:`${artifactDir}/instagram-dm-confirm.png`,fullPage:true});await send.click();await expect(page.getByText("Meta가 DM 발송을 접수했습니다. 수신·읽음 여부는 Instagram에서 확인하세요.",{exact:true})).toBeVisible();await expect(page.locator(".instagram-receipts article")).toHaveCount(1);
   await page.reload();await page.getByRole("button",{name:"대화 불러오기·새로고침",exact:true}).click();await expect(page.locator(".instagram-receipts article")).toHaveCount(1);await expect(page.locator(".instagram-receipts article")).toContainText("SYNTHETIC browser approved reply");await page.screenshot({path:`${artifactDir}/instagram-dm-receipt.png`,fullPage:true});
   await signIn(context,f.reader);await page.goto("/outreach/instagram");await expect(page.getByRole("button",{name:"대화 불러오기·새로고침",exact:true})).toBeDisabled();
+});
+
+test("selected campaign creator can request a first browser DM without API consent or a prior conversation, then cancel before send",async({page,context})=>{
+  const accounts=accountService(database);let account=(await accounts.list(f.actor)).find(a=>a.expectedIdentity==="synthetic_campaign_sender");if(!account)account=await accounts.register(f.actor,{provider:"instagram",label:"SYNTHETIC campaign browser",identity:"synthetic_campaign_sender"});
+  const worker={worker_id:crypto.randomUUID(),instance_id:crypto.randomUUID(),name:"SYNTHETIC campaign contact",browser_surface:"iab" as const,platforms:["instagram" as const],ready:true,outreach_ready:true};await automaticWorkerService(database).heartbeat(f.actor,worker);
+  await signIn(context);await page.goto(`/campaigns/${seed.campaign.id}/outreach/${seed.accountId}?draft=new`);await page.getByLabel("연락 채널",{exact:true}).selectOption("instagram");await page.getByRole("button",{name:"다음 · 제안 문장",exact:true}).click();await page.getByLabel("메시지",{exact:true}).fill("SYNTHETIC selected creator first proposal");await page.getByRole("button",{name:/4.*계정·주소·발송/}).click();
+  await expect(page.getByLabel("Instagram 발송 방식",{exact:true})).toHaveValue("browser");await page.getByLabel("회사 계정",{exact:true}).selectOption(account.id);await expect(page.getByLabel("발신 Instagram 아이디",{exact:true})).toHaveValue("@synthetic_campaign_sender");const send=page.getByRole("button",{name:"회사 계정으로 첫 DM 보내기",exact:true});await expect(send).toBeDisabled();await page.getByRole("checkbox",{name:/발신 계정·수신 주소·메시지를 확인/}).check();await expect(send).toBeEnabled();await send.click();await expect(page.getByText("브라우저 발송 요청을 저장했습니다. 진행 상태에서 실제 결과를 확인하세요.",{exact:true})).toBeVisible();
+  await expect(page.getByRole("button",{name:"전송 전 요청 취소",exact:true})).toBeVisible({timeout:20000});await page.getByRole("button",{name:"전송 전 요청 취소",exact:true}).click();await expect(page.locator(".browser-outreach-receipt")).toContainText("요청 취소");await page.screenshot({path:`${artifactDir}/instagram-campaign-browser-request.png`,fullPage:true});
+  await automaticWorkerService(database).heartbeat(f.actor,{...worker,ready:false,outreach_ready:false});
 });

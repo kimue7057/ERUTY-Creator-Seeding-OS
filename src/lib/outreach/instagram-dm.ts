@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { and,desc,eq,inArray } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db";
-import { instagramDmSends as sends,outreachDrafts as drafts } from "../db/outreach-schema";
+import { instagramDmSends as sends,outreachDrafts as drafts,browserOutreachSends } from "../db/outreach-schema";
 import { auditEvents } from "../db/schema";
 import type { ActorScope } from "../auth/permissions";
 import { accountService,outreachMember } from "./accounts";
@@ -62,6 +62,8 @@ export function instagramDmService(database:Pick<typeof db,"transaction">=db,fet
         if(existing){if(existing.inputSha256!==hash)throw new OutreachError("instagram_dm_request_changed");if(existing.status==="sent")return existing;throw new OutreachError(existing.status==="failed"?"instagram_dm_send_rejected":"instagram_dm_send_unknown");}
         const [pending]=await tx.select({id:sends.id}).from(sends).where(and(eq(sends.organizationId,actor.organizationId),eq(sends.accountId,data.accountId),eq(sends.conversationId,data.selection.conversationId),inArray(sends.status,["sending","unknown"])));
         if(pending)throw new OutreachError("instagram_dm_send_unknown");
+        const [browserPending]=await tx.select({id:browserOutreachSends.id}).from(browserOutreachSends).where(and(eq(browserOutreachSends.organizationId,actor.organizationId),eq(browserOutreachSends.accountId,data.accountId),eq(browserOutreachSends.recipientUsername,normalizeIdentity(data.selection.username)),inArray(browserOutreachSends.state,["queued","preparing","armed","unknown"])));
+        if(browserPending)throw new OutreachError("browser_outreach_pending");
         await approvedDraft(tx,actor,data);
         if(data.draftId){const [d]=await tx.select().from(drafts).where(draftScope(actor,data.draftId));if(!row.addresses.some(a=>a.address===d.fromAddress))throw new OutreachError("reconnect");}
         const thread=await provider.thread(data.selection);assertDmWindow(thread.lastIncomingAt);

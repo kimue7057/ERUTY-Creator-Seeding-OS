@@ -1,0 +1,12 @@
+import { z } from "zod";
+import { normalizeIdentity } from "./contracts";
+export const browserHandle=z.string().trim().regex(/^@?[A-Za-z0-9._]{1,30}$/).transform(normalizeIdentity);
+export const browserSendInput=z.strictObject({id:z.uuid(),accountId:z.uuid(),recipient:browserHandle,body:z.string().trim().min(1).max(1000),confirmed:z.literal(true),draftId:z.uuid().nullable().default(null),draftRevision:z.number().int().positive().nullable().default(null)});
+export const browserLease=z.strictObject({worker_id:z.uuid(),instance_id:z.uuid()});
+export const browserSendGrant=browserLease.extend({job_id:z.uuid(),claim_token:z.string().regex(/^[a-f0-9]{64}$/)});
+export const browserObservation=z.strictObject({sender:browserHandle,recipient:browserHandle,body:z.string().min(1).max(1000),source_url:z.url().max(2048),observed_at:z.iso.datetime(),visible_text:z.string().min(1).max(16000)});
+export const browserFinish=browserSendGrant.extend({outcome:z.enum(["sent","blocked","unknown"]),reason:z.enum(["confirmed_on_screen","login_required","captcha","sender_mismatch","recipient_unavailable","platform_restricted","cli_failed","browser_unavailable","unconfirmed_result"]),observation:browserObservation.nullable().default(null)});
+export const browserSendStates={queued:"발송 대기",preparing:"브라우저에서 확인 중",armed:"전송 확인 중",sent:"브라우저 전송 확인",blocked:"전송 전 중단",unknown:"결과 확인 필요",cancelled:"요청 취소"} as const;
+export type BrowserSendState=keyof typeof browserSendStates;
+export type BrowserSendGrant=z.infer<typeof browserSendGrant>;
+export type BrowserObservation=z.infer<typeof browserObservation>;

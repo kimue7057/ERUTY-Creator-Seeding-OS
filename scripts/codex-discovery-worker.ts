@@ -14,14 +14,17 @@ const root = resolve(".local/discovery/codex-browser"); mkdirSync(root, { recurs
 process.env.PATH = `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ""}`;
 const privatePath = (file: string) => { const path = resolve(file), rel = relative(root, path); if (rel.startsWith("..") || isAbsolute(rel)) throw new Error("private_path_required"); return path; };
 const read = (file: string) => JSON.parse(readFileSync(privatePath(file), "utf8").replace(/^\uFEFF/, ""));
-const config = z.strictObject({ origin: z.url(), worker_id: z.uuid(), name: z.string().min(1).max(80), browser_surface: z.enum(["iab", "chrome"]), platforms: z.array(z.enum(["instagram", "tiktok", "youtube"])).min(1).max(3), credentials_file: z.string(), codex_path: z.string() }).parse(read(process.argv[2] ?? resolve(root, "worker.config.private.json")));
+const checkOnly=process.argv.includes("--check"),configurationFile=process.argv.slice(2).find(arg=>arg!=="--check")??resolve(root,"worker.config.private.json");
+const config = z.strictObject({ origin: z.url(), worker_id: z.uuid(), name: z.string().min(1).max(80), browser_surface: z.enum(["iab", "chrome"]), platforms: z.array(z.enum(["instagram", "tiktok", "youtube"])).min(1).max(3), credentials_file: z.string(), codex_path: z.string(), outreach_enabled:z.boolean().default(false) }).parse(read(configurationFile));
+if(!existsSync(config.codex_path))throw new Error("codex_cli_missing: update codex_path to the currently installed Codex executable");
 const base = new URL(config.origin); if (base.protocol !== "https:" || base.username || base.password || base.pathname !== "/" || base.search || base.hash) throw new Error("https_origin_required");
 const lease = { worker_id: config.worker_id, instance_id: randomUUID() };
 const connection = resolve(root, "remote-connection.private.json");
 const log = (event: string, detail: Record<string, unknown> = {}) => console.log(JSON.stringify({ at: new Date().toISOString(), event, ...detail }));
 let session: { token: string; expires_at: string } | null = null, renewing: Promise<void> | null = null;
 async function request(action: string, input: unknown, token?: string) {
-  const response = await fetch(`${base.origin}/api/discovery/browser/${action}`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(30000), headers: { "content-type": "application/json", "x-eruty-discovery": "1", ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(input) });
+  const outreach=action.startsWith("outreach:");
+  const response = await fetch(`${base.origin}${outreach?"/api/outreach/browser/":"/api/discovery/browser/"}${outreach?action.slice(9):action}`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(30000), headers: { "content-type": "application/json", ...(outreach?{"x-eruty-outreach":"1"}:{"x-eruty-discovery":"1"}), ...(token ? { authorization: `Bearer ${token}` } : {}) }, body: JSON.stringify(input) });
   const data = await response.json(); if (!response.ok) throw new Error(`${response.status}:${String(data.error ?? "worker_api_failed")}`); return data;
 }
 async function authenticate() {
@@ -110,6 +113,23 @@ Continue real browsing until ${auth.max_creators} distinct eligible candidates a
   log("finished", { request_id: job.request_id, state: result.state, exit_code: code });
 }
 
+async function contact(grant: {job_id:string;worker_id:string;instance_id:string;claim_token:string}) {
+  const directory=resolve(root,"outreach",z.uuid().parse(grant.job_id));mkdirSync(directory,{recursive:true});
+  const file=resolve(directory,"grant.private.json");
+  if(existsSync(file))throw new Error("outreach_grant_already_exists");
+  writeFileSync(file,JSON.stringify(grant,null,2),{flag:"wx",mode:0o600});
+  const path=relative(process.cwd(),file).replaceAll("\\","/");
+  const execution=launch(`Execute the one ERUTY-approved browser first-contact Instagram DM using $eruty-browser-outreach. Read skills/eruty-browser-outreach/SKILL.md and docs/BROWSER-OUTREACH.md. The immutable private grant is at ${path}; use node --import tsx scripts/codex-outreach-remote.ts context "${path}" to read the approved sender, recipient and text. Use the actual host cua_repl ${config.browser_surface} browser already used for discovery, verify company account and recipient, fill the exact approved body, call arm immediately before one Send click, then record the actual result via finish. This is a real browser task authorized by the dashboard confirmation, not a coding task. Do not modify files outside this job's private directory, read credentials, contact any other account, bypass platform restrictions, or retry a send. If browser/login/account/recipient is unavailable, finish blocked before arm. If already armed or outcome uncertain, never send again; finish unknown. The server requires current campaign approval when linked to a draft. Do not claim success unless the outgoing message is visibly confirmed.`,resolve(directory,"execution"),"workspace-write");
+  log("outreach_started",{job_id:grant.job_id});
+  const timeout=setTimeout(()=>void terminate(execution.child),600000);
+  const code=await execution.done;clearTimeout(timeout);
+  // Read-only context can recover the result but can never issue a new send permit.
+  const current=await call("outreach:context",grant);
+  if(current.reason==="browser_unavailable")ready=false;
+  if(["preparing","armed"].includes(current.state))await call("outreach:finish",{...grant,outcome:current.state==="armed"?"unknown":"blocked",reason:code?"cli_failed":"unconfirmed_result",observation:null});
+  log("outreach_finished",{job_id:grant.job_id});
+}
+
 async function assess(job: { assessment_id: string; snapshot: Record<string, unknown> }) {
   const directory = resolve(root, "assessments", job.assessment_id, randomUUID());
   let error: "cli_failed" | "workspace_spend_cap" | "execution_timeout" | "invalid_assessment" | null = null;
@@ -131,14 +151,16 @@ async function assess(job: { assessment_id: string; snapshot: Record<string, unk
 
 let ready = false, busy = false, stopped = false, heartbeating = false;
 process.on("SIGINT", () => { stopped = true; }); process.on("SIGTERM", () => { stopped = true; });
-const heartbeat = async () => { if (heartbeating) return; heartbeating = true; try { await call("worker-heartbeat", { ...lease, name: config.name, browser_surface: config.browser_surface, platforms: config.platforms, ready }); } finally { heartbeating = false; } };
+const heartbeat = async () => { if (heartbeating) return; heartbeating = true; try { await call("worker-heartbeat", { ...lease, name: config.name, browser_surface: config.browser_surface, platforms: config.platforms, ready, outreach_ready:ready&&config.outreach_enabled }); } finally { heartbeating = false; } };
 await heartbeat();
 const timer = setInterval(() => void heartbeat().catch(error => log("connection_error", { code: String(error.message).slice(0, 100) })), 10000);
 try {
   ready = await preflight(); await heartbeat(); log(ready ? "ready" : "browser_unavailable");
+  if(checkOnly){if(!ready)process.exitCode=2;stopped=true;}
   while (!stopped) {
     try { if (!ready) { await new Promise(r => setTimeout(r, 30000)); ready = await preflight(); await heartbeat(); continue; }
       if (!busy) {
+        if(config.outreach_enabled){const next=await call("outreach:next",lease);if(next.assignment){busy=true;try{await contact(next.assignment);}finally{busy=false;}continue;}}
         let assessment = null;
         try { assessment = (await call("worker-assessment-next", lease)).assignment; }
         catch (error) { if (!["unknown_worker_action", "automatic_discovery_disabled", "automatic_assessment_disabled"].some(code => String(error).includes(code))) throw error; }

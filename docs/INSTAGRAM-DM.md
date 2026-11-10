@@ -32,3 +32,5 @@ PostgreSQL 통합: 조직/역할 격리·동시 클릭·같은 요청 재사용�
 브라우저: 로컬 Meta fixture를 사용한 실제 서버 액션의 대화 조회 → 메시지 → 확인 → 합성 발송 → 새로고침 후 기록 유지와 작은 화면 확인. 합성 테스트는 실제 Meta 전송 성공을 증명하지 않는다. 실제 회사 계정 조회, 테스트 상대의 선행 DM, 승인된 문구의 전송 및 수신 확인을 별도로 기록한다.
 
 공식 근거: [Meta IGUser SDK의 conversations/messages 경로](https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/iguser.py), [Meta Instagram API 컬렉션](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api), [공식 메시지 컬렉션 원본](https://github.com/fbsamples/messenger-platform-samples/tree/main/postman). Meta 개발자 문서가 접근 제한 응답을 주는 환경에서는 그 제한을 우회하지 않으며 실제 계정 동작은 별도로 확인한다.
+
+먼저 보내는 협업 제안은 별도로 추가한 [브라우저 첫 연락](BROWSER-OUTREACH.md)을 사용한다. 이 문서의 선행 DM·24시간 조건은 공식 API 회신 경로에 해당한다.

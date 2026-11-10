@@ -5,6 +5,7 @@ import { auditEvents, campaigns } from "../db/schema";
 import { campaignCreators, creatorAccounts, discoveryEvidence, discoveryEvidenceReviews } from "../db/discovery-schema";
 import { browserRunReviews, browserDiscoveryRequests } from "../db/browser-schema";
 import { discoveryWorkers, discoveryExecutions } from "../db/worker-schema";
+import { browserOutreachSends } from "../db/outreach-schema";
 import { creatorAssessments as jobs } from "../db/assessment-schema";
 import { creatorEvaluations, evaluationReviews } from "../db/evaluation-schema";
 import type { ActorScope } from "../auth/permissions";
@@ -99,6 +100,8 @@ export function shortlistService(database: typeof db = db) {
     },
     next: (actor: ActorScope, input: unknown) => transaction(async tx => {
       const data = lease.parse(input), worker = await host(tx, actor, data);
+      const [contacting]=await tx.select({id:browserOutreachSends.id}).from(browserOutreachSends).where(and(eq(browserOutreachSends.workerId,worker.id),inArray(browserOutreachSends.state,["preparing","armed"])));
+      if(contacting)return{assignment:null};
       const busy = await tx.select().from(discoveryExecutions).where(and(eq(discoveryExecutions.workerId, worker.id), inArray(discoveryExecutions.state, ["starting", "running"])));
       if (busy.length || worker.ready !== "ready") return { assignment: null };
       // Expired leases are visible failures; restarting never silently repeats a

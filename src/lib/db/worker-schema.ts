@@ -6,6 +6,7 @@ export const discoveryWorkers = pgTable("discovery_browser_workers", {
   id: uuid().primaryKey(), organizationId: uuid("organization_id").notNull(), userId: uuid("user_id").notNull(), instanceId: uuid("instance_id").notNull(),
   name: text().notNull(), browserSurface: text("browser_surface", { enum: ["iab", "chrome"] }).notNull(), platforms: text().array().notNull(),
   ready: text({ enum: ["ready", "unavailable"] }).notNull(), lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).defaultNow().notNull(),
+  outreachReady:text("outreach_ready",{enum:["yes","no"]}).notNull().default("no"),
   createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, t => [unique("browser_worker_scope").on(t.organizationId, t.id), foreignKey({ columns: [t.organizationId, t.userId], foreignColumns: [memberships.organizationId, memberships.userId] }), check("browser_worker_config", sql`${t.browserSurface} in ('iab','chrome') and ${t.ready} in ('ready','unavailable') and cardinality(${t.platforms}) between 1 and 3 and ${t.platforms} <@ ARRAY['instagram','tiktok','youtube']::text[]`)]);
 export const discoveryExecutions = pgTable("discovery_browser_executions", {
