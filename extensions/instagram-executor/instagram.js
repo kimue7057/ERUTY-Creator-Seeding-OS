@@ -1,6 +1,6 @@
 /* global chrome */
 (()=>{
-  const prepared=new Map();
+  const prepared=new Map(),opened=new Map();
   const normalize=s=>(s??"").replace(/\s+/g," ").trim();
   const visible=e=>!!e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=="hidden";
   const fail=reason=>{throw new Error(reason);};
@@ -21,6 +21,7 @@
   function profile(c){validate(c);if(location.pathname.replace(/^\/|\/$/g,"").toLowerCase()!==c.recipient)fail("recipient_unavailable");const heading=[...document.querySelectorAll('h1,h2,a')].filter(visible).some(e=>normalize(e.innerText).toLowerCase()===c.recipient);if(!heading)fail("recipient_unavailable");}
   const name=e=>normalize(e.getAttribute('aria-label')||e.innerText||e.querySelector('svg')?.getAttribute('aria-label'));
   const buttons=root=>[...root.querySelectorAll('button,[role="button"]')].filter(visible).filter(e=>!e.disabled&&e.getAttribute('aria-disabled')!=="true");
+  function messageLinks(){return [...new Set([...document.querySelectorAll('a[href]')].filter(a=>visible(a)&&[...a.querySelectorAll('svg[aria-label]')].some(icon=>/^(메시지|Messages?|Direct)$/i.test(icon.getAttribute('aria-label')??''))).map(a=>new URL(a.href,location.href)).filter(u=>u.origin===location.origin&&/^\/direct\/t\/[A-Za-z0-9_-]+\/?$/.test(u.pathname)&&!u.search&&!u.hash).map(u=>u.href))];}
   function thread(c){
     validate(c);const editors=[...document.querySelectorAll('[contenteditable="true"][role="textbox"]')].filter(visible);if(editors.length!==1)fail("recipient_unavailable");const editor=editors[0];
     const headers=[...document.querySelectorAll('a[aria-label][href]')].filter(a=>visible(a)&&path(a)===c.recipient&&/프로필 페이지|profile page/i.test(a.getAttribute('aria-label')));
@@ -40,10 +41,11 @@
     if(c.action==="probe")return{sender:sender(c.sender)};
     if(c.action==="diagnostic"){
       validate(c);const controls=[...document.querySelectorAll('button,[role="button"],a,[role="link"]')].filter(e=>visible(e)&&/메시지|message/i.test(name(e))&&e.getBoundingClientRect().top<600).slice(0,8);
-      return{diagnostic:{path_kind:location.pathname.replace(/^\/|\/$/g,'').toLowerCase()===c.recipient?"recipient_profile":/^\/direct\/t\//.test(location.pathname)?"direct_thread":"other",message_controls:controls.map(e=>({label:["메시지 보내기","메시지","Message","Send message"].includes(name(e))?name(e):"other",kind:e.tagName==="BUTTON"||e.getAttribute('role')==="button"?"button":e.tagName==="A"||e.getAttribute('role')==="link"?"link":"other",enabled:!e.disabled&&e.getAttribute('aria-disabled')!=="true"})),editor_count:Math.min(20,[...document.querySelectorAll('[contenteditable="true"][role="textbox"]')].filter(visible).length),recipient_headers:Math.min(20,[...document.querySelectorAll('a[aria-label][href]')].filter(a=>visible(a)&&path(a)===c.recipient&&/프로필 페이지|profile page/i.test(a.getAttribute('aria-label'))).length)}};
+      return{diagnostic:{path_kind:location.pathname.replace(/^\/|\/$/g,'').toLowerCase()===c.recipient?"recipient_profile":/^\/direct\/t\//.test(location.pathname)?"direct_thread":"other",document_visible:document.visibilityState==="visible",message_controls:controls.map(e=>({label:["메시지 보내기","메시지","Message","Send message"].includes(name(e))?name(e):"other",kind:e.tagName==="BUTTON"||e.getAttribute('role')==="button"?"button":e.tagName==="A"||e.getAttribute('role')==="link"?"link":"other",enabled:!e.disabled&&e.getAttribute('aria-disabled')!=="true"})),editor_count:Math.min(20,[...document.querySelectorAll('[contenteditable="true"][role="textbox"]')].filter(visible).length),recipient_headers:Math.min(20,[...document.querySelectorAll('a[aria-label][href]')].filter(a=>visible(a)&&path(a)===c.recipient&&/프로필 페이지|profile page/i.test(a.getAttribute('aria-label'))).length)}};
     }
     if(c.action==="profile"){profile(c);return{};}
-    if(c.action==="open"){profile(c);const controls=buttons(document).filter(e=>/^(메시지 보내기|Message|Send message)$/i.test(name(e)));if(controls.length!==1)fail("recipient_unavailable");controls[0].click();return{};}
+    if(c.action==="open"){profile(c);if(opened.has(c.job_id))return{};const controls=buttons(document).filter(e=>/^(메시지 보내기|Message|Send message)$/i.test(name(e)));if(controls.length!==1)fail("recipient_unavailable");opened.set(c.job_id,{before:messageLinks()});controls[0].click();return{};}
+    if(c.action==="conversation_link"){profile(c);const prior=opened.get(c.job_id);if(!prior)fail("recipient_unavailable");const selected=messageLinks().filter(url=>!prior.before.includes(url));if(selected.length!==1)fail("recipient_unavailable");return{direct_url:selected[0]};}
     const {root,editor}=thread(c);
     if(c.action==="prepare"){
       const previous=prepared.get(c.job_id);if(previous){if(previous.sent)fail("unconfirmed_result");if(editor.innerText!==c.body)fail("unconfirmed_result");return{observation:observation(c,root,editor)};}

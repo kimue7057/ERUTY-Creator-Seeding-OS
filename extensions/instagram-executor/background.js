@@ -36,13 +36,22 @@ async function execute(connection,grant,tabId){
     const job=await api("context",grantInput(journal),connection);
     if(job.state!=="preparing"||job.sender!==connection.sender)throw new Error("sender_mismatch");
     command={job_id:job.id,sender:job.sender,recipient:job.recipient,body:job.body};
-    await chrome.tabs.update(tabId,{url:job.recipient_url});
+    const controlled=await chrome.tabs.update(tabId,{url:job.recipient_url,active:true});
+    if(Number.isInteger(controlled?.windowId))await chrome.windows.update(controlled.windowId,{focused:true});
     await stage("profile");
     await waitMessage(tabId,{action:"profile",...command});
     await stage("open");
     await waitMessage(tabId,{action:"open",...command},15000);
     await stage("prepare");
-    const prepared=await waitMessage(tabId,{action:"prepare",...command},15000);
+    let prepared;
+    try{prepared=await waitMessage(tabId,{action:"prepare",...command},15000);}catch(error){
+      if(error.message!=="recipient_unavailable")throw error;
+      // Only a site navigation link selected by the approved profile's Message
+      // action is eligible. Recipient ownership is rechecked after navigation.
+      const selected=await message(tabId,{action:"conversation_link",...command}),url=new URL(selected.direct_url);
+      if(url.origin!=="https://www.instagram.com"||!/^\/direct\/t\/[A-Za-z0-9_-]+\/?$/.test(url.pathname)||url.search||url.hash||url.username||url.password)throw error;
+      await chrome.tabs.update(tabId,{url:url.href,active:true});prepared=await waitMessage(tabId,{action:"prepare",...command},15000);
+    }
     const refreshed=await api("heartbeat",{observed_username:prepared.observation.sender,reason:"ready"},connection);if(!refreshed.ready)throw new Error("sender_mismatch");
     // Persist before arm: a lost response can never lead to a second Send.
     journal={...journal,phase:"arming",stage:"arm"};await store.set({journal});
