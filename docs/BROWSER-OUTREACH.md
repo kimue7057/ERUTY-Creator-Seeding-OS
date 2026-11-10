@@ -12,6 +12,8 @@ API 앱 토큰을 사용해 전송하는 경로가 아니다. 서버에는 등�
 
 ## 실행기와 설치
 
+회사 Chrome 전용 실행기는 [설치·권한 안내](CHROME-OUTREACH-EXECUTOR.md)를 따른다. `/settings/browser-executor`에서 한 번 연결하면 별도 Codex CLI의 브라우저 기능을 요구하지 않는다. 아래는 기존 Codex 발굴 실행기를 공유하는 경로이며, CLI에서 실제 브라우저 사용이 확인된 환경에서만 사용할 수 있다. 데스크톱 채팅의 `@Chrome` 성공은 별도 CLI의 준비 상태를 증명하지 않는다.
+
 기존 `scripts/codex-discovery-worker.ts`가 같은 브라우저 연결을 사용한다. 실행 PC와 Codex·회사 Instagram 브라우저가 켜져 있어야 하며, Vercel 서버만으로 사용자의 로컬 브라우저를 조작하지 않는다. 발굴과 연락은 동시에 브라우저를 움직이지 않는다. 연락 요청은 현재 작업이 끝난 뒤 우선 확인한다. 1시간 안에 시작하지 못한 요청은 중단하며 자동 재시도하지 않는다.
 
 1. 소유자 DB로 `0020_browser_outreach`와 `scripts/outreach-grants.sql` 적용. 기존 연락·발굴 데이터를 수정하지 않는다.

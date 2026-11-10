@@ -118,6 +118,8 @@
     { "idx": 17, "version": "7", "when": 1793682000000, "tag": "0017_outreach_workspace", "breakpoints": true },
     { "idx": 18, "version": "7", "when": 1794186000000, "tag": "0018_outreach_connection_tests", "breakpoints": true },
     { "idx": 19, "version": "7", "when": 1794288000000, "tag": "0019_instagram_dm", "breakpoints": true },
-    { "idx": 20, "version": "7", "when": 1794291600000, "tag": "0020_browser_outreach", "breakpoints": true }
+    { "idx": 20, "version": "7", "when": 1794291600000, "tag": "0020_browser_outreach", "breakpoints": true },
+    { "idx": 21, "version": "7", "when": 1794295200000, "tag": "0021_chrome_outreach_executor", "breakpoints": true },
+    { "idx": 22, "version": "7", "when": 1794304800000, "tag": "0022_browser_outreach_recheck", "breakpoints": true }
   ]
 }

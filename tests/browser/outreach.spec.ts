@@ -11,6 +11,7 @@ import { accountService } from "../../src/lib/outreach/accounts";
 import { providerAppService } from "../../src/lib/outreach/provider-apps";
 import { automaticWorkerService } from "../../src/lib/discovery/automatic-worker";
 import { browserWorkerAuth } from "../../src/lib/discovery/remote-auth";
+import {outreachExtensionId} from "../../src/lib/outreach/executor-contracts";
 import { senderAccounts } from "../../src/lib/db/outreach-schema";
 import { sessions } from "../../src/lib/db/schema";
 import * as schema from "../../src/lib/db/schema";
@@ -54,6 +55,22 @@ async function signIn(context:BrowserContext,actor=f.actor){
   await database.insert(sessions).values({tokenHash:hash,userId:actor.userId,organizationId:actor.organizationId,expiresAt:new Date(Date.now()+600000)});
   await context.addCookies([{name:"eruty_session",value:token,domain:"127.0.0.1",path:"/",httpOnly:true,sameSite:"Lax"}]);
 }
+
+test("company Chrome setup pairs through the server, returns one scoped send receipt and revokes access",async({page,context,playwright})=>{
+  const account=await accountService(database).register(f.actor,{provider:"instagram",label:"SYNTHETIC dedicated extension",identity:"synthetic_extension_company"});
+  const external=await playwright.request.newContext({baseURL:"http://127.0.0.1:3000"});const origin=`chrome-extension://${outreachExtensionId}`,baseHeaders={origin,"content-type":"application/json","x-eruty-executor":"1"};let token="";
+  await page.exposeBinding("syntheticExtensionPair",async(_source,message:{code:string})=>{const response=await external.post("/api/outreach/executor/pair",{headers:baseHeaders,data:{code:message.code,extension_id:outreachExtensionId}});expect(response.status()).toBe(200);token=(await response.json()).token;return{ok:true};});
+  await page.addInitScript(()=>{Object.defineProperty(window,"chrome",{value:{runtime:{sendMessage:(_id:string,message:unknown,callback:(value:unknown)=>void)=>{const binding=(window as unknown as {syntheticExtensionPair:(message:unknown)=>Promise<unknown>}).syntheticExtensionPair;void binding(message).then(callback);}}}});});
+  await signIn(context);await page.goto("/settings/browser-executor");await page.getByLabel("실행기 발신 계정",{exact:true}).selectOption(account.id);const connect=page.getByRole("button",{name:"이 Chrome을 회사 발신 계정에 연결",exact:true});await expect(connect).toBeDisabled();await page.getByRole("checkbox",{name:/이 Chrome에 30일간/}).check();await connect.click();await expect(page.getByRole("status")).toContainText("Chrome 연결을 등록했습니다");expect(token).toMatch(/^[a-f0-9]{64}$/);
+  const headers={...baseHeaders,authorization:`Bearer ${token}`};const rejected=await external.post("/api/outreach/executor/next",{headers:{...headers,origin:"https://evil.invalid"},data:{}});expect(rejected.status()).toBe(403);
+  const offline=await external.post("/api/outreach/executor/heartbeat",{headers,data:{observed_username:"synthetic_wrong",reason:"ready"}});expect((await offline.json()).ready).toBe(false);await external.post("/api/outreach/executor/heartbeat",{headers,data:{observed_username:"synthetic_extension_company",reason:"ready"}});
+  for(const width of[390,1440]){await page.setViewportSize({width,height:1000});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();}await page.screenshot({path:`${artifactDir}/chrome-executor-setup-synthetic.png`,fullPage:true});
+  await page.goto(`/outreach/instagram/new?account=${account.id}`);await page.getByLabel("첫 DM 수신 아이디",{exact:true}).fill("synthetic_extension_recipient");await page.getByLabel("첫 DM 본문",{exact:true}).fill("SYNTHETIC dedicated executor test");await page.getByRole("checkbox",{name:/이 회사 계정으로 위 수신자에게/}).check();const send=page.getByRole("button",{name:"회사 Instagram으로 첫 DM 보내기",exact:true});await expect(send).toBeEnabled();await send.click();
+  const next=await external.post("/api/outreach/executor/next",{headers,data:{}});expect(next.status()).toBe(200);const grant=(await next.json()).assignment;expect(grant).toBeTruthy();const input={job_id:grant.job_id,claim_token:grant.claim_token};
+  const obs=()=>({sender:"synthetic_extension_company",recipient:"synthetic_extension_recipient",body:"SYNTHETIC dedicated executor test",source_url:"https://www.instagram.com/synthetic_extension_recipient/",observed_at:new Date().toISOString(),visible_text:"SYNTHETIC rendered outgoing: SYNTHETIC dedicated executor test"});const arm=await external.post("/api/outreach/executor/arm",{headers,data:{...input,observation:obs()}});expect(arm.status()).toBe(200);expect((await arm.json()).send_permitted).toBe(true);
+  const done=await external.post("/api/outreach/executor/finish",{headers,data:{...input,outcome:"sent",reason:"confirmed_on_screen",observation:obs()}});expect(done.status()).toBe(200);await page.reload();await expect(page.locator('.browser-outreach-receipt')).toContainText("브라우저 전송 확인");
+  const disconnected=await external.post("/api/outreach/executor/disconnect",{headers,data:{}});expect(disconnected.status()).toBe(200);const denied=await external.post("/api/outreach/executor/next",{headers,data:{}});expect(denied.status()).toBe(403);await external.dispose();
+});
 
 test("connection test previews the exact addresses, requires confirmation and displays the send receipt", async ({ page, context }) => {
   await signIn(context);

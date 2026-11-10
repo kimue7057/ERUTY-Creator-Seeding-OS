@@ -9,7 +9,8 @@
   },
   "scripts": {
     "dev": "next dev --hostname 127.0.0.1",
-    "build": "next build",
+    "build": "tsx scripts/build-outreach-executor.ts && next build",
+    "build:executor": "tsx scripts/build-outreach-executor.ts",
     "start": "next start --hostname 127.0.0.1",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
