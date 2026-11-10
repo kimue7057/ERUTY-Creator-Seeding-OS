@@ -14,6 +14,7 @@ export default async function AccountsPage({searchParams}:{searchParams:Promise<
   return <><PageHeading eyebrow="WORKSPACE · CONNECTIONS" title="발신 계정" description="회사 이메일과 SNS를 연결하고, 연락에 사용할 계정·주소를 관리하세요."/>
     {connection&&<p role="status" className={connection==="success"?"outreach-success":"form-error"}>{connection==="success"?"로그인한 계정을 확인하고 연결했습니다.":outreachErrorMessage(new OutreachError(connection))}</p>}
     {statuses.some(s=>!s.configured)&&<section className="outreach-note setup-callout"><div><strong>처음 연결하는 서비스는 회사 앱 등록이 필요합니다</strong><p>관리자가 연결 정보를 한 번 저장하면, 아래 계정에서 로그인해 연결할 수 있습니다.</p></div><Link className="btn btn-primary" href="/settings/connections">서비스 연결 설정 →</Link></section>}
+    <section className="outreach-note setup-callout"><div><strong>Instagram 첫 DM을 보낼 회사 Chrome 연결</strong><p>실행할 Chrome을 발신 계정에 연결하고, ERUTY에서 승인한 연락의 진행 상태를 확인하세요.</p></div><Link className="btn" href="/settings/browser-executor">회사 Chrome 실행기 연결 →</Link></section>
     <AccountManager accounts={accounts} availability={availability} writable={canWrite(actor)} instagramSystemUserRevision={actor.role==="admin"&&instagram?.configured&&instagram.instagramLoginMode==="unified"?instagram.revision:undefined}/>
     <div className="sender-actions"><Link className="btn" href="/settings/connections">서비스 연결 설정</Link><Link className="btn" href="/settings/templates">메일 템플릿·회사 서명</Link><Link className="btn" href="/outreach">초안·발송 기록</Link></div>
   </>;
