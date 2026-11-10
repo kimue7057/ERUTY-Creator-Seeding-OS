@@ -6,6 +6,8 @@ export default defineConfig({
   reporter: "list",
   webServer: {
     command: "node node_modules/next/dist/bin/next dev --hostname 127.0.0.1 --port 3000",
-    url: "http://127.0.0.1:3000/login", reuseExistingServer: !process.env.CI, timeout: 120000,
+    // Own the server so a reused development process cannot skip the provider fixture.
+    url: "http://127.0.0.1:3000/login", reuseExistingServer: false, timeout: 120000,
+    env: { NODE_OPTIONS: [process.env.NODE_OPTIONS, `--import=${new URL("./tests/browser/meta-fetch-fixture.mjs", import.meta.url).href}`].filter(Boolean).join(" ") },
   },
 });
