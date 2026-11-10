@@ -35,3 +35,8 @@ test("synthetic incoming copy of the text cannot borrow attribution from an olde
   await page.locator('#messages').evaluate(messages=>{messages.querySelector('button')!.setAttribute('aria-label','Reply to shadow_synthetic_company message');const older=document.createElement('div');older.textContent='SYNTHETIC older unrelated outgoing';const action=document.createElement('button');action.setAttribute('aria-label','Reply to synthetic_company message');older.appendChild(action);messages.appendChild(older);});
   expect((await dispatch(page,{...c,action:"verify"})).ok).toBe(false);expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(1);
 });
+test("synthetic failure diagnostics contain bounded UI controls and counts without message or page text",async({page})=>{
+  await fixture(page);const c=command();
+  await page.locator('section').evaluate(section=>{const b=document.createElement('button');b.textContent='Message';b.disabled=true;section.appendChild(b);const privateText=document.createElement('p');privateText.textContent='SYNTHETIC unrelated private thread text';section.appendChild(privateText);});
+  const result=await dispatch(page,{...c,action:"diagnostic"});expect(result.ok).toBe(true);const text=JSON.stringify(result);expect(text).not.toContain('unrelated private thread text');expect(text).not.toContain(body);expect(text).toContain('"editor_count":1');expect(text).toContain('"enabled":false');
+});

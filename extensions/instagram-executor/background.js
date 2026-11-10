@@ -25,32 +25,36 @@ async function tabFor(connection){
   const tab=await chrome.tabs.create({url:`https://www.instagram.com/${connection.sender}/`,active:false});await store.set({controlledTab:tab.id});return tab.id;
 }
 const failure=e=>["login_required","captcha","sender_mismatch","recipient_unavailable","platform_restricted","browser_unavailable"].includes(e?.message)?e.message:"unconfirmed_result";
-async function finish(connection,journal,outcome,reason,observation=null){
-  const result=await api("finish",{...grantInput(journal),outcome,reason,observation},connection);
-  await store.remove("journal");await store.set({lastResult:{jobId:journal.grant.job_id,outcome:result.state,reason,at:new Date().toISOString()}});
+async function finish(connection,journal,outcome,reason,observation=null,diagnostic){
+  const result=await api("finish",{...grantInput(journal),outcome,reason,observation,...(diagnostic?{ui_diagnostic:diagnostic}:{})},connection);
+  await store.remove("journal");await store.set({lastResult:{jobId:journal.grant.job_id,outcome:result.state,reason,stage:journal.stage,at:new Date().toISOString()}});
 }
 async function execute(connection,grant,tabId){
-  let journal={grant,phase:"preparing"};await store.set({journal});
+  let journal={grant,phase:"preparing",stage:"context"},command;await store.set({journal});
+  const stage=async value=>{journal={...journal,stage:value};await store.set({journal});};
   try{
     const job=await api("context",grantInput(journal),connection);
     if(job.state!=="preparing"||job.sender!==connection.sender)throw new Error("sender_mismatch");
-    const command={job_id:job.id,sender:job.sender,recipient:job.recipient,body:job.body};
+    command={job_id:job.id,sender:job.sender,recipient:job.recipient,body:job.body};
     await chrome.tabs.update(tabId,{url:job.recipient_url});
+    await stage("profile");
     await waitMessage(tabId,{action:"profile",...command});
-    await message(tabId,{action:"open",...command});
+    await stage("open");
+    await waitMessage(tabId,{action:"open",...command},15000);
+    await stage("prepare");
     const prepared=await waitMessage(tabId,{action:"prepare",...command},15000);
     const refreshed=await api("heartbeat",{observed_username:prepared.observation.sender,reason:"ready"},connection);if(!refreshed.ready)throw new Error("sender_mismatch");
     // Persist before arm: a lost response can never lead to a second Send.
-    journal={...journal,phase:"arming"};await store.set({journal});
+    journal={...journal,phase:"arming",stage:"arm"};await store.set({journal});
     const permit=await api("arm",{...grantInput(journal),observation:prepared.observation},connection);
     if(!permit.send_permitted||Date.parse(permit.expires_at)<=Date.now())throw new Error("unconfirmed_result");
-    journal={...journal,phase:"sending"};await store.set({journal});
+    journal={...journal,phase:"sending",stage:"send"};await store.set({journal});
     // A single dispatch only. No timeout/retry helper is used for this action.
     await message(tabId,{action:"send",...command,permit});
-    journal={...journal,phase:"verifying"};await store.set({journal});
+    journal={...journal,phase:"verifying",stage:"verify"};await store.set({journal});
     const verified=await waitMessage(tabId,{action:"verify",...command},20000);
     await finish(connection,journal,"sent","confirmed_on_screen",verified.observation);
-  }catch(e){await finish(connection,journal,journal.phase==="preparing"?"blocked":"unknown",failure(e));}
+  }catch(e){let diagnostic={stage:journal.stage};if(command){try{const snapshot=await message(tabId,{action:"diagnostic",...command});diagnostic={...snapshot.diagnostic,stage:journal.stage};}catch{/* No unrelated DOM or credential text is collected. */}}const reason=e.message==="recipient_unavailable"?({profile:"recipient_profile_unavailable",open:"recipient_button_unavailable",prepare:"recipient_composer_unavailable"}[journal.stage]??"recipient_unavailable"):failure(e);await finish(connection,journal,journal.phase==="preparing"?"blocked":"unknown",reason,null,diagnostic);}
 }
 async function tick(){
   if(running)return;running=true;

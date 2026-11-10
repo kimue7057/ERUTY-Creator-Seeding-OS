@@ -127,6 +127,7 @@ export function browserSendService(database:Pick<typeof db,"transaction">=db){
       if(observation&&(Date.parse(observation.observed_at)<row.armedAt!.getTime()||!observation.visible_text.replace(/\s+/g," ").includes(row.body.replace(/\s+/g," "))))throw new OutreachError("browser_outreach_observation_invalid");
       await tx.update(jobs).set({state,reason:data.reason,observation,observationSha256:observation?hash(JSON.stringify(observation)):null,sentAt:sent?new Date():null,updatedAt:new Date()}).where(scope(actor,row.id));
       await setDraft(tx,actor,row,state==="sent"?"sent":state==="unknown"?"unknown":"failed");
+      if(data.ui_diagnostic&&state!=="sent"){console.info(JSON.stringify({event:"outreach.executor_ui_blocked",jobId:row.id,diagnostic:data.ui_diagnostic}));await tx.insert(auditEvents).values({organizationId:actor.organizationId,actorId:actor.userId,entityId:row.id,action:`outreach.browser_ui_blocked.${data.ui_diagnostic.stage}`});}
       await tx.insert(auditEvents).values({organizationId:actor.organizationId,actorId:actor.userId,entityId:row.id,action:`outreach.browser_send_${state}`});return{state};
     }),
   };return service;

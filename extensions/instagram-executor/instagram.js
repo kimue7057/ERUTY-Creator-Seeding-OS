@@ -38,6 +38,10 @@
   }
   async function command(c){
     if(c.action==="probe")return{sender:sender(c.sender)};
+    if(c.action==="diagnostic"){
+      validate(c);const controls=[...document.querySelectorAll('button,[role="button"],a,[role="link"]')].filter(e=>visible(e)&&/메시지|message/i.test(name(e))&&e.getBoundingClientRect().top<600).slice(0,8);
+      return{diagnostic:{path_kind:location.pathname.replace(/^\/|\/$/g,'').toLowerCase()===c.recipient?"recipient_profile":/^\/direct\/t\//.test(location.pathname)?"direct_thread":"other",message_controls:controls.map(e=>({label:["메시지 보내기","메시지","Message","Send message"].includes(name(e))?name(e):"other",kind:e.tagName==="BUTTON"||e.getAttribute('role')==="button"?"button":e.tagName==="A"||e.getAttribute('role')==="link"?"link":"other",enabled:!e.disabled&&e.getAttribute('aria-disabled')!=="true"})),editor_count:Math.min(20,[...document.querySelectorAll('[contenteditable="true"][role="textbox"]')].filter(visible).length),recipient_headers:Math.min(20,[...document.querySelectorAll('a[aria-label][href]')].filter(a=>visible(a)&&path(a)===c.recipient&&/프로필 페이지|profile page/i.test(a.getAttribute('aria-label'))).length)}};
+    }
     if(c.action==="profile"){profile(c);return{};}
     if(c.action==="open"){profile(c);const controls=buttons(document).filter(e=>/^(메시지 보내기|Message|Send message)$/i.test(name(e)));if(controls.length!==1)fail("recipient_unavailable");controls[0].click();return{};}
     const {root,editor}=thread(c);
