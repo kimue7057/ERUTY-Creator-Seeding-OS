@@ -67,3 +67,8 @@ test("synthetic existing matching outgoing message stops before editing or sendi
   await fixture(page);const c=command();await page.locator('#messages').evaluate((messages,text)=>{const row=document.createElement('div'),span=document.createElement('span'),action=document.createElement('button');span.textContent=text;action.setAttribute('aria-label','Reply to synthetic_company message');row.append(span,action);messages.appendChild(row);},body);
   expect((await dispatch(page,{...c,action:"prepare"})).ok).toBe(false);await expect(page.locator('[contenteditable]')).toBeEmpty();expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
 });
+
+test("synthetic hidden document cannot open, prepare or send a proposal",async({page})=>{
+  await fixture(page);const c=command();expect((await dispatch(page,{...c,action:'prepare'})).ok).toBe(true);await page.evaluate(()=>Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'hidden'}));
+  for(const action of ['foreground','open','prepare','send'])expect((await dispatch(page,{...c,action,permit:permit(c.job_id)})).reason).toBe('browser_unavailable');expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
+});

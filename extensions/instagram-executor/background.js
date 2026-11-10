@@ -24,6 +24,25 @@ async function tabFor(connection){
   if(Number.isInteger(controlledTab)){try{const tab=await chrome.tabs.get(controlledTab);if(tab.url?.startsWith("https://www.instagram.com/"))return controlledTab;}catch{/* An operator closed the dedicated tab. */}}
   const tab=await chrome.tabs.create({url:`https://www.instagram.com/${connection.sender}/`,active:false});await store.set({controlledTab:tab.id});return tab.id;
 }
+async function activate(tabId,command){
+  const tab=await chrome.tabs.update(tabId,{active:true});
+  if(Number.isInteger(tab?.windowId)){
+    const window=await chrome.windows.get(tab.windowId);
+    if(window.state==="minimized")await chrome.windows.update(tab.windowId,{state:"normal"});
+    await chrome.windows.update(tab.windowId,{focused:true});
+  }
+  await waitMessage(tabId,{action:"foreground",...command},8000);
+}
+async function navigate(tabId,url,command){
+  const current=await chrome.tabs.get(tabId);
+  // Re-navigating an already loaded recipient could let the previous document
+  // answer before Chrome replaces it. Reuse that document, otherwise wait for
+  // the requested URL to finish loading before sending any UI command.
+  if(current.url!==url||current.pendingUrl)await chrome.tabs.update(tabId,{url,active:true});
+  const end=Date.now()+20000;let loaded=false;
+  do{const tab=await chrome.tabs.get(tabId);if(tab.url===url&&tab.status==="complete"&&!tab.pendingUrl){loaded=true;break;}await new Promise(r=>setTimeout(r,500));}while(Date.now()<end);
+  if(!loaded)throw new Error("browser_unavailable");await activate(tabId,command);
+}
 const failure=e=>e?.message==="content_script_missing"?"browser_unavailable":["login_required","captcha","sender_mismatch","recipient_unavailable","platform_restricted","browser_unavailable"].includes(e?.message)?e.message:"unconfirmed_result";
 async function finish(connection,journal,outcome,reason,observation=null,diagnostic){
   const result=await api("finish",{...grantInput(journal),outcome,reason,observation,...(diagnostic?{ui_diagnostic:diagnostic}:{})},connection);
@@ -36,13 +55,14 @@ async function execute(connection,grant,tabId){
     const job=await api("context",grantInput(journal),connection);
     if(job.state!=="preparing"||job.sender!==connection.sender)throw new Error("sender_mismatch");
     command={job_id:job.id,sender:job.sender,recipient:job.recipient,body:job.body};
-    const controlled=await chrome.tabs.update(tabId,{url:job.recipient_url,active:true});
-    if(Number.isInteger(controlled?.windowId))await chrome.windows.update(controlled.windowId,{focused:true});
+    await navigate(tabId,job.recipient_url,command);
     await stage("profile");
     await waitMessage(tabId,{action:"profile",...command});
     await stage("open");
+    await activate(tabId,command);
     await waitMessage(tabId,{action:"open",...command},15000);
     await stage("prepare");
+    await activate(tabId,command);
     let prepared;
     try{prepared=await waitMessage(tabId,{action:"prepare",...command},15000);}catch(error){
       if(error.message!=="recipient_unavailable")throw error;
@@ -50,7 +70,7 @@ async function execute(connection,grant,tabId){
       // action is eligible. Recipient ownership is rechecked after navigation.
       const selected=await message(tabId,{action:"conversation_link",...command}),url=new URL(selected.direct_url);
       if(url.origin!=="https://www.instagram.com"||!/^\/direct\/t\/[A-Za-z0-9_-]+\/?$/.test(url.pathname)||url.search||url.hash||url.username||url.password)throw error;
-      await chrome.tabs.update(tabId,{url:url.href,active:true});prepared=await waitMessage(tabId,{action:"prepare",...command},15000);
+      await navigate(tabId,url.href,command);prepared=await waitMessage(tabId,{action:"prepare",...command},15000);
     }
     const refreshed=await api("heartbeat",{observed_username:prepared.observation.sender,reason:"ready"},connection);if(!refreshed.ready)throw new Error("sender_mismatch");
     // Persist before arm: a lost response can never lead to a second Send.
