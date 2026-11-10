@@ -11,12 +11,12 @@ async function api(action,input,connection){
 }
 const grantInput=j=>({job_id:j.grant.job_id,claim_token:j.grant.claim_token});
 async function message(tabId,command){
-  const result=await chrome.tabs.sendMessage(tabId,{type:"ERUTY_INSTAGRAM",...command});
+  let result;try{result=await chrome.tabs.sendMessage(tabId,{type:"ERUTY_INSTAGRAM",...command});}catch(error){if(/Receiving end does not exist|Could not establish connection|Extension context invalidated/i.test(error.message??""))throw new Error("content_script_missing");throw error;}
   if(!result?.ok)throw new Error(result?.reason??"browser_unavailable");return result;
 }
-async function waitMessage(tabId,command,timeout=12000){
+async function waitMessage(tabId,command,timeout=12000,missingFailsFast=false){
   const end=Date.now()+timeout;let last;
-  do{try{return await message(tabId,command);}catch(e){last=e;if(["captcha","platform_restricted","sender_mismatch","login_required"].includes(e.message))throw e;}await new Promise(r=>setTimeout(r,500));}while(Date.now()<end);
+  do{try{return await message(tabId,command);}catch(e){last=e;if(["captcha","platform_restricted","sender_mismatch","login_required"].includes(e.message)||missingFailsFast&&e.message==="content_script_missing")throw e;}await new Promise(r=>setTimeout(r,500));}while(Date.now()<end);
   throw last??new Error("browser_unavailable");
 }
 async function tabFor(connection){
@@ -24,7 +24,7 @@ async function tabFor(connection){
   if(Number.isInteger(controlledTab)){try{const tab=await chrome.tabs.get(controlledTab);if(tab.url?.startsWith("https://www.instagram.com/"))return controlledTab;}catch{/* An operator closed the dedicated tab. */}}
   const tab=await chrome.tabs.create({url:`https://www.instagram.com/${connection.sender}/`,active:false});await store.set({controlledTab:tab.id});return tab.id;
 }
-const failure=e=>["login_required","captcha","sender_mismatch","recipient_unavailable","platform_restricted","browser_unavailable"].includes(e?.message)?e.message:"unconfirmed_result";
+const failure=e=>e?.message==="content_script_missing"?"browser_unavailable":["login_required","captcha","sender_mismatch","recipient_unavailable","platform_restricted","browser_unavailable"].includes(e?.message)?e.message:"unconfirmed_result";
 async function finish(connection,journal,outcome,reason,observation=null,diagnostic){
   const result=await api("finish",{...grantInput(journal),outcome,reason,observation,...(diagnostic?{ui_diagnostic:diagnostic}:{})},connection);
   await store.remove("journal");await store.set({lastResult:{jobId:journal.grant.job_id,outcome:result.state,reason,stage:journal.stage,at:new Date().toISOString()}});
@@ -63,8 +63,13 @@ async function tick(){
     if(Date.parse(connection.expires_at)<=Date.now()){await store.set({status:"연결 만료 · ERUTY에서 다시 연결하세요"});return;}
     if(journal){await finish(connection,journal,journal.phase==="preparing"?"blocked":"unknown","unconfirmed_result");return;}
     const tabId=await tabFor(connection);let probe;
-    try{probe=await waitMessage(tabId,{action:"probe",sender:connection.sender});}
-    catch(e){await api("heartbeat",{observed_username:"",reason:failure(e)==="unconfirmed_result"?"browser_unavailable":failure(e)},connection);await store.set({status:failure(e)});return;}
+    try{probe=await waitMessage(tabId,{action:"probe",sender:connection.sender},12000,true);}
+    catch(e){
+      // Extension reload invalidates old content scripts. Refresh our dedicated
+      // tab before claiming any request; never repair/reload an armed job.
+      if(e.message==="content_script_missing"){try{await chrome.tabs.reload(tabId);probe=await waitMessage(tabId,{action:"probe",sender:connection.sender});}catch(recovery){e=recovery;}}
+      if(!probe){await api("heartbeat",{observed_username:"",reason:failure(e)==="unconfirmed_result"?"browser_unavailable":failure(e)},connection);await store.set({status:failure(e)});return;}
+    }
     const heartbeat=await api("heartbeat",{observed_username:probe.sender,reason:"ready"},connection);await store.set({status:heartbeat.ready?"ready":heartbeat.reason});if(!heartbeat.ready)return;
     const next=await api("next",{},connection);if(next.assignment)await execute(connection,next.assignment,tabId);
   }catch(e){await store.set({status:e.message==="forbidden"?"연결 해제·만료 · ERUTY에서 확인하세요":"서버 연결 확인 필요",...(e.message==="forbidden"?{paused:true}:{})});}
