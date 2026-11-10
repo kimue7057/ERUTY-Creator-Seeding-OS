@@ -50,7 +50,7 @@ export function draftService(database:Pick<typeof db,"transaction">=db,fetcher:t
       await approved(actor,data.campaignId,data.creatorAccountId,data.inputSha256,tx);
       if(data.senderAccountId) {
         const accounts=await accountService(tx).list(actor),account=accounts.find(a=>a.id===data.senderAccountId);
-        if(!account||account.provider!==(data.channel==="email"?"google":data.channel)||data.fromAddress&&!account.addresses.some(a=>a.address===data.fromAddress))throw new OutreachError("reconnect");
+        if(!account||account.provider!==(data.channel==="email"?"google":data.channel)||data.fromAddress&&!(data.channel==="instagram"&&data.fromAddress===`@${account.expectedIdentity}`)&&!account.addresses.some(a=>a.address===data.fromAddress))throw new OutreachError("reconnect");
       } else if(data.fromAddress) throw new OutreachError("reconnect");
       const {revision,...values}=data;
       if(revision===0){

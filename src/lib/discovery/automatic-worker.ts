@@ -12,6 +12,7 @@ import { browserRequestService } from "./browser-requests";
 import { discoveryService, type DiscoveryTransaction } from "./service";
 import { codexBrowserActor } from "./local-browser";
 import { creatorAssessments } from "../db/assessment-schema";
+import { browserOutreachSends } from "../db/outreach-schema";
 const lease = z.strictObject({ worker_id: z.uuid(), instance_id: z.uuid() });
 const active = ["starting", "running"] as const;
 const fresh = (at: Date) => at.getTime() > Date.now() - 45000;
@@ -28,20 +29,22 @@ export function automaticWorkerService(database: typeof db = db) {
   }
   return {
     heartbeat: (actor: ActorScope, input: unknown) => database.transaction(async tx => {
-      const data = lease.extend({ name: z.string().trim().min(1).max(80), browser_surface: z.enum(["iab", "chrome"]), platforms: z.array(platformSchema).min(1).max(3), ready: z.boolean() }).parse(input);
+      const data = lease.extend({ name: z.string().trim().min(1).max(80), browser_surface: z.enum(["iab", "chrome"]), platforms: z.array(platformSchema).min(1).max(3), ready: z.boolean(),outreach_ready:z.boolean().default(false) }).parse(input);
       await member(tx, actor);
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${"codex-worker"}), hashtext(${data.worker_id}))`);
       const [old] = await tx.select().from(workers).where(eq(workers.id, data.worker_id)).for("update");
       if (old && (old.organizationId !== actor.organizationId || old.userId !== actor.userId)) throw new DiscoveryError(403, "worker_scope_denied");
       if (old && old.instanceId !== data.instance_id && fresh(old.lastSeenAt)) throw new DiscoveryError(409, "worker_already_online");
       if (old && old.instanceId !== data.instance_id) await tx.update(executions).set({ state: "interrupted", errorCode: "worker_restarted", finishedAt: new Date(), updatedAt: new Date() }).where(and(eq(executions.workerId, old.id), inArray(executions.state, [...active])));
-      const values = { organizationId: actor.organizationId, userId: actor.userId, instanceId: data.instance_id, name: data.name, browserSurface: data.browser_surface, platforms: [...new Set(data.platforms)], ready: data.ready ? "ready" as const : "unavailable" as const, lastSeenAt: new Date() };
+      const values = { organizationId: actor.organizationId, userId: actor.userId, instanceId: data.instance_id, name: data.name, browserSurface: data.browser_surface, platforms: [...new Set(data.platforms)], ready: data.ready ? "ready" as const : "unavailable" as const, outreachReady:data.ready&&data.outreach_ready?"yes" as const:"no" as const,lastSeenAt: new Date() };
       await tx.insert(workers).values({ id: data.worker_id, ...values }).onConflictDoUpdate({ target: workers.id, set: values });
       return { online: data.ready };
     }),
     next: (actor: ActorScope, input: unknown) => database.transaction(async tx => {
       const data = lease.parse(input), host = await worker(tx, actor, data);
       if (host.ready !== "ready") throw new DiscoveryError(409, "browser_unavailable");
+      const [contacting]=await tx.select({id:browserOutreachSends.id}).from(browserOutreachSends).where(and(eq(browserOutreachSends.workerId,host.id),inArray(browserOutreachSends.state,["preparing","armed"])));
+      if(contacting)return{assignment:null,busy:true};
       const [assessing] = await tx.select().from(creatorAssessments).where(and(eq(creatorAssessments.workerId, host.id), eq(creatorAssessments.state, "running")));
       if (assessing) return { assignment: null, busy: true };
       const [busy] = await tx.select().from(executions).where(and(eq(executions.workerId, host.id), inArray(executions.state, [...active])));

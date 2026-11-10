@@ -35,6 +35,10 @@ export function parseInstagramSystemUserInput(input:unknown) {
 }
 export function outreachErrorMessage(error: unknown): string {
   const messages: Record<string, string> = {
+    browser_outreach_offline:"연락용 브라우저 실행기가 연결되지 않았습니다. 실행 PC의 Codex·브라우저와 연락 작업 설정을 확인하세요.",
+    browser_outreach_pending:"이 수신자에게 진행 중이거나 결과가 확인되지 않은 발송이 있습니다. 발송 기록을 먼저 확인하세요.",
+    browser_outreach_claim_expired:"브라우저 작업 권한이 만료됐거나 실행기가 바뀌었습니다. 같은 메시지를 자동으로 다시 보내지 않습니다.",
+    browser_outreach_observation_invalid:"선택한 회사 계정·수신자·본문과 실제 브라우저 화면이 일치하는지 확인해야 합니다.",
     instagram_dm_mode_required:"Instagram DM에는 Unified Login으로 연결한 회사 계정이 필요합니다.",
     instagram_dm_inbound_required:"이 상대가 회사 계정에 먼저 보낸 메시지를 확인해야 답장할 수 있습니다.",
     instagram_dm_window_closed:"마지막 수신 메시지로부터 24시간이 지났습니다. 상대가 새 메시지를 보내면 답장할 수 있습니다.",

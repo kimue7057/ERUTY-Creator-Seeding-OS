@@ -6,7 +6,7 @@ import { withDiscoveryDatabase,sqlFailure } from "../discovery-fixture";
 import { accountService } from "../../src/lib/outreach/accounts";
 import { providerAppService } from "../../src/lib/outreach/provider-apps";
 import { instagramDmService } from "../../src/lib/outreach/instagram-dm";
-import { instagramDmSends,senderAccounts } from "../../src/lib/db/outreach-schema";
+import { instagramDmSends,senderAccounts,browserOutreachSends } from "../../src/lib/db/outreach-schema";
 import { OutreachError } from "../../src/lib/outreach/contracts";
 import { seedShortlistCandidate,goodShortlistEvaluation } from "../shortlist-samples";
 import { shortlistService } from "../../src/lib/evaluation/shortlist";
@@ -41,6 +41,8 @@ test("Instagram sending is tenant/role scoped, confirmed, sender-owned, immutabl
   await assert.rejects(h.svc.list(f.other,h.account.id),code("not_found"));await assert.rejects(h.svc.list(f.reader,h.account.id),code("forbidden"));
   await assert.rejects(h.svc.send(f.actor,{...h.input,confirmed:false}));assert.equal(h.sends(),0);
   await assert.rejects(h.svc.send(f.actor,{...h.input,selection:{...h.input.selection,username:"wrong_recipient"}}),code("instagram_dm_recipient_changed"));assert.equal(h.sends(),0);
+  const browserId=randomUUID();await f.database.insert(browserOutreachSends).values({id:browserId,organizationId:f.actor.organizationId,accountId:h.account.id,senderUsername:"synthetic_company",recipientUsername:h.input.selection.username,body:"SYNTHETIC queued browser reply",inputSha256:"a".repeat(64),createdBy:f.actor.userId});
+  await assert.rejects(h.svc.send(f.actor,h.input),code("browser_outreach_pending"));assert.equal(h.sends(),0);await f.database.update(browserOutreachSends).set({state:"cancelled"}).where(eq(browserOutreachSends.id,browserId));
   const result=await Promise.allSettled([h.svc.send(f.actor,h.input),h.svc.send(f.actor,h.input)]);assert.ok(result.some(r=>r.status==="fulfilled"));assert.equal(h.sends(),1);
   assert.equal((await h.svc.send(f.actor,h.input)).status,"sent");assert.equal(h.sends(),1);
   await assert.rejects(h.svc.send(f.actor,{...h.input,body:"changed"}),code("instagram_dm_request_changed"));
