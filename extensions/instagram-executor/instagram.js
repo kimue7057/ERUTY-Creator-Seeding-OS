@@ -33,7 +33,8 @@
     return{sender:c.sender,recipient:c.recipient,body:c.body,source_url:location.origin+location.pathname,observed_at:new Date().toISOString(),visible_text:[profile.querySelector('img').alt,header.getAttribute('aria-label'),text].join('\n')};
   }
   function outgoing(root,editor,c){
-    return [...root.querySelectorAll('div,span,p')].filter(e=>visible(e)&&!editor.contains(e)&&e!==editor&&normalize(e.innerText)===normalize(c.body)&&![...e.children].some(ch=>normalize(ch.innerText)===normalize(c.body))).filter(e=>{let parent=e.parentElement;for(let i=0;parent&&parent!==root&&i<8;i++,parent=parent.parentElement){if([...parent.querySelectorAll('[aria-label]')].some(a=>{const label=a.getAttribute('aria-label')??"";return label.includes(c.sender)&&/메시지|message/i.test(label);}))return true;}return false;});
+    const self=new RegExp(`(^|[^A-Za-z0-9._])${c.sender.replaceAll('.', '\\.')}($|[^A-Za-z0-9._])`,'i');
+    return [...root.querySelectorAll('div,span,p')].filter(e=>visible(e)&&!editor.contains(e)&&e!==editor&&normalize(e.innerText)===normalize(c.body)&&![...e.children].some(ch=>normalize(ch.innerText)===normalize(c.body))).filter(e=>{let parent=e.parentElement;for(let i=0;parent&&parent!==root&&i<8;i++,parent=parent.parentElement){const labels=[...parent.querySelectorAll('[aria-label]')].map(a=>a.getAttribute('aria-label')??"").filter(label=>/님의 메시지|reply.*message|react.*message|message.*options/i.test(label));if(labels.length)return labels.every(label=>self.test(label));}return false;});
   }
   async function command(c){
     if(c.action==="probe")return{sender:sender(c.sender)};

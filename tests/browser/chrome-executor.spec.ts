@@ -30,3 +30,8 @@ test("synthetic Sending status never becomes a confirmed result and cannot trigg
   await fixture(page,true);const c=command();await dispatch(page,{...c,action:"prepare"});await dispatch(page,{...c,action:"send",permit:permit(c.job_id)});
   expect((await dispatch(page,{...c,action:"verify"})).ok).toBe(false);expect((await dispatch(page,{...c,action:"send",permit:permit(c.job_id)})).ok).toBe(false);expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(1);
 });
+test("synthetic incoming copy of the text cannot borrow attribution from an older company message",async({page})=>{
+  await fixture(page);const c=command();await dispatch(page,{...c,action:"prepare"});await dispatch(page,{...c,action:"send",permit:permit(c.job_id)});
+  await page.locator('#messages').evaluate(messages=>{messages.querySelector('button')!.setAttribute('aria-label','Reply to shadow_synthetic_company message');const older=document.createElement('div');older.textContent='SYNTHETIC older unrelated outgoing';const action=document.createElement('button');action.setAttribute('aria-label','Reply to synthetic_company message');older.appendChild(action);messages.appendChild(older);});
+  expect((await dispatch(page,{...c,action:"verify"})).ok).toBe(false);expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(1);
+});
