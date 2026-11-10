@@ -33,16 +33,18 @@
     const text=sent?outgoing(root,editor,c).at(-1)?.innerText:editor.innerText;if(!profile||!header||!text)fail("unconfirmed_result");
     return{sender:c.sender,recipient:c.recipient,body:c.body,source_url:location.origin+location.pathname,observed_at:new Date().toISOString(),visible_text:[profile.querySelector('img').alt,header.getAttribute('aria-label'),text].join('\n')};
   }
+  const exactMessages=(root,editor,c)=>[...root.querySelectorAll('div,span,p')].filter(e=>visible(e)&&!editor.contains(e)&&e!==editor&&normalize(e.innerText)===normalize(c.body)&&![...e.children].some(ch=>normalize(ch.innerText)===normalize(c.body)));
   function outgoing(root,editor,c){
     const self=new RegExp(`(^|[^A-Za-z0-9._])${c.sender.replaceAll('.', '\\.')}($|[^A-Za-z0-9._])`,'i');
-    return [...root.querySelectorAll('div,span,p')].filter(e=>visible(e)&&!editor.contains(e)&&e!==editor&&normalize(e.innerText)===normalize(c.body)&&![...e.children].some(ch=>normalize(ch.innerText)===normalize(c.body))).filter(e=>{let parent=e.parentElement;for(let i=0;parent&&parent!==root&&i<8;i++,parent=parent.parentElement){const labels=[...parent.querySelectorAll('[aria-label]')].map(a=>a.getAttribute('aria-label')??"").filter(label=>/님의 메시지|reply.*message|react.*message|message.*options/i.test(label));if(labels.length)return labels.every(label=>self.test(label));}return false;});
+    return exactMessages(root,editor,c).filter(e=>{let parent=e.parentElement;for(let i=0;parent&&parent!==root&&i<8;i++,parent=parent.parentElement){const labels=[...parent.querySelectorAll('[aria-label]')].map(a=>a.getAttribute('aria-label')??"").filter(label=>/님의 메시지|reply.*message|react.*message|message.*options/i.test(label));if(labels.length)return labels.every(label=>self.test(label));}return false;});
   }
   async function command(c){
     if(c.action==="probe")return{sender:sender(c.sender)};
     if(c.action==="diagnostic"){
       validate(c);const controls=[...document.querySelectorAll('button,[role="button"],a,[role="link"]')].filter(e=>visible(e)&&/메시지|message/i.test(name(e))&&e.getBoundingClientRect().top<600).slice(0,8);
       const editors=[...document.querySelectorAll('[contenteditable="true"][role="textbox"]')].filter(visible),editor=editors.length===1?editors[0]:null;
-      return{diagnostic:{path_kind:location.pathname.replace(/^\/|\/$/g,'').toLowerCase()===c.recipient?"recipient_profile":/^\/direct\/t\//.test(location.pathname)?"direct_thread":"other",document_visible:document.visibilityState==="visible",...preparation.get(c.job_id),editor_state:!editor?"unavailable":editor.innerText===c.body?"exact":!editor.innerText.trim()?"empty":"different",message_controls:controls.map(e=>({label:["메시지 보내기","메시지","Message","Send message"].includes(name(e))?name(e):"other",kind:e.tagName==="BUTTON"||e.getAttribute('role')==="button"?"button":e.tagName==="A"||e.getAttribute('role')==="link"?"link":"other",enabled:!e.disabled&&e.getAttribute('aria-disabled')!=="true"})),editor_count:Math.min(20,editors.length),recipient_headers:Math.min(20,[...document.querySelectorAll('a[aria-label][href]')].filter(a=>visible(a)&&path(a)===c.recipient&&/프로필 페이지|profile page/i.test(a.getAttribute('aria-label'))).length)}};
+      let current;try{current=thread(c);}catch{/* Report only fixed counts when a scoped thread is unavailable. */}
+      return{diagnostic:{path_kind:location.pathname.replace(/^\/|\/$/g,'').toLowerCase()===c.recipient?"recipient_profile":/^\/direct\/t\//.test(location.pathname)?"direct_thread":"other",document_visible:document.visibilityState==="visible",...preparation.get(c.job_id),editor_state:!editor?"unavailable":editor.innerText===c.body?"exact":!editor.innerText.trim()?"empty":"different",exact_messages:current?Math.min(20,exactMessages(current.root,current.editor,c).length):0,attributed_messages:current?Math.min(20,outgoing(current.root,current.editor,c).length):0,message_controls:controls.map(e=>({label:["메시지 보내기","메시지","Message","Send message"].includes(name(e))?name(e):"other",kind:e.tagName==="BUTTON"||e.getAttribute('role')==="button"?"button":e.tagName==="A"||e.getAttribute('role')==="link"?"link":"other",enabled:!e.disabled&&e.getAttribute('aria-disabled')!=="true"})),editor_count:Math.min(20,editors.length),recipient_headers:Math.min(20,[...document.querySelectorAll('a[aria-label][href]')].filter(a=>visible(a)&&path(a)===c.recipient&&/프로필 페이지|profile page/i.test(a.getAttribute('aria-label'))).length)}};
     }
     if(document.visibilityState!=="visible")fail("browser_unavailable");
     if(c.action==="foreground"){validate(c);return{};}
@@ -67,9 +69,13 @@
       preparation.set(c.job_id,{...preparation.get(c.job_id),prepare_step:"observation"});
       prepared.set(c.job_id,{root,editor,count,sent:false});const observed=observation(c,root,editor);preparation.set(c.job_id,{...preparation.get(c.job_id),prepare_step:"ready"});return{observation:observed};
     }
-    const state=prepared.get(c.job_id);if(!state||state.editor!==editor||state.root!==root)fail("unconfirmed_result");
+    if(c.action==="inspect_sent"){
+      if(editor.innerText.trim()||/전송 중|Sending|보내지 못|couldn.t send/i.test(root.innerText)||outgoing(root,editor,c).length!==1)fail("unconfirmed_result");
+      return{observation:observation(c,root,editor,true)};
+    }
+    const state=prepared.get(c.job_id);if(!state)fail("unconfirmed_result");
     if(c.action==="send"){
-      if(state.sent||editor.innerText!==c.body||c.permit?.job_id!==c.job_id||c.permit?.send_permitted!==true||Date.parse(c.permit.expires_at)<=Date.now())fail("unconfirmed_result");
+      if(state.editor!==editor||state.root!==root||state.sent||editor.innerText!==c.body||c.permit?.job_id!==c.job_id||c.permit?.send_permitted!==true||Date.parse(c.permit.expires_at)<=Date.now())fail("unconfirmed_result");
       const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(c.body)))].map(x=>x.toString(16).padStart(2,'0')).join('');if(digest!==c.permit.body_sha256)fail("unconfirmed_result");
       const send=buttons(root).filter(e=>/^(보내기|Send)$/i.test(name(e)));if(send.length!==1)fail("recipient_unavailable");state.sent=true;send[0].click();return{};
     }

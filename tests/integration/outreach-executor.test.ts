@@ -49,3 +49,22 @@ test("a pre-arm UI failure preserves its exact stage without claiming a send or 
   assert.equal((await svc.finish(f.actor,{...grant,outcome:"blocked",reason:"recipient_button_unavailable",ui_diagnostic:{stage:"open",path_kind:"recipient_profile",message_controls:[{label:"Message",kind:"button",enabled:false}],editor_count:0,recipient_headers:0}})).state,"blocked");
   const row=(await f.client.query("select state,reason,armed_at,sent_at,observation from outreach_browser_sends where id=$1",[input.id])).rows[0];assert.equal(row.reason,"recipient_button_unavailable");assert.equal(row.armed_at,null);assert.equal(row.sent_at,null);assert.equal(row.observation,null);assert.equal((await f.client.query("select count(*)::int count from audit_events where entity_id=$1 and action='outreach.browser_ui_blocked.open'",[input.id])).rows[0].count,1);
 }));
+
+test("read-only sent recheck is scoped to its original executor, requires fresh evidence and preserves unknown audit",async()=>withDiscoveryDatabase(async f=>{
+  const h=await connection(f),other=await connection(f,'synthetic_other'),svc=browserSendService(f.database);
+  for(const x of[h,other])await x.svc.heartbeat(x.identity,{observed_username:x.credentials.sender,reason:'ready'});
+  const request={id:randomUUID(),accountId:h.account.id,recipient:'synthetic_recipient',body:'SYNTHETIC recheck only',confirmed:true};await svc.create(f.actor,request);const grant=(await svc.next(f.actor,h.identity.lease)).assignment!;
+  const review={...h.identity.lease,job_id:request.id};await assert.rejects(svc.reviewContext(f.actor,review),code('browser_outreach_pending'));
+  const observation={sender:'synthetic_company',recipient:'synthetic_recipient',body:request.body,source_url:'https://www.instagram.com/synthetic_recipient/',observed_at:new Date().toISOString(),visible_text:request.body};
+  await svc.arm(f.actor,{...grant,observation});await svc.finish(f.actor,{...grant,outcome:'unknown',reason:'unconfirmed_result'});
+  await assert.rejects(f.client.query("update outreach_browser_sends set state='sent',reason='confirmed_on_recheck' where id=$1",[request.id]),sqlFailure('23514'));
+  await assert.rejects(svc.reviewContext(f.actor,{...review,...other.identity.lease}),code('not_found'));await assert.rejects(svc.reviewContext(f.reader,review),code('forbidden'));
+  const ctx=await svc.reviewContext(f.actor,review);assert.equal(ctx.send_permitted,false);assert.equal(ctx.state,'unknown');await assert.rejects(svc.arm(f.actor,{...grant,observation}),code('browser_outreach_pending'));
+  assert.equal((await svc.reviewFinish(f.actor,{...review,observation:null})).state,'unknown');
+  await assert.rejects(svc.reviewFinish(f.actor,{...review,observation:{...observation,recipient:'synthetic_wrong',observed_at:new Date().toISOString()}}),code('browser_outreach_observation_invalid'));
+  assert.equal((await svc.reviewFinish(f.actor,{...review,observation:{...observation,observed_at:new Date().toISOString()}})).state,'sent');
+  assert.equal((await svc.reviewFinish(f.actor,{...review,observation:{...observation,observed_at:new Date().toISOString()}})).state,'sent');
+  const events=(await f.client.query("select action from audit_events where entity_id=$1",[request.id])).rows.map(row=>row.action);assert.equal(events.filter(x=>x==='outreach.browser_send_armed').length,1);assert.equal(events.filter(x=>x==='outreach.browser_send_unknown').length,1);assert.equal(events.filter(x=>x==='outreach.browser_send_rechecked_sent').length,1);
+  const row=(await svc.history(f.actor,h.account.id))[0];assert.equal(row.reason,'confirmed_on_recheck');
+  await assert.rejects(f.client.query("update outreach_browser_sends set observation=null where id=$1",[request.id]),sqlFailure('23514'));
+}));

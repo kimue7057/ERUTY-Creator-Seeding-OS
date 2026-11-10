@@ -85,6 +85,18 @@ async function execute(connection,grant,tabId){
     await finish(connection,journal,"sent","confirmed_on_screen",verified.observation);
   }catch(e){let diagnostic={stage:journal.stage};if(command){try{const snapshot=await message(tabId,{action:"diagnostic",...command});diagnostic={...snapshot.diagnostic,stage:journal.stage};}catch{/* No unrelated DOM or credential text is collected. */}}const reason=e.message==="recipient_unavailable"?({profile:"recipient_profile_unavailable",open:"recipient_button_unavailable",prepare:"recipient_composer_unavailable"}[journal.stage]??"recipient_unavailable"):failure(e);await finish(connection,journal,journal.phase==="preparing"?"blocked":"unknown",reason,null,diagnostic);}
 }
+async function review(connection,jobId,tabId){
+  let command;try{
+    const job=await api("review-context",{job_id:jobId},connection);if(job.state==="sent"){await store.set({lastResult:{jobId,outcome:"sent",reason:"confirmed_on_recheck",at:new Date().toISOString()}});return;}
+    if(job.state!=="unknown"||job.send_permitted!==false||job.sender!==connection.sender)throw new Error("unconfirmed_result");
+    command={job_id:job.id,sender:job.sender,recipient:job.recipient,body:job.body};await navigate(tabId,job.recipient_url,command);
+    let observed;try{observed=await message(tabId,{action:"inspect_sent",...command});}catch(error){
+      if(error.message!=="recipient_unavailable")throw error;
+      await waitMessage(tabId,{action:"profile",...command});await waitMessage(tabId,{action:"open",...command},15000);await activate(tabId,command);observed=await waitMessage(tabId,{action:"inspect_sent",...command},15000);
+    }
+    const result=await api("review-finish",{job_id:jobId,observation:observed.observation},connection);await store.set({lastResult:{jobId,outcome:result.state,reason:"confirmed_on_recheck",at:new Date().toISOString()}});
+  }catch{let diagnostic={stage:"verify"};if(command){try{const result=await message(tabId,{action:"diagnostic",...command});diagnostic={...result.diagnostic,stage:"verify"};}catch{/* Never collect unrelated inbox text. */}}try{await api("review-finish",{job_id:jobId,observation:null,ui_diagnostic:diagnostic},connection);}catch{/* The original unknown remains blocked; never send again. */}}
+}
 async function tick(){
   if(running)return;running=true;
   try{
@@ -100,6 +112,8 @@ async function tick(){
       if(!probe){await api("heartbeat",{observed_username:"",reason:failure(e)==="unconfirmed_result"?"browser_unavailable":failure(e)},connection);await store.set({status:failure(e)});return;}
     }
     const heartbeat=await api("heartbeat",{observed_username:probe.sender,reason:"ready"},connection);await store.set({status:heartbeat.ready?"ready":heartbeat.reason});if(!heartbeat.ready)return;
+    const {lastResult,reviewAttempted}=await store.get(["lastResult","reviewAttempted"]);
+    if(lastResult?.outcome==="unknown"&&reviewAttempted!==lastResult.jobId){await store.set({reviewAttempted:lastResult.jobId});await review(connection,lastResult.jobId,tabId);return;}
     const next=await api("next",{},connection);if(next.assignment)await execute(connection,next.assignment,tabId);
   }catch(e){await store.set({status:e.message==="forbidden"?"연결 해제·만료 · ERUTY에서 확인하세요":"서버 연결 확인 필요",...(e.message==="forbidden"?{paused:true}:{})});}
   finally{running=false;}
@@ -115,6 +129,6 @@ chrome.runtime.onMessageExternal.addListener((request,sender,respond)=>{
 });
 chrome.runtime.onMessage.addListener((request,sender,respond)=>{
   if(sender.id!==chrome.runtime.id||sender.tab||sender.url!==chrome.runtime.getURL("popup.html"))return;
-  if(request?.type==="ERUTY_CHECK"){void tick();respond({ok:true});}
+  if(request?.type==="ERUTY_CHECK"){void store.remove("reviewAttempted").then(tick);respond({ok:true});}
   if(request?.type==="ERUTY_DISCONNECT"){void (async()=>{await secured;const {journal,connection}=await store.get(["journal","connection"]);if(running){respond({ok:false});return;}await store.set({paused:true});if(connection){try{await api("disconnect",{},connection);}catch(e){if(e.status!==403)throw e;}}if(journal)await store.set({lastResult:{jobId:journal.grant.job_id,outcome:"unknown",reason:"disconnected",at:new Date().toISOString()}});await store.remove(["connection","journal"]);await store.set({status:"연결 해제됨"});respond({ok:true});})().catch(()=>respond({ok:false}));return true;}
 });

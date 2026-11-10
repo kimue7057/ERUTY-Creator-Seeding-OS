@@ -72,3 +72,16 @@ test("synthetic hidden document cannot open, prepare or send a proposal",async({
   await fixture(page);const c=command();expect((await dispatch(page,{...c,action:'prepare'})).ok).toBe(true);await page.evaluate(()=>Object.defineProperty(document,'visibilityState',{configurable:true,get:()=> 'hidden'}));
   for(const action of ['foreground','open','prepare','send'])expect((await dispatch(page,{...c,action,permit:permit(c.job_id)})).reason).toBe('browser_unavailable');expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
 });
+
+test("synthetic replacement of rendered thread after Send is revalidated without clicking again",async({page})=>{
+  await fixture(page);const c=command();await dispatch(page,{...c,action:'prepare'});await dispatch(page,{...c,action:'send',permit:permit(c.job_id)});
+  await page.locator('section').evaluate(section=>section.replaceWith(section.cloneNode(true)));
+  expect((await dispatch(page,{...c,action:'verify'})).ok).toBe(true);expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(1);
+});
+
+test("synthetic sent recheck has no preparation or send permit and cannot reuse another sender's text",async({page})=>{
+  await fixture(page);const c=command();await page.locator('#messages').evaluate((messages,text)=>{const row=document.createElement('div');row.innerHTML='<span></span><button aria-label="Reply to synthetic_company message"></button>';row.querySelector('span')!.textContent=text;messages.appendChild(row);},body);
+  expect((await dispatch(page,{...c,action:'inspect_sent'})).ok).toBe(true);expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);expect((await dispatch(page,{...c,action:'send',permit:permit(c.job_id)})).ok).toBe(false);
+  await page.locator('#messages button').evaluate(button=>button.setAttribute('aria-label','Reply to synthetic_recipient message'));
+  expect((await dispatch(page,{...c,action:'inspect_sent'})).ok).toBe(false);expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
+});
