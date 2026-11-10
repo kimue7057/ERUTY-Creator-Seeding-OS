@@ -7,8 +7,9 @@ import { providerNames, senderStates, type SenderProvider } from "@/lib/outreach
 import type { PublicSenderAccount } from "@/lib/outreach/accounts";
 import { useHydrated } from "@/components/use-hydrated";
 import { ConnectionTest } from "./connection-test";
+import { InstagramSystemUser } from "./instagram-system-user";
 const icons={google:Mail,instagram:Instagram,tiktok:Music2};
-function ConnectionCard({account,available,writable}:{account:PublicSenderAccount;available:boolean;writable:boolean}) {
+function ConnectionCard({account,available,writable,systemUserRevision}:{account:PublicSenderAccount;available:boolean;writable:boolean;systemUserRevision?:number}) {
   const [state,action,pending]=useActionState(accountAction,{}),[confirm,setConfirm]=useState(false),Icon=icons[account.provider];
   const connected=account.status==="connected";
   return <article className="sender-card surface">
@@ -27,10 +28,11 @@ function ConnectionCard({account,available,writable}:{account:PublicSenderAccoun
       {confirm&&<div className="sender-disconnect"><p>ERUTY에 저장된 인증 정보를 삭제합니다. Google·SNS 자체의 앱 권한은 해당 서비스 설정에서 별도로 철회할 수 있습니다.</p><button className="btn" name="action" value="disconnect" disabled={pending} onClick={()=>setConfirm(false)}>연결 해제 확인</button><button className="btn" type="button" onClick={()=>setConfirm(false)}>취소</button></div>}
       <p role="status" className={state.error?"form-error":"description"}>{state.error??state.message}</p>
     </form>}
+    {writable&&account.provider==="instagram"&&systemUserRevision!==undefined&&<InstagramSystemUser account={account} revision={systemUserRevision}/>}
     {writable&&connected&&account.provider==="google"&&<ConnectionTest accountId={account.id} addresses={account.addresses}/>}
   </article>;
 }
-export function AccountManager({accounts,availability,writable}:{accounts:PublicSenderAccount[];availability:Record<SenderProvider,boolean>;writable:boolean}) {
+export function AccountManager({accounts,availability,writable,instagramSystemUserRevision}:{accounts:PublicSenderAccount[];availability:Record<SenderProvider,boolean>;writable:boolean;instagramSystemUserRevision?:number}) {
   const hydrated=useHydrated();
   const [provider,setProvider]=useState<SenderProvider>("google"),[state,action,pending]=useActionState(accountAction,{}),[adding,setAdding]=useState(accounts.length===0);
   return <>
@@ -41,7 +43,7 @@ export function AccountManager({accounts,availability,writable}:{accounts:Public
       <label>{provider==="google"?"회사 이메일 주소":"SNS 아이디"}<input key={provider} className="input" name="identity" type={provider==="google"?"email":"text"} placeholder={provider==="google"?"회사에서 사용하는 이메일":"@아이디"} maxLength={254} required autoComplete="off"/></label>
       <button className="btn btn-primary" disabled={pending}>{pending?"등록 중…":"계정 등록"}<ArrowUpRight size={15}/></button><p role="status" className={state.error?"form-error":"description"}>{state.error??state.message}</p>
     </form></section>}
-    <div className="sender-grid">{accounts.map(account=><ConnectionCard key={account.id+account.status+account.verifiedAt} account={account} available={availability[account.provider]} writable={writable}/>)}</div>
+    <div className="sender-grid">{accounts.map(account=><ConnectionCard key={account.id+account.updatedAt} account={account} available={availability[account.provider]} writable={writable} systemUserRevision={instagramSystemUserRevision}/>)}</div>
     {!accounts.length&&<p className="outreach-note">등록된 발신 계정이 없습니다. 회사 이메일과 SNS를 각각 추가하세요.</p>}
   </>;
 }

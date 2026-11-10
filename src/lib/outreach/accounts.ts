@@ -6,13 +6,14 @@ import { auditEvents } from "../db/schema";
 import { senderAccounts as accounts, senderOAuthStates as states } from "../db/outreach-schema";
 import type { ActorScope } from "../auth/permissions";
 import { hashSecret, seal, unseal } from "./crypto";
-import { normalizeIdentity, OutreachError, registerAccountSchema, type SenderProvider } from "./contracts";
+import { normalizeIdentity, OutreachError, registerAccountSchema, instagramSystemUserInputSchema, type SenderProvider } from "./contracts";
+import { verifyInstagramSystemUserToken } from "./instagram-unified";
 import { authorizationUrl, exchangeCode, fetchIdentity, matchesExpected, providerConfig, refreshTokens, type ProviderTokens } from "./providers";
 import { resolveProviderConfig } from "./provider-apps";
 import { outreachMember } from "./access";
 export { outreachMember } from "./access";
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-export const publicAccountColumns = { id:accounts.id,provider:accounts.provider,label:accounts.label,expectedIdentity:accounts.expectedIdentity,identity:accounts.identity,addresses:accounts.addresses,status:accounts.status,verifiedAt:accounts.verifiedAt,expiresAt:accounts.expiresAt };
+export const publicAccountColumns = { id:accounts.id,provider:accounts.provider,label:accounts.label,expectedIdentity:accounts.expectedIdentity,identity:accounts.identity,addresses:accounts.addresses,status:accounts.status,verifiedAt:accounts.verifiedAt,expiresAt:accounts.expiresAt,updatedAt:accounts.updatedAt };
 export function accountService(database: Pick<typeof db,"transaction"> = db, fetcher: typeof fetch = fetch) {
   const scoped = (actor: ActorScope, id: string) => and(eq(accounts.organizationId,actor.organizationId),eq(accounts.id,z.uuid().parse(id)));
   const context = (org: string,id: string) => `${org}:${id}:sender-token`;
@@ -79,6 +80,23 @@ export function accountService(database: Pick<typeof db,"transaction"> = db, fet
         await audit(tx,actor,row.id,"outreach.account_connected"); return row.id;
       });
     },
+    connectInstagramSystemUser: (actor:ActorScope,id:string,input:unknown) => database.transaction(async tx => {
+      // Check the actual current membership, not a role supplied by the client.
+      await outreachMember(tx,actor,true,true);
+      const data=instagramSystemUserInputSchema.parse(input),row=await load(tx,actor,id);
+      if(row.provider!=="instagram")throw new OutreachError("not_found");
+      const config=await resolveProviderConfig(tx,actor.organizationId,"instagram");
+      if(!config.configured||config.instagramLoginMode!=="unified")throw new OutreachError("not_configured");
+      if(config.revision!==data.revision||row.updatedAt.getTime()!==Date.parse(data.updatedAt))throw new OutreachError("connection_changed");
+      const verified=await verifyInstagramSystemUserToken(data.accessToken,config,row.expectedIdentity,fetcher);
+      if(!matchesExpected(row.expectedIdentity,verified))throw new OutreachError("wrong_identity");
+      const [existing]=await tx.select({id:accounts.id}).from(accounts).where(and(eq(accounts.organizationId,actor.organizationId),eq(accounts.provider,"instagram"),eq(accounts.providerId,verified.id)));
+      if(existing&&existing.id!==row.id)throw new OutreachError("duplicate");
+      await tx.update(accounts).set({providerId:verified.id,identity:verified.identity,addresses:verified.addresses,scopes:verified.tokens.scopes,status:"connected",appFingerprint:config.fingerprint,tokenCiphertext:seal(JSON.stringify(verified.tokens),context(actor.organizationId,row.id)),expiresAt:verified.tokens.expiresAt===null?null:new Date(verified.tokens.expiresAt),verifiedAt:new Date(),updatedAt:new Date(),updatedBy:actor.userId}).where(scoped(actor,row.id));
+      await tx.update(states).set({consumedAt:new Date()}).where(and(eq(states.organizationId,actor.organizationId),eq(states.accountId,id),isNull(states.consumedAt)));
+      await audit(tx,actor,row.id,"outreach.instagram_system_user_connected");
+      return row.id;
+    }),
     disconnect: (actor:ActorScope,id:string) => database.transaction(async tx => {
       await load(tx,actor,id);
       await tx.update(accounts).set({status:"disconnected",tokenCiphertext:null,addresses:[],scopes:[],expiresAt:null,updatedAt:new Date(),updatedBy:actor.userId}).where(scoped(actor,id));

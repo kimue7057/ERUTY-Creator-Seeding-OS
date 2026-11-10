@@ -8,6 +8,7 @@ import { initializeDiscoveryFixture } from "../discovery-fixture";
 import { seedShortlistCandidate,goodShortlistEvaluation } from "../shortlist-samples";
 import { shortlistService } from "../../src/lib/evaluation/shortlist";
 import { accountService } from "../../src/lib/outreach/accounts";
+import { providerAppService } from "../../src/lib/outreach/provider-apps";
 import { senderAccounts } from "../../src/lib/db/outreach-schema";
 import { sessions } from "../../src/lib/db/schema";
 import * as schema from "../../src/lib/db/schema";
@@ -154,4 +155,25 @@ test("admin imports web OAuth credentials and login uses the saved app; secrets 
   const card=page.locator("article").filter({has:page.getByRole("heading",{name:"SYNTHETIC 회사 A",exact:true})});await expect(card.getByRole("button",{name:"로그인 연결",exact:true})).toBeEnabled();
   await page.route("https://accounts.google.com/**",route=>route.fulfill({contentType:"text/plain",body:"SYNTHETIC OAuth navigation intercepted; no external sign-in"}));
   await card.getByRole("button",{name:"로그인 연결",exact:true}).click();await expect(page).toHaveURL(/accounts.google.com/);const url=new URL(page.url());expect(url.searchParams.get("client_id")).toBe("synthetic-browser.apps.googleusercontent.com");expect(url.searchParams.get("redirect_uri")).toBe(uri);expect(url.searchParams.get("login_hint")).toBe("sender-a@example.invalid");
+});
+
+test("company system-user connection is admin-only and clears the secret even when the request cannot reach the server",async({page,context})=>{
+  await providerAppService(database).save(f.actor,{provider:"instagram",revision:0,clientId:"10000",clientSecret:"synthetic-app-secret",version:"v27.0",instagramLoginMode:"unified",configurationId:"20000"});
+  await accountService(database).register(f.actor,{provider:"instagram",label:"SYNTHETIC system user",identity:"synthetic_company"});
+  await signIn(context);await page.goto("/settings/accounts");
+  const card=page.locator("article").filter({has:page.getByRole("heading",{name:"SYNTHETIC system user",exact:true})});
+  await card.getByText("회사 시스템 사용자 토큰으로 연결",{exact:true}).click();
+  const token=card.getByLabel("Meta 시스템 사용자 토큰",{exact:true}),submit=card.getByRole("button",{name:"시스템 사용자 토큰 검증 후 연결",exact:true});
+  await expect(token).toHaveAttribute("type","password");await expect(submit).toBeDisabled();
+  await token.fill("synthetic-browser-first-party-token");await expect(submit).toBeDisabled();
+  await card.getByRole("checkbox",{name:/회사가 관리하는 앱·자산의 토큰/}).check();await expect(submit).toBeEnabled();
+  // Intercept before the server action: this smoke test never calls Meta.
+  await page.route("**/settings/accounts",route=>route.request().method()==="POST"?route.fulfill({status:503,contentType:"text/plain",body:"Synthetic unavailable action"}):route.continue());
+  await submit.click();await expect(token).toHaveValue("");
+  await expect(card.getByText("ERUTY에 연결 요청을 전달하지 못했습니다. 연결 상태를 확인한 뒤 다시 시도하세요.",{exact:true})).toBeVisible();
+  await expect(card.locator(".badge")).toHaveText("로그인 연결 필요");
+  for(const width of [320,390,1440]){await page.setViewportSize({width,height:1000});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();}
+  await page.screenshot({path:`${artifactDir}/instagram-system-user.png`,fullPage:true});
+  await signIn(context,f.reader);await page.goto("/settings/accounts");
+  await expect(page.getByText("회사 시스템 사용자 토큰으로 연결",{exact:true})).toHaveCount(0);
 });

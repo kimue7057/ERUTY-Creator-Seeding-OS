@@ -10,6 +10,12 @@ export const registerAccountSchema = z.object({ provider: providerSchema, label:
   if (!valid) ctx.addIssue({ code: "custom", path: ["identity"], message: "이메일 주소 또는 SNS 아이디를 확인하세요." });
 });
 export const normalizeIdentity = (value: string) => value.trim().replace(/^@/, "").toLowerCase();
+export const instagramSystemUserInputSchema = z.object({
+  accessToken: z.string().trim().min(20).max(16384).refine(value => !/[\s\u0000-\u001f]/.test(value)),
+  revision: z.number().int().nonnegative(),
+  updatedAt: z.iso.datetime({ offset: true }),
+  confirmed: z.literal(true),
+}).strict();
 export const senderStates = { pending: "로그인 연결 필요", connected: "계정 연결됨", reconnect: "재연결 필요", disconnected: "연결 해제됨" } as const;
 export class OutreachError extends Error {
   constructor(public code: string) { super(code); }
@@ -24,7 +30,9 @@ export function outreachErrorMessage(error: unknown): string {
     instagram_token_inspection_failed: "Meta에서 발급한 인증 정보를 검증하지 못했습니다. 연결은 완료되지 않았습니다. 서버에 기록된 검증 오류를 확인해야 합니다.",
     instagram_account_lookup_failed: "Meta 로그인은 진행됐지만 Instagram 계정 조회에 실패했습니다. 앱의 Instagram 권한과 공유된 계정 설정을 확인해야 합니다.",
     instagram_app_mismatch: "Meta에서 발급한 인증 정보가 ERUTY에 등록한 앱과 다릅니다. Meta 앱 ID·시크릿·구성 ID가 같은 앱의 값인지 확인하세요.",
-    instagram_token_type: "Meta 구성이 Unified Login에서 사용하는 시스템 사용자 인증을 발급하지 않았습니다. Meta의 로그인 구성에서 액세스 토큰 유형을 확인하세요.",
+    instagram_token_type: "이 연결 방식에는 Meta 시스템 사용자 토큰이 필요합니다. 일반 사용자 토큰·앱 토큰·Instagram 단독 로그인 토큰은 사용할 수 없습니다.",
+    instagram_system_user_no_accounts: "토큰은 유효하지만 연결할 Instagram 계정이 할당되지 않았습니다. Meta 비즈니스 설정 → 사용자 → 시스템 사용자에서 해당 사용자에게 Instagram 자산을 할당했는지 확인하세요.",
+    connection_changed: "계정 또는 회사 앱 설정이 다른 화면에서 변경됐습니다. 새로고침한 뒤 연결을 진행하세요.",
     instagram_no_accounts: "Meta 인증은 확인했지만, 할당 계정 목록과 인증 권한에서 연결할 Instagram 계정을 확인하지 못했습니다. 로그인에서 계정을 선택했다면 비즈니스 자산 권한을 추가 확인해야 합니다.",
     instagram_account_not_shared: "등록한 Instagram 계정이 이번 로그인에서 공유되지 않았습니다. 로그인 권한 화면에서 해당 계정을 선택하세요.",
     instagram_accounts_incomplete: "Meta 계정 목록 전체를 확인하지 못했습니다. 연결할 Instagram 계정만 선택한 뒤 다시 로그인하세요.",

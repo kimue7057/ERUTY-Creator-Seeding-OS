@@ -139,3 +139,16 @@ export async function unifiedIdentity(token: ProviderTokens, config: Config, fet
   if (token.tokenKind !== "meta_system_user" || !token.instagramAccountId) throw new OutreachError("reconnect");
   return identity(token, config, undefined, fetcher, AbortSignal.timeout(45000));
 }
+export async function verifyInstagramSystemUserToken(accessToken: string, config: Config, expectedIdentity: string, fetcher: typeof fetch): Promise<ConnectedIdentity> {
+  // A company administrator may supply a first-party system-user token. It
+  // receives the same app, lifetime, scope and live asset checks as OAuth.
+  // Never infer an authorized account from the supplied username alone.
+  try {
+    return await identity({ accessToken, expiresAt: null, scopes: [] }, config, expectedIdentity, fetcher, AbortSignal.timeout(45000));
+  } catch (error) {
+    if (error instanceof InstagramConnectionError && error.code === "instagram_no_accounts") {
+      throw new InstagramConnectionError("instagram_system_user_no_accounts", error.diagnostic);
+    }
+    throw error;
+  }
+}

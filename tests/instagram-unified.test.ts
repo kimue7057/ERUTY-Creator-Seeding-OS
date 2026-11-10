@@ -5,10 +5,19 @@ import { authorizationUrl, exchangeCode, fetchIdentity, providerConfig, refreshT
 import { OutreachError, outreachErrorMessage } from "../src/lib/outreach/contracts";
 import { InstagramConnectionError } from "../src/lib/outreach/instagram-errors";
 import { providerJson, ProviderHttpError } from "../src/lib/outreach/provider-http";
-import { checkUnifiedAppCredentials } from "../src/lib/outreach/instagram-unified";
+import { checkUnifiedAppCredentials, verifyInstagramSystemUserToken } from "../src/lib/outreach/instagram-unified";
 const uri = "https://example.invalid/api/outreach/oauth/instagram/callback";
 const config = providerConfig("instagram", { APP_ORIGIN: "https://example.invalid", OUTREACH_ENCRYPTION_KEY: "a".repeat(64), OUTREACH_INSTAGRAM_CLIENT_ID: "10000", OUTREACH_INSTAGRAM_CLIENT_SECRET: "synthetic-secret", OUTREACH_INSTAGRAM_API_VERSION: "v25.0", OUTREACH_INSTAGRAM_LOGIN_MODE: "unified", OUTREACH_INSTAGRAM_CONFIGURATION_ID: "20000" });
 const debug = { app_id: "10000", is_valid: true, type: "SYSTEM_USER", expires_at: 0, scopes: ["instagram_basic", "instagram_manage_messages"] };
+test("first-party token verification makes no OAuth exchange and rejects wrong token kinds or unassigned assets",async()=>{
+  for(const [data,accounts,code] of [[debug,{data:[{id:"333",username:"intended_creator"}]},null],[{...debug,type:"USER"},{data:[]},"instagram_token_type"],[{...debug,app_id:"999"},{data:[]},"instagram_app_mismatch"],[debug,{data:[]},"instagram_system_user_no_accounts"]] as const){
+    const paths:string[]=[];
+    const fetcher:typeof fetch=async(url,init)=>{const u=new URL(String(url));paths.push(u.pathname);assert.ok(!u.pathname.endsWith("/oauth/access_token"));if(u.pathname.endsWith("/debug_token")){assert.equal(u.searchParams.get("input_token"),"synthetic-first-party-token");return Response.json({data});}assert.equal(new Headers(init?.headers).get("Authorization"),"Bearer synthetic-first-party-token");return Response.json(accounts);};
+    if(code)await assert.rejects(verifyInstagramSystemUserToken("synthetic-first-party-token",config,"intended_creator",fetcher),(error:unknown)=>error instanceof InstagramConnectionError&&error.code===code);
+    else {const result=await verifyInstagramSystemUserToken("synthetic-first-party-token",config,"intended_creator",fetcher);assert.equal(result.identity,"intended_creator");assert.equal(result.tokens.tokenKind,"meta_system_user");assert.equal(result.tokens.expiresAt,null);}
+    assert.ok(paths.length>0);
+  }
+});
 function mock(debugData: unknown = debug, accounts: unknown = { data: [{ id: "333", username: "intended_creator" }] }): typeof fetch {
   return async url => {
     const u = new URL(String(url)); assert.equal(u.hostname, "graph.facebook.com");

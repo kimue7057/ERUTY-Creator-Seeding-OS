@@ -61,6 +61,21 @@ Workspace는 Google의 회사 메일 서비스 이름이다. 별도 Workspace ID
 
 **현재 구현은 계정 인증과 발신 계정 선택까지다. Instagram 메시지 전송 어댑터·대화 조회·수신자 연결·웹훅은 아직 구현되지 않았다.** 일반 Send API에서는 수신자가 먼저 해당 프로페셔널 계정으로 연락한 대화 등 서비스 조건을 확인해야 한다. 계정 인증만으로 모든 발굴 후보에게 먼저 DM을 보낼 수 있다고 표시하지 않는다. [Meta 공식 메시지 API 안내](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api).
 
+#### 회사 시스템 사용자 토큰으로 연결
+
+회사에서 Meta 앱과 Instagram 자산을 직접 관리하는 경우, 관리자는 **발신 계정 → 회사 시스템 사용자 토큰으로 연결**을 사용할 수 있다. 서비스 연결 설정의 Unified Login 앱이 먼저 등록되어 있어야 한다. Graph API 탐색기의 Instagram 단독 토큰 발급 화면이 `Invalid platform app`으로 실패하는 것과 ERUTY 콜백에서 할당 계정 목록이 비는 것은 다른 실패 단계다. 탐색기의 일반 사용자 토큰을 시스템 사용자 토큰처럼 사용하지 않는다.
+
+1. 회사 포트폴리오의 Meta 비즈니스 설정에서 **사용자 → 시스템 사용자**를 연다. 회사에서 승인한 시스템 사용자를 선택하거나 관리자가 추가한다.
+2. 해당 시스템 사용자에게 회사 Meta 앱과 연결할 Instagram 자산을 할당한다. 토큰을 발급하는 사람도 앱을 관리할 권한이 있어야 한다. Meta에 제한이 표시되면 해당 제한을 해결하며, 다른 포트폴리오로 자산을 옮겨 회피하지 않는다.
+3. 토큰 생성에서 ERUTY에 저장한 것과 같은 Meta 앱을 선택한다. 계정 확인에는 `instagram_basic`이 필요하다. `instagram_manage_messages`는 Meta에서 해당 앱·계정에 허용되는 범위에서 선택하되, 이 선택으로 미구현 DM 기능이 활성화되는 것은 아니다.
+4. 토큰은 ERUTY의 비밀번호 입력란에 직접 붙여 넣고 대상 계정과 교체 확인을 체크한다. 채팅·이슈·로그·저장소에 전달하지 않는다.
+
+서버는 현재 관리자 멤버십과 조직/계정 범위, 입력 당시 앱 revision·계정 수정 시각을 확인한다. 저장된 앱 인증 정보로 `debug_token`을 호출해 같은 앱의 유효한 `SYSTEM_USER` 토큰인지, 수명과 `instagram_basic`을 검사하고 현재 토큰의 실제 할당 계정/명시적 Instagram 권한 대상에서 등록 아이디를 검증한다. 입력한 아이디만으로 계정 ID를 추측하거나 이전 권한을 재사용하지 않는다. 할당되지 않은 토큰도 실패하며, 이 기능이 빈 할당 목록 자체를 보정하는 것은 아니다.
+
+성공한 토큰만 기존 조직·계정 암호화 문맥으로 저장하고 진행 중 OAuth 요청을 폐기한다. 별도 감사 이벤트 `outreach.instagram_system_user_connected`에는 토큰을 넣지 않는다. 실패는 기존 인증을 보존하며 정해진 진단만 로그에 남긴다. 브라우저 입력은 제출 시작 때 지우고 성공·실패 상태로 토큰을 반환하지 않는다. 동기화·만료·연결 해제는 기존 시스템 사용자 토큰과 같은 검증을 적용한다. 추가 DB 마이그레이션은 없다. 실제 회사 토큰의 연결 성공은 별도 운영 검증이 필요하다.
+
+참고: Meta 공식 SDK의 [시스템 사용자 할당 Instagram 조회](https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/systemuser.py)와 [Instagram 사용자 필드](https://github.com/facebook/facebook-python-business-sdk/blob/main/facebook_business/adobjects/iguser.py). 이 SDK는 조회 경로·필드를 보여주며 회사의 실제 자산 할당이나 Meta 검수 통과를 증명하지 않는다.
+
 ### TikTok
 
 1. [TikTok for Developers](https://developers.tiktok.com/)에서 앱을 만들고 웹용 Login Kit을 설정한다.
