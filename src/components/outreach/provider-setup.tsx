@@ -65,5 +65,5 @@ function InstagramSetupGuide({unified}:{unified:boolean}) {
     <li>왼쪽 로그인 완료 주소를 Meta에 등록합니다. {unified?"생성된 로그인 URL을 왼쪽에 가져오면 앱 ID와 구성 ID가 입력됩니다.":"Instagram 앱 ID와 시크릿을 왼쪽에 입력합니다."}</li>
     <li>{unified?"Meta 앱 설정의 기본 정보에서 앱 시크릿을 확인하고 ":""}앱의 Graph API 버전을 입력한 뒤 연결 정보를 저장합니다.</li>
     <li>발신 계정에서 등록한 회사 계정의 ‘로그인 연결’을 누릅니다. Meta 권한 화면에서 해당 Instagram 계정을 선택하고 연결을 마칩니다.</li>
-  </ol><p className="outreach-note">‘게시되지 않음’은 공개 전 상태입니다. 테스트 역할·권한을 준비하고 계정 연결을 확인하세요. 공개 운영의 게시·검수 요건은 Meta에서 별도로 완료해야 합니다.</p><p className="outreach-note">현재 ERUTY는 계정 인증까지 지원합니다. DM 발송·수신 Webhooks는 아직 구현되지 않았습니다. 로그인 완료 주소를 Webhooks 콜백에 넣지 마세요. Meta에서 수동 생성한 액세스 토큰을 입력할 필요는 없습니다.</p></>;
+  </ol><p className="outreach-note">‘게시되지 않음’은 공개 전 상태입니다. 테스트 역할·권한을 준비하고 계정 연결을 확인하세요. 공개 운영의 게시·검수 요건은 Meta에서 별도로 완료해야 합니다.</p><p className="outreach-note">ERUTY는 Unified Login 회사 계정의 실제 대화 조회·24시간 이내 DM 회신을 지원합니다. 대화는 수동 새로고침으로 확인합니다. Webhooks 자동 수신은 아직 지원하지 않습니다. 로그인 완료 주소를 Webhooks 콜백에 넣지 마세요.</p></>;
 }

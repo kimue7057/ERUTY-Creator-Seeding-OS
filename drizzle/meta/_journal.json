@@ -116,6 +116,7 @@
     },
     { "idx": 16, "version": "7", "when": 1793667600000, "tag": "0016_outreach_accounts", "breakpoints": true },
     { "idx": 17, "version": "7", "when": 1793682000000, "tag": "0017_outreach_workspace", "breakpoints": true },
-    { "idx": 18, "version": "7", "when": 1794186000000, "tag": "0018_outreach_connection_tests", "breakpoints": true }
+    { "idx": 18, "version": "7", "when": 1794186000000, "tag": "0018_outreach_connection_tests", "breakpoints": true },
+    { "idx": 19, "version": "7", "when": 1794288000000, "tag": "0019_instagram_dm", "breakpoints": true }
   ]
 }

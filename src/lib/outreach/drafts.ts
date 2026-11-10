@@ -13,6 +13,7 @@ import { OutreachError } from "./contracts";
 import { draftInputSchema,rawEmail } from "./message";
 import { fetchIdentity } from "./providers";
 import { hasPlaceholders } from "./template-contracts";
+import { instagramDmService } from "./instagram-dm";
 export function draftService(database:Pick<typeof db,"transaction">=db,fetcher:typeof fetch=fetch) {
   const scope=(actor:ActorScope,id:string)=>and(eq(drafts.organizationId,actor.organizationId),eq(drafts.id,z.uuid().parse(id)));
   async function approved(actor:ActorScope,campaignId:string,creatorId:string,hash?:string,store:Pick<typeof db,"transaction">=database) {
@@ -61,6 +62,8 @@ export function draftService(database:Pick<typeof db,"transaction">=db,fetcher:t
     }),
     send:async(actor:ActorScope,id:string,revision:number,confirmed:boolean)=>{
       z.number().int().positive().parse(revision); if(confirmed!==true)throw new OutreachError("recipient_required");
+      const channel=await database.transaction(async tx=>{await outreachMember(tx,actor,true);const [row]=await tx.select({channel:drafts.channel}).from(drafts).where(scope(actor,id));return row?.channel;});
+      if(channel==="instagram")return instagramDmService(database,fetcher).sendDraft(actor,id,revision,confirmed);
       // Commit the attempt before external IO. An ambiguous/crashed send is never
       // automatically retried; the same draft cannot generate another delivery.
       const claimed=await database.transaction(async tx=>{

@@ -17,7 +17,7 @@ function metaReason(error: unknown): MetaErrorReason | undefined {
   if (/^Error validating verification code\./i.test(message) && /redirect_uri/i.test(message)) return "redirect_uri_mismatch";
   if (/^This authorization code has (been used|expired)\b/i.test(message)) return "authorization_code_used";
 }
-async function readJson(response: Response): Promise<unknown> {
+export async function readProviderJson(response: Response): Promise<unknown> {
   const reader = response.body?.getReader(); if (!reader) throw new OutreachError("provider_invalid");
   const chunks: Uint8Array[] = []; let size = 0;
   try {
@@ -31,12 +31,12 @@ export async function providerJson(url: string, init: RequestInit = {}, fetcher:
   try { response = await fetcher(url, { ...init, redirect: "error", cache: "no-store", signal: init.signal ?? AbortSignal.timeout(15000) }); }
   catch { throw new OutreachError("provider_unavailable"); }
   if (!response.ok) {
-    const raw = await readJson(response).catch(() => null);
+    const raw = await readProviderJson(response).catch(() => null);
     const error = raw && typeof raw === "object" && "error" in raw ? raw.error : null;
     throw new ProviderHttpError(response.status,
       diagnosticNumber(error && typeof error === "object" && "code" in error ? error.code : undefined),
       diagnosticNumber(error && typeof error === "object" && "error_subcode" in error ? error.error_subcode : undefined),
       new URL(url).hostname === "graph.facebook.com" ? metaReason(error) : undefined);
   }
-  return readJson(response);
+  return readProviderJson(response);
 }

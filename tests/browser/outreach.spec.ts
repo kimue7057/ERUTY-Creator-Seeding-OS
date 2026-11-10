@@ -111,7 +111,7 @@ test("selected creator opens four separate stages; sender switching clears stale
   await page.getByRole("button",{name:/4.*계정·주소·발송/}).click();await expect(page.getByLabel("발신 주소",{exact:true})).toHaveValue("alias-sender-b@example.invalid");await expect(page.getByLabel("수신 이메일 주소",{exact:true})).toHaveValue("creator@example.invalid");
   for(const width of [320,390,1440]){await page.setViewportSize({width,height:1000});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();}
   await page.getByRole("button",{name:/1.*크리에이터 분석/}).click();await page.getByLabel("연락 채널").selectOption("tiktok");await page.getByRole("button",{name:/4.*계정·주소·발송/}).click();
-  await expect(page.getByRole("button",{name:"SNS 발송 연결 필요",exact:true})).toBeDisabled();await expect(page.getByText(/현재 버전에서는 SNS 실제 발송이 활성화되지 않았습니다/)).toBeVisible();
+  await expect(page.getByRole("button",{name:"TikTok 발송 연결 필요",exact:true})).toBeDisabled();await expect(page.getByText(/TikTok 실제 발송은 Business Messaging 승인과 별도 연결이 필요합니다/)).toBeVisible();
   await page.screenshot({path:`${artifactDir}/tiktok.png`,fullPage:true});expect(errors).toEqual([]);
 });
 test("reviewer can inspect account status but cannot add or connect senders",async({page,context})=>{
@@ -197,4 +197,19 @@ test("system-user form identifies format and account mismatch errors, then submi
   await token.fill("synthetic-browser-meta-success");await confirm.check();await submit.click();
   await expect(card.locator(".badge")).toHaveText("계정 연결됨");
   await page.reload();await expect(card.locator(".badge")).toHaveText("계정 연결됨");
+});
+
+test("Instagram inbox loads real server actions with synthetic Meta, confirms exact accounts and persists one send receipt",async({page,context})=>{
+  const apps=providerAppService(database);if(!(await apps.status(f.actor)).find(s=>s.provider==="instagram")?.configured)await apps.save(f.actor,{provider:"instagram",revision:0,clientId:"10000",clientSecret:"synthetic-app-secret",version:"v27.0",instagramLoginMode:"unified",configurationId:"20000"});
+  const mock:typeof fetch=async url=>String(url).includes("/debug_token")?Response.json({data:{app_id:"10000",type:"SYSTEM_USER",is_valid:true,expires_at:0,scopes:["instagram_basic","instagram_manage_messages"]}}):Response.json({data:[{id:"333",username:"synthetic_company"}]});
+  const svc=accountService(database,mock);let account=(await svc.list(f.actor)).find(a=>a.expectedIdentity==="synthetic_company");if(!account)account=await svc.register(f.actor,{provider:"instagram",label:"SYNTHETIC DM sender",identity:"synthetic_company"});
+  const status=(await apps.status(f.actor)).find(s=>s.provider==="instagram")!;await svc.connectInstagramSystemUser(f.actor,account.id,{accessToken:"synthetic-browser-meta-success",revision:status.revision,updatedAt:account.updatedAt.toISOString(),confirmed:true});
+  await signIn(context);await page.goto(`/outreach/instagram?account=${account.id}`);await expect(page.getByRole("heading",{name:"Instagram DM",exact:true})).toBeVisible();
+  await page.getByRole("button",{name:"대화 불러오기·새로고침",exact:true}).click();await expect(page.getByRole("button",{name:/@synthetic_recipient.*SYNTHETIC incoming/})).toBeVisible();
+  await page.getByRole("button",{name:/@synthetic_recipient.*SYNTHETIC incoming/}).click();await expect(page.getByRole("heading",{name:"@synthetic_recipient",exact:true})).toBeVisible();await expect(page.getByText("SYNTHETIC incoming message",{exact:true}).last()).toBeVisible();
+  const send=page.getByRole("button",{name:"Instagram DM 보내기",exact:true});await expect(send).toBeDisabled();await page.getByLabel("Instagram 답장",{exact:true}).fill("SYNTHETIC browser approved reply");await expect(send).toBeDisabled();await page.getByRole("checkbox",{name:/위 발신·수신 계정과 답장을 확인/}).check();await expect(send).toBeEnabled();
+  for(const width of [320,390,1440]){await page.setViewportSize({width,height:1000});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();}
+  await page.screenshot({path:`${artifactDir}/instagram-dm-confirm.png`,fullPage:true});await send.click();await expect(page.getByText("Meta가 DM 발송을 접수했습니다. 수신·읽음 여부는 Instagram에서 확인하세요.",{exact:true})).toBeVisible();await expect(page.locator(".instagram-receipts article")).toHaveCount(1);
+  await page.reload();await page.getByRole("button",{name:"대화 불러오기·새로고침",exact:true}).click();await expect(page.locator(".instagram-receipts article")).toHaveCount(1);await expect(page.locator(".instagram-receipts article")).toContainText("SYNTHETIC browser approved reply");await page.screenshot({path:`${artifactDir}/instagram-dm-receipt.png`,fullPage:true});
+  await signIn(context,f.reader);await page.goto("/outreach/instagram");await expect(page.getByRole("button",{name:"대화 불러오기·새로고침",exact:true})).toBeDisabled();
 });

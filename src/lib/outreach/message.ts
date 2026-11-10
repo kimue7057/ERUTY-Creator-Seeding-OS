@@ -1,6 +1,7 @@
 import { z } from "zod";
+import { dmSelectionSchema } from "./instagram-dm-contracts";
 import { brandingSchema, defaultBranding, layoutSchema, type MailLayout, type MailBranding } from "./template-contracts";
-export const draftInputSchema=z.object({id:z.uuid(),campaignId:z.uuid(),creatorAccountId:z.uuid(),inputSha256:z.string().regex(/^[a-f0-9]{64}$/),revision:z.number().int().min(0),channel:z.enum(["email","instagram","tiktok"]),subject:z.string().max(200).refine(v=>!/[\r\n]/.test(v)),body:z.string().max(12000),template:layoutSchema,branding:brandingSchema.default(defaultBranding),language:z.enum(["한국어","English"]).default("English"),purpose:z.string().max(1500).default(""),senderAccountId:z.uuid().nullable(),fromAddress:z.string().max(254),toAddress:z.string().max(254),recipientSource:z.string().max(2048)});
+export const draftInputSchema=z.object({id:z.uuid(),campaignId:z.uuid(),creatorAccountId:z.uuid(),inputSha256:z.string().regex(/^[a-f0-9]{64}$/),revision:z.number().int().min(0),channel:z.enum(["email","instagram","tiktok"]),subject:z.string().max(200).refine(v=>!/[\r\n]/.test(v)),body:z.string().max(12000),template:layoutSchema,branding:brandingSchema.default(defaultBranding),language:z.enum(["한국어","English"]).default("English"),purpose:z.string().max(1500).default(""),senderAccountId:z.uuid().nullable(),fromAddress:z.string().max(254),toAddress:z.string().max(254),recipientSource:z.string().max(2048),instagramConversation:dmSelectionSchema.nullable().default(null)});
 export type DraftInput=z.infer<typeof draftInputSchema>;
 export const escapeHtml=(v:string)=>v.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]!));
 export function signatureText(from: string, branding: MailBranding) {
