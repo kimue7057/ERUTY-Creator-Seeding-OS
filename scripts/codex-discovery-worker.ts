@@ -14,7 +14,9 @@ const root = resolve(".local/discovery/codex-browser"); mkdirSync(root, { recurs
 process.env.PATH = `${dirname(process.execPath)}${delimiter}${process.env.PATH ?? ""}`;
 const privatePath = (file: string) => { const path = resolve(file), rel = relative(root, path); if (rel.startsWith("..") || isAbsolute(rel)) throw new Error("private_path_required"); return path; };
 const read = (file: string) => JSON.parse(readFileSync(privatePath(file), "utf8").replace(/^\uFEFF/, ""));
-const config = z.strictObject({ origin: z.url(), worker_id: z.uuid(), name: z.string().min(1).max(80), browser_surface: z.enum(["iab", "chrome"]), platforms: z.array(z.enum(["instagram", "tiktok", "youtube"])).min(1).max(3), credentials_file: z.string(), codex_path: z.string(), outreach_enabled:z.boolean().default(false) }).parse(read(process.argv[2] ?? resolve(root, "worker.config.private.json")));
+const checkOnly=process.argv.includes("--check"),configurationFile=process.argv.slice(2).find(arg=>arg!=="--check")??resolve(root,"worker.config.private.json");
+const config = z.strictObject({ origin: z.url(), worker_id: z.uuid(), name: z.string().min(1).max(80), browser_surface: z.enum(["iab", "chrome"]), platforms: z.array(z.enum(["instagram", "tiktok", "youtube"])).min(1).max(3), credentials_file: z.string(), codex_path: z.string(), outreach_enabled:z.boolean().default(false) }).parse(read(configurationFile));
+if(!existsSync(config.codex_path))throw new Error("codex_cli_missing: update codex_path to the currently installed Codex executable");
 const base = new URL(config.origin); if (base.protocol !== "https:" || base.username || base.password || base.pathname !== "/" || base.search || base.hash) throw new Error("https_origin_required");
 const lease = { worker_id: config.worker_id, instance_id: randomUUID() };
 const connection = resolve(root, "remote-connection.private.json");
@@ -154,6 +156,7 @@ await heartbeat();
 const timer = setInterval(() => void heartbeat().catch(error => log("connection_error", { code: String(error.message).slice(0, 100) })), 10000);
 try {
   ready = await preflight(); await heartbeat(); log(ready ? "ready" : "browser_unavailable");
+  if(checkOnly){if(!ready)process.exitCode=2;stopped=true;}
   while (!stopped) {
     try { if (!ready) { await new Promise(r => setTimeout(r, 30000)); ready = await preflight(); await heartbeat(); continue; }
       if (!busy) {
