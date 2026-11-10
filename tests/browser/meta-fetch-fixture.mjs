@@ -16,5 +16,15 @@ globalThis.fetch = async (input, init) => {
   if (url.pathname.endsWith("/me/assigned_instagram_accounts") && allowedTokens.has(bearer)) {
     return Response.json({ data: [{ id: "333", username: bearer === "synthetic-browser-meta-other" ? "another_company" : "synthetic_company" }] });
   }
+  if (allowedTokens.has(bearer)) {
+    const inbound={id:"synthetic_inbound",created_time:new Date(Date.now()-60000).toISOString(),from:{id:"444",username:"synthetic_recipient"},to:{data:[{id:"333",username:"synthetic_company"}]},message:"SYNTHETIC incoming message"};
+    if(url.pathname==="/v27.0/333/conversations")return Response.json({data:[{id:"t_synthetic_browser",updated_time:new Date().toISOString(),messages:{data:[inbound]}}]});
+    if(url.pathname==="/v27.0/t_synthetic_browser")return Response.json({id:"t_synthetic_browser",messages:{data:[inbound]}});
+    if(url.pathname==="/v27.0/333/messages"&&init?.method==="POST"){
+      const data=JSON.parse(init.body);
+      if(data.recipient?.id!=="444"||data.message?.text!=="SYNTHETIC browser approved reply")throw new Error("Unexpected recipient or body blocked by fixture");
+      return Response.json({recipient_id:"444",message_id:"synthetic_browser_receipt"});
+    }
+  }
   throw new Error("Unexpected Meta request blocked by the browser fixture");
 };

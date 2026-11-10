@@ -4,6 +4,7 @@ import { memberships } from "./schema";
 import { campaignCreators } from "./discovery-schema";
 import type { SenderAddress } from "../outreach/contracts";
 import type { MailBranding } from "../outreach/template-contracts";
+import type { DmSelection } from "../outreach/instagram-dm-contracts";
 const dates = () => ({ createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull() });
 export const senderAccounts = pgTable("outreach_sender_accounts", {
   id: uuid().defaultRandom().primaryKey(), organizationId: uuid("organization_id").notNull(),
@@ -37,12 +38,19 @@ export const outreachDrafts = pgTable("outreach_drafts", {
   inputSha256: text("input_sha256").notNull(), channel: text({ enum:["email","instagram","tiktok"] }).notNull(), subject: text().notNull().default(""), body: text().notNull().default(""),
   template: text({ enum:["letter","brand","proposal","followup"] }).notNull().default("letter"), branding: jsonb().$type<MailBranding>().notNull().default({companyName:"",signature:"",color:"#28543e",website:""}), language: text({enum:["한국어","English"]}).notNull().default("English"), purpose: text().notNull().default(""), senderAccountId: uuid("sender_account_id"), fromAddress: text("from_address").notNull().default(""), toAddress: text("to_address").notNull().default(""), recipientSource: text("recipient_source").notNull().default(""),
   revision: integer().notNull().default(1), status: text({ enum:["draft","sending","sent","failed","unknown"] }).notNull().default("draft"),
+  instagramConversation: jsonb("instagram_conversation").$type<DmSelection|null>(),
   providerMessageId: text("provider_message_id"), sentAt: timestamp("sent_at", { withTimezone: true }), createdBy: uuid("created_by").notNull(), updatedBy: uuid("updated_by").notNull(), ...dates(),
 }, t => [foreignKey({ columns:[t.organizationId,t.campaignId,t.creatorAccountId],foreignColumns:[campaignCreators.organizationId,campaignCreators.campaignId,campaignCreators.creatorAccountId] }),
+  unique("outreach_draft_scope").on(t.organizationId,t.id),
   foreignKey({ columns:[t.organizationId,t.senderAccountId],foreignColumns:[senderAccounts.organizationId,senderAccounts.id] }),
   foreignKey({ columns:[t.organizationId,t.createdBy],foreignColumns:[memberships.organizationId,memberships.userId] }), foreignKey({ columns:[t.organizationId,t.updatedBy],foreignColumns:[memberships.organizationId,memberships.userId] }),
   check("outreach_channel", sql`${t.channel} in ('email','instagram','tiktok')`), check("outreach_status", sql`${t.status} in ('draft','sending','sent','failed','unknown')`), check("outreach_template", sql`${t.template} in ('letter','brand','proposal','followup')`),
 ]);
+export const instagramDmSends = pgTable("instagram_dm_sends", {
+  id:uuid().primaryKey(),organizationId:uuid("organization_id").notNull(),accountId:uuid("account_id").notNull(),draftId:uuid("draft_id"),
+  conversationId:text("conversation_id").notNull(),senderProviderId:text("sender_provider_id").notNull(),fromUsername:text("from_username").notNull(),recipientId:text("recipient_id").notNull(),recipientUsername:text("recipient_username").notNull(),body:text().notNull(),inputSha256:text("input_sha256").notNull(),
+  status:text({enum:["sending","sent","failed","unknown"]}).notNull().default("sending"),errorCode:text("error_code"),graphCode:integer("graph_code"),graphSubcode:integer("graph_subcode"),providerMessageId:text("provider_message_id"),sentAt:timestamp("sent_at",{withTimezone:true}),createdBy:uuid("created_by").notNull(),...dates(),
+},t=>[foreignKey({columns:[t.organizationId,t.accountId],foreignColumns:[senderAccounts.organizationId,senderAccounts.id]}),foreignKey({columns:[t.organizationId,t.draftId],foreignColumns:[outreachDrafts.organizationId,outreachDrafts.id]}),foreignKey({columns:[t.organizationId,t.createdBy],foreignColumns:[memberships.organizationId,memberships.userId]}),check("instagram_dm_status",sql`${t.status} in ('sending','sent','failed','unknown')`)]);
 export const outreachProviderApps = pgTable("outreach_provider_apps", {
   organizationId: uuid("organization_id").notNull(), provider: text({enum:["google","instagram","tiktok"]}).notNull(),
   id: uuid().defaultRandom().primaryKey(), credentialsCiphertext: text("credentials_ciphertext").notNull(), revision: integer().notNull().default(1),

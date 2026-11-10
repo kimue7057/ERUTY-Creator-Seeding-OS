@@ -35,6 +35,19 @@ export function parseInstagramSystemUserInput(input:unknown) {
 }
 export function outreachErrorMessage(error: unknown): string {
   const messages: Record<string, string> = {
+    instagram_dm_mode_required:"Instagram DM에는 Unified Login으로 연결한 회사 계정이 필요합니다.",
+    instagram_dm_inbound_required:"이 상대가 회사 계정에 먼저 보낸 메시지를 확인해야 답장할 수 있습니다.",
+    instagram_dm_window_closed:"마지막 수신 메시지로부터 24시간이 지났습니다. 상대가 새 메시지를 보내면 답장할 수 있습니다.",
+    instagram_dm_access_required:"Meta가 대화 접근을 허용하지 않았습니다. instagram_manage_messages 권한, 계정의 메시지 접근 허용 및 앱의 테스트·검수 상태를 확인하세요.",
+    instagram_dm_rate_limited:"Meta의 요청 한도에 도달했습니다. 잠시 후 다시 확인하세요.",
+    instagram_dm_read_failed:"Meta에서 대화를 불러오지 못했습니다. 잠시 후 대화를 새로고침하세요.",
+    instagram_dm_response_invalid:"Meta의 대화 응답을 확인하지 못했습니다. 메시지는 전송하지 않았습니다.",
+    instagram_dm_conversation_missing:"선택한 발신 계정에서 이 대화를 찾지 못했습니다. 대화 목록을 새로 불러오세요.",
+    instagram_dm_thread_unsupported:"이 대화의 참여자를 확인하지 못했습니다. 현재는 두 계정 사이의 대화만 지원합니다.",
+    instagram_dm_recipient_changed:"대화 상대가 선정한 크리에이터와 일치하지 않습니다. 계정 아이디와 대화를 다시 확인하세요.",
+    instagram_dm_request_changed:"이미 처리된 발송 요청의 내용이 달라졌습니다. 발송 기록을 확인하세요.",
+    instagram_dm_send_rejected:"Meta가 DM 발송을 거절했습니다. 권한·대화 상태를 확인한 뒤 새 요청으로 시도하세요.",
+    instagram_dm_send_unknown:"DM 발송 결과를 확정하지 못했습니다. 중복 전송을 막기 위해 이 대화의 추가 발송을 중지했습니다. Instagram 대화와 발송 기록을 확인하세요.",
     instagram_token_required: "Meta 시스템 사용자 토큰을 붙여넣으세요.",
     instagram_token_whitespace: "토큰 중간에 공백 또는 줄바꿈이 있습니다. Meta의 토큰 복사 기능으로 다시 복사해 붙여넣으세요.",
     instagram_token_format: "Meta에서 발급한 액세스 토큰 전체를 입력하세요. 앱 ID나 앱 시크릿을 입력하는 칸이 아닙니다.",

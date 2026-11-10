@@ -59,7 +59,7 @@ Workspace는 Google의 회사 메일 서비스 이름이다. 별도 Workspace ID
 
 검증: URL 가져오기·콜백 주소 일치·새 state·구성 바인딩·토큰 유효성/수명/권한·페이지를 나눈 계정 목록·대상 계정 선택·권한 대상 프로필 검증·암호화 저장·조직/세션 분리·실패 단계 분류와 비밀 정보 제거를 합성 응답으로 검증한다. v27.0의 합성 응답에서 빈 할당 목록과 명시된 권한 대상을 처리하며, Page/잘못된 ID/권한 거절/자산 철회는 연결되지 않는다. 이 추가 경로가 실제 회사 계정의 빈 목록 문제를 해결하는지는 새 사용자 인증에서 검증해야 한다. 참고할 Meta 문서: [Unified Login 시작](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/get-started), [인증](https://developers.facebook.com/documentation/instagram-platform/instagram-api-with-unified-login/authentication), [공식 IGUser SDK](https://github.com/meta/facebook-python-business-sdk/blob/main/facebook_business/adobjects/iguser.py). 문서 페이지가 접근 제한 응답을 주어 전체 본문 대조는 완료하지 못했으며, 운영 적용 후 실제 인증 결과를 확인해야 한다.
 
-**현재 구현은 계정 인증과 발신 계정 선택까지다. Instagram 메시지 전송 어댑터·대화 조회·수신자 연결·웹훅은 아직 구현되지 않았다.** 일반 Send API에서는 수신자가 먼저 해당 프로페셔널 계정으로 연락한 대화 등 서비스 조건을 확인해야 한다. 계정 인증만으로 모든 발굴 후보에게 먼저 DM을 보낼 수 있다고 표시하지 않는다. [Meta 공식 메시지 API 안내](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api).
+**현재 구현은 계정 인증과 Unified Login 회사 계정의 실제 대화 조회·텍스트 DM 회신까지다. Webhooks 자동 수신은 아직 지원하지 않는다.** 일반 Send API에서는 수신자가 먼저 해당 프로페셔널 계정으로 연락한 대화 등 서비스 조건을 확인해야 한다. 계정 인증만으로 모든 발굴 후보에게 먼저 DM을 보낼 수 있다고 표시하지 않는다. [Meta 공식 메시지 API 안내](https://www.postman.com/meta/instagram/documentation/6yqw8pt/instagram-api).
 
 #### 회사 시스템 사용자 토큰으로 연결
 
@@ -67,7 +67,7 @@ Workspace는 Google의 회사 메일 서비스 이름이다. 별도 Workspace ID
 
 1. 회사 포트폴리오의 Meta 비즈니스 설정에서 **사용자 → 시스템 사용자**를 연다. 회사에서 승인한 시스템 사용자를 선택하거나 관리자가 추가한다.
 2. 해당 시스템 사용자에게 회사 Meta 앱과 연결할 Instagram 자산을 할당한다. 토큰을 발급하는 사람도 앱을 관리할 권한이 있어야 한다. Meta에 제한이 표시되면 해당 제한을 해결하며, 다른 포트폴리오로 자산을 옮겨 회피하지 않는다.
-3. 토큰 생성에서 ERUTY에 저장한 것과 같은 Meta 앱을 선택한다. 계정 확인에는 `instagram_basic`이 필요하다. `instagram_manage_messages`는 Meta에서 해당 앱·계정에 허용되는 범위에서 선택하되, 이 선택으로 미구현 DM 기능이 활성화되는 것은 아니다.
+3. 토큰 생성에서 ERUTY에 저장한 것과 같은 Meta 앱을 선택한다. 계정 확인에는 `instagram_basic`이 필요하다. `instagram_manage_messages`는 Meta에서 해당 앱·계정에 허용되는 범위에서 선택하되, DM 조회·회신에는 이 권한과 실제 대화 접근 허용이 모두 필요하다.
 4. 토큰은 ERUTY의 비밀번호 입력란에 직접 붙여 넣고 대상 계정과 교체 확인을 체크한다. 채팅·이슈·로그·저장소에 전달하지 않는다.
 
 서버는 현재 관리자 멤버십과 조직/계정 범위, 입력 당시 앱 revision·계정 수정 시각을 확인한다. 저장된 앱 인증 정보로 `debug_token`을 호출해 같은 앱의 유효한 `SYSTEM_USER` 토큰인지, 수명과 `instagram_basic`을 검사하고 현재 토큰의 실제 할당 계정/명시적 Instagram 권한 대상에서 등록 아이디를 검증한다. 입력한 아이디만으로 계정 ID를 추측하거나 이전 권한을 재사용하지 않는다. 할당되지 않은 토큰도 실패하며, 이 기능이 빈 할당 목록 자체를 보정하는 것은 아니다.
@@ -92,7 +92,7 @@ Workspace는 Google의 회사 메일 서비스 이름이다. 별도 Workspace ID
 
 ## 운영자 설치·제약
 
-- 소유자 전용 DB 연결로 `0018_outreach_connection_tests`까지 적용하고 `scripts/outreach-grants.sql`로 기존 제한된 앱 역할에 권한을 준다. 기존 발굴·평가·선정 기록은 변경하지 않는다.
+- 소유자 전용 DB 연결로 `0019_instagram_dm`까지 적용하고 `scripts/outreach-grants.sql`로 기존 제한된 앱 역할에 권한을 준다. 기존 발굴·평가·선정 기록은 변경하지 않는다.
 - OAuth state는 10분·1회용이며 조직·사용자·현재 로그인 세션·계정에 묶인다. Google은 PKCE를 적용한다. 계정 등록 값만으로 connected를 만들지 않는다.
 - 인증 토큰은 서버에서 AES-256-GCM으로 암호화하고 조직·계정에 묶는다. 공개 계정 조회에 토큰·scope 원문·비밀키가 포함되지 않는다. 앱과 미리보기 환경의 인증 정보는 분리한다.
 - 연결 해제는 ERUTY의 저장 토큰과 진행 중 인증 요청을 폐기한다. 서비스 자체의 동의 철회는 해당 서비스의 앱 권한 설정에서 별도로 한다.
@@ -104,5 +104,7 @@ Workspace는 Google의 회사 메일 서비스 이름이다. 별도 Workspace ID
 ## 검증 범위
 
 단위 테스트: 암호화·계정 범위 바인딩·입력 검증·별칭 필터·메일 본문 이스케이프·MIME 주소.
-실제 PostgreSQL 통합 테스트: 조직/역할 격리·OAuth 재사용·다른 세션·다른 계정·만료·연결 해제·revision 충돌·선정 취소·한 번의 발송 요청·불명확한 발송 재시도 차단·SNS 미구현 발송 차단. 외부 서비스는 합성 어댑터다.
+실제 PostgreSQL 통합 테스트: 조직/역할 격리·OAuth 재사용·다른 세션·다른 계정·만료·연결 해제·revision 충돌·선정 취소·한 번의 발송 요청·불명확한 발송 재시도 차단·TikTok 미구현 발송 차단·Instagram 회신 창·수신자·대화 소유 확인. 외부 서비스는 합성 어댑터다.
 브라우저: 계정 등록·상태·조회 전용 권한·선정 명단 진입·4단계·초안 재조회·발신 계정 변경 시 별칭 초기화·발송 확인 초기화·모바일 가로 넘침. 실제 외부 발송은 하지 않는다.
+
+Instagram DM 사용법과 발송 상태의 의미는 [실제 DM 안내](INSTAGRAM-DM.md)를 따른다. 계정 연결 성공과 실제 메시지 API 접근·전송 성공은 별도로 검증한다.
