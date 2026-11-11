@@ -97,12 +97,40 @@ async function review(connection,jobId,tabId){
     const result=await api("review-finish",{job_id:jobId,observation:observed.observation},connection);await store.set({lastResult:{jobId,outcome:result.state,reason:"confirmed_on_recheck",at:new Date().toISOString()}});
   }catch{let diagnostic={stage:"verify"};if(command){try{const result=await message(tabId,{action:"diagnostic",...command});diagnostic={...result.diagnostic,stage:"verify"};}catch{/* Never collect unrelated inbox text. */}}try{await api("review-finish",{job_id:jobId,observation:null,ui_diagnostic:diagnostic},connection);}catch{/* The original unknown remains blocked; never send again. */}}
 }
+async function previewFinish(connection,journal){
+  const permission=await api('preview-check',journal.grant,connection);
+  if(!permission.open_permitted||journal.sender!==connection.sender){for(const result of journal.results.filter(r=>r.state==='opened'))Object.assign(result,{state:'unavailable',reason:'browser_unavailable',source_url:null,observed_at:new Date().toISOString(),draft_present:false});}
+  const opened=journal.results.filter(r=>r.state==='opened');
+  for(let index=0;index<opened.length;index++){
+    const result=opened[index],tabId=journal.tabs[index],command={kind:'chat_preview',job_id:journal.grant.job_id,sender:journal.sender,recipient:result.recipient};
+    try{await chrome.tabs.get(tabId);await activate(tabId,command);const observed=await message(tabId,{action:'inspect_preview',...command});if(observed.recipient!==result.recipient)throw new Error('recipient_unavailable');Object.assign(result,{source_url:observed.source_url,observed_at:observed.observed_at,draft_present:observed.draft_present});}
+    catch{Object.assign(result,{state:'unavailable',reason:'browser_unavailable',source_url:null,observed_at:new Date().toISOString(),draft_present:false});try{await chrome.tabs.remove(tabId);}catch{/* The operator may already have closed it. */}}
+  }
+  await store.set({previewJournal:journal});
+  const result=await api('preview-finish',{job_id:journal.grant.job_id,claim_token:journal.grant.claim_token,results:journal.results},connection);await store.remove('previewJournal');await store.set({lastPreview:{jobId:journal.grant.job_id,state:result.state,opened:journal.results.filter(r=>r.state==='opened').length,at:new Date().toISOString()}});
+}
+async function openPreview(connection,grant){
+  const journal={grant:{job_id:grant.job_id,claim_token:grant.claim_token},sender:grant.sender,results:[],tabs:[]};await store.set({previewJournal:journal});
+  if(grant.sender!==connection.sender)throw new Error('sender_mismatch');const end=Date.now()+480000;
+  for(const target of grant.targets){
+    if(journal.results.filter(r=>r.state==='opened').length>=grant.goal||Date.now()>end)break;
+    let tabId,command,stage='profile';try{
+      const permission=await api('preview-check',journal.grant,connection);if(!permission.open_permitted)break;
+      const expected=`https://www.instagram.com/${target.recipient}/`;if(target.profile_url!==expected||!/^[a-z0-9._]{1,30}$/.test(target.recipient))throw new Error('recipient_unavailable');
+      const tab=await chrome.tabs.create({url:expected,active:true});tabId=tab.id;
+      command={kind:'chat_preview',job_id:grant.job_id,sender:grant.sender,recipient:target.recipient};await navigate(tabId,expected,command);await waitMessage(tabId,{action:'profile',...command});stage='open';await waitMessage(tabId,{action:'open',...command},8000);stage='prepare';await activate(tabId,command);const observed=await waitMessage(tabId,{action:'inspect_preview',...command},10000);
+      if(observed.recipient!==target.recipient)throw new Error('recipient_unavailable');journal.results.push({candidate_id:target.candidate_id,recipient:target.recipient,state:'opened',reason:'chat_opened',source_url:observed.source_url,observed_at:observed.observed_at,draft_present:observed.draft_present});journal.tabs.push(tabId);await store.set({previewJournal:journal});
+    }catch(error){const reason=failure(error);let diagnostic;if(command){try{const snapshot=await message(tabId,{action:'diagnostic_preview',...command});diagnostic={...snapshot.diagnostic,stage};}catch{/* No arbitrary page or conversation text is captured. */}}journal.results.push({candidate_id:target.candidate_id,recipient:target.recipient,state:'unavailable',reason:reason==='unconfirmed_result'?'browser_unavailable':reason,source_url:null,observed_at:new Date().toISOString(),draft_present:false,...(diagnostic?{ui_diagnostic:diagnostic}:{})});await store.set({previewJournal:journal});if(Number.isInteger(tabId)){try{await chrome.tabs.remove(tabId);}catch{/* Only a tab created by this preview may be closed. */}}if(error.status===403||['sender_mismatch','captcha','login_required','platform_restricted'].includes(reason))break;}
+  }
+  await previewFinish(connection,journal);
+}
 async function tick(){
   if(running)return;running=true;
   try{
-    await secured;const {connection,journal,paused}=await store.get(["connection","journal","paused"]);if(!connection||paused)return;
+    await secured;const {connection,journal,paused,previewJournal}=await store.get(["connection","journal","paused","previewJournal"]);if(!connection||paused)return;
     if(Date.parse(connection.expires_at)<=Date.now()){await store.set({status:"연결 만료 · ERUTY에서 다시 연결하세요"});return;}
     if(journal){await finish(connection,journal,journal.phase==="preparing"?"blocked":"unknown","unconfirmed_result");return;}
+    if(previewJournal){await previewFinish(connection,previewJournal);return;}
     const tabId=await tabFor(connection);let probe;
     try{probe=await waitMessage(tabId,{action:"probe",sender:connection.sender},12000,true);}
     catch(e){
@@ -114,6 +142,7 @@ async function tick(){
     const heartbeat=await api("heartbeat",{observed_username:probe.sender,reason:"ready"},connection);await store.set({status:heartbeat.ready?"ready":heartbeat.reason});if(!heartbeat.ready)return;
     const {lastResult,reviewAttempted}=await store.get(["lastResult","reviewAttempted"]);
     if(lastResult?.outcome==="unknown"&&reviewAttempted!==lastResult.jobId){await store.set({reviewAttempted:lastResult.jobId});await review(connection,lastResult.jobId,tabId);return;}
+    const preview=await api('preview-next',{protocol_version:2},connection);if(preview.assignment){await openPreview(connection,preview.assignment);return;}
     const next=await api("next",{},connection);if(next.assignment)await execute(connection,next.assignment,tabId);
   }catch(e){await store.set({status:e.message==="forbidden"?"연결 해제·만료 · ERUTY에서 확인하세요":"서버 연결 확인 필요",...(e.message==="forbidden"?{paused:true}:{})});}
   finally{running=false;}
@@ -130,5 +159,5 @@ chrome.runtime.onMessageExternal.addListener((request,sender,respond)=>{
 chrome.runtime.onMessage.addListener((request,sender,respond)=>{
   if(sender.id!==chrome.runtime.id||sender.tab||sender.url!==chrome.runtime.getURL("popup.html"))return;
   if(request?.type==="ERUTY_CHECK"){void store.remove("reviewAttempted").then(tick);respond({ok:true});}
-  if(request?.type==="ERUTY_DISCONNECT"){void (async()=>{await secured;const {journal,connection}=await store.get(["journal","connection"]);if(running){respond({ok:false});return;}await store.set({paused:true});if(connection){try{await api("disconnect",{},connection);}catch(e){if(e.status!==403)throw e;}}if(journal)await store.set({lastResult:{jobId:journal.grant.job_id,outcome:"unknown",reason:"disconnected",at:new Date().toISOString()}});await store.remove(["connection","journal"]);await store.set({status:"연결 해제됨"});respond({ok:true});})().catch(()=>respond({ok:false}));return true;}
+  if(request?.type==="ERUTY_DISCONNECT"){void (async()=>{await secured;const {journal,connection}=await store.get(["journal","connection"]);if(running){respond({ok:false});return;}await store.set({paused:true});if(connection){try{await api("disconnect",{},connection);}catch(e){if(e.status!==403)throw e;}}if(journal)await store.set({lastResult:{jobId:journal.grant.job_id,outcome:"unknown",reason:"disconnected",at:new Date().toISOString()}});await store.remove(["connection","journal","previewJournal"]);await store.set({status:"연결 해제됨"});respond({ok:true});})().catch(()=>respond({ok:false}));return true;}
 });

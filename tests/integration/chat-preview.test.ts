@@ -1,0 +1,25 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {withDiscoveryDatabase,sqlFailure} from '../discovery-fixture';
+import {seedShortlistCandidate} from '../shortlist-samples';
+import {chatPreviewService} from '../../src/lib/outreach/chat-previews';
+import {outreachExecutorService} from '../../src/lib/outreach/executors';
+import {accountService} from '../../src/lib/outreach/accounts';
+import {browserSendService} from '../../src/lib/outreach/browser-sends';
+import {outreachExtensionId} from '../../src/lib/outreach/executor-contracts';
+import {OutreachError} from '../../src/lib/outreach/contracts';
+const code=(value:string)=>(error:unknown)=>error instanceof OutreachError&&error.code===value;
+test('chat preview uses saved scoped candidates, cannot carry message text or obtain a send permit, and preserves outcomes',async()=>withDiscoveryDatabase(async f=>{
+ const candidate=await seedShortlistCandidate(f),accounts=accountService(f.database),connections=outreachExecutorService(f.database),service=chatPreviewService(f.database);
+ const sender=await accounts.register(f.actor,{provider:'instagram',label:'SYNTHETIC preview',identity:'synthetic_company'}),pair=await connections.startPair(f.actor,{accountId:sender.id,name:'SYNTHETIC preview Chrome',confirmed:true}),credentials=await connections.pair({code:pair.code,extension_id:outreachExtensionId}),identity=await connections.authenticate(credentials.token);await connections.heartbeat(identity,{observed_username:'synthetic_company',reason:'ready'});
+ const input={id:randomUUID(),accountId:sender.id,campaignId:candidate.campaign.id,candidateIds:[candidate.accountId],goal:1};
+ await assert.rejects(service.create(f.reader,input),code('forbidden'));await assert.rejects(service.create(f.other,input),code('not_found'));await assert.rejects(service.create(f.actor,{...input,body:'SYNTHETIC text must never be accepted'}));await assert.rejects(service.create(f.actor,{...input,candidateIds:[randomUUID()]}),code('not_found'));
+ await service.create(f.actor,input);await service.create(f.actor,input);assert.equal((await service.history(f.actor)).length,1);assert.equal((await service.history(f.other)).length,0);
+ const assignment=(await service.next(identity)).assignment!;assert.ok(assignment);assert.ok(!('body' in assignment));assert.equal((await service.next(identity)).assignment,null);
+ await assert.rejects(browserSendService(f.database).arm(f.actor,{...identity.lease,job_id:assignment.job_id,claim_token:assignment.claim_token,observation:{sender:'synthetic_company',recipient:'synthetic_recipient',body:'SYNTHETIC',source_url:'https://www.instagram.com/synthetic_recipient/',observed_at:new Date().toISOString(),visible_text:'SYNTHETIC'}}),code('not_found'));
+ const target=assignment.targets[0],grant={job_id:assignment.job_id,claim_token:assignment.claim_token};await assert.rejects(service.finish(identity,{...grant,results:[{candidate_id:target.candidate_id,recipient:'synthetic_wrong',state:'opened',reason:'chat_opened',source_url:target.profile_url,observed_at:new Date().toISOString()}]}),code('browser_outreach_observation_invalid'));
+ assert.equal((await service.finish(identity,{...grant,results:[{candidate_id:target.candidate_id,recipient:target.recipient,state:'opened',reason:'chat_opened',source_url:target.profile_url,observed_at:new Date().toISOString()}]})).state,'completed');
+ const counts=(await f.client.query('select (select count(*)::int from outreach_browser_sends) sends,(select count(*)::int from instagram_dm_sends) api_sends')).rows[0];assert.deepEqual(counts,{sends:0,api_sends:0});
+ await assert.rejects(f.client.query("update outreach_chat_previews set targets='[]' where id=$1",[input.id]),sqlFailure('23514'));
+}));
