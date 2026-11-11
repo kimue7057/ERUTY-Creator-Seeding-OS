@@ -34,3 +34,9 @@ test("DM sends once to the verified scoped recipient; ambiguous responses never 
   }
   await assert.rejects(instagramDmProvider(context,async()=>Response.json({error:{code:200,message:context.accessToken}},{status:403})).send("444","text"),(e:unknown)=>e instanceof InstagramDmSendError&&!e.ambiguous&&e.code==="instagram_dm_access_required"&&!JSON.stringify(e).includes(context.accessToken));
 });
+
+
+test('empty or missing Instagram text retains its direction and timestamp with an explicit original-app placeholder',async()=>{
+ const empty={...inbound(),message:''},missing={...inbound(new Date(Date.now()-1000).toISOString()),id:'missing_text',message:undefined};const provider=instagramDmProvider(context,async url=>new URL(String(url)).pathname.endsWith('/conversations')?Response.json({data:[{id:selection.conversationId,updated_time:new Date().toISOString(),messages:{data:[empty]}}]}):Response.json({id:selection.conversationId,messages:{data:[empty,missing]}}));
+ const thread=await provider.thread(selection);assert.equal(thread.messages.length,2);assert.ok(thread.messages.every(m=>m.incoming&&m.text.includes('본문이 없는 메시지')&&m.createdAt));assert.equal(thread.canReply,true);
+});
