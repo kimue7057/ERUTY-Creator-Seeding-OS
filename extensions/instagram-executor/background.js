@@ -114,13 +114,13 @@ async function openPreview(connection,grant){
   if(grant.sender!==connection.sender)throw new Error('sender_mismatch');const end=Date.now()+480000;
   for(const target of grant.targets){
     if(journal.results.filter(r=>r.state==='opened').length>=grant.goal||Date.now()>end)break;
-    let tabId;try{
+    let tabId,command,stage='profile';try{
       const permission=await api('preview-check',journal.grant,connection);if(!permission.open_permitted)break;
       const expected=`https://www.instagram.com/${target.recipient}/`;if(target.profile_url!==expected||!/^[a-z0-9._]{1,30}$/.test(target.recipient))throw new Error('recipient_unavailable');
       const tab=await chrome.tabs.create({url:expected,active:true});tabId=tab.id;
-      const command={kind:'chat_preview',job_id:grant.job_id,sender:grant.sender,recipient:target.recipient};await navigate(tabId,expected,command);await waitMessage(tabId,{action:'profile',...command});await waitMessage(tabId,{action:'open',...command},8000);await activate(tabId,command);const observed=await waitMessage(tabId,{action:'inspect_preview',...command},10000);
+      command={kind:'chat_preview',job_id:grant.job_id,sender:grant.sender,recipient:target.recipient};await navigate(tabId,expected,command);await waitMessage(tabId,{action:'profile',...command});stage='open';await waitMessage(tabId,{action:'open',...command},8000);stage='prepare';await activate(tabId,command);const observed=await waitMessage(tabId,{action:'inspect_preview',...command},10000);
       if(observed.recipient!==target.recipient)throw new Error('recipient_unavailable');journal.results.push({candidate_id:target.candidate_id,recipient:target.recipient,state:'opened',reason:'chat_opened',source_url:observed.source_url,observed_at:observed.observed_at,draft_present:observed.draft_present});journal.tabs.push(tabId);await store.set({previewJournal:journal});
-    }catch(error){const reason=failure(error);journal.results.push({candidate_id:target.candidate_id,recipient:target.recipient,state:'unavailable',reason:reason==='unconfirmed_result'?'browser_unavailable':reason,source_url:null,observed_at:new Date().toISOString(),draft_present:false});await store.set({previewJournal:journal});if(Number.isInteger(tabId)){try{await chrome.tabs.remove(tabId);}catch{/* Only a tab created by this preview may be closed. */}}if(error.status===403||['sender_mismatch','captcha','login_required','platform_restricted'].includes(reason))break;}
+    }catch(error){const reason=failure(error);let diagnostic;if(command){try{const snapshot=await message(tabId,{action:'diagnostic_preview',...command});diagnostic={...snapshot.diagnostic,stage};}catch{/* No arbitrary page or conversation text is captured. */}}journal.results.push({candidate_id:target.candidate_id,recipient:target.recipient,state:'unavailable',reason:reason==='unconfirmed_result'?'browser_unavailable':reason,source_url:null,observed_at:new Date().toISOString(),draft_present:false,...(diagnostic?{ui_diagnostic:diagnostic}:{})});await store.set({previewJournal:journal});if(Number.isInteger(tabId)){try{await chrome.tabs.remove(tabId);}catch{/* Only a tab created by this preview may be closed. */}}if(error.status===403||['sender_mismatch','captcha','login_required','platform_restricted'].includes(reason))break;}
   }
   await previewFinish(connection,journal);
 }
@@ -142,7 +142,7 @@ async function tick(){
     const heartbeat=await api("heartbeat",{observed_username:probe.sender,reason:"ready"},connection);await store.set({status:heartbeat.ready?"ready":heartbeat.reason});if(!heartbeat.ready)return;
     const {lastResult,reviewAttempted}=await store.get(["lastResult","reviewAttempted"]);
     if(lastResult?.outcome==="unknown"&&reviewAttempted!==lastResult.jobId){await store.set({reviewAttempted:lastResult.jobId});await review(connection,lastResult.jobId,tabId);return;}
-    const preview=await api('preview-next',{},connection);if(preview.assignment){await openPreview(connection,preview.assignment);return;}
+    const preview=await api('preview-next',{protocol_version:2},connection);if(preview.assignment){await openPreview(connection,preview.assignment);return;}
     const next=await api("next",{},connection);if(next.assignment)await execute(connection,next.assignment,tabId);
   }catch(e){await store.set({status:e.message==="forbidden"?"연결 해제·만료 · ERUTY에서 확인하세요":"서버 연결 확인 필요",...(e.message==="forbidden"?{paused:true}:{})});}
   finally{running=false;}

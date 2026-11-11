@@ -18,9 +18,15 @@ function permit(job_id:string){return{job_id,send_permitted:true,expires_at:new 
 
 test('synthetic open-only preview preserves an existing draft and rejects all input/send actions',async({page})=>{
  await fixture(page);await page.locator('[contenteditable]').fill('SYNTHETIC existing draft');const c={type:'ERUTY_INSTAGRAM',kind:'chat_preview',job_id:randomUUID(),sender:'synthetic_company',recipient:'synthetic_recipient'};
+ await page.evaluate(()=>history.pushState(null,'','/synthetic_recipient/'));await page.locator('#send').evaluate(button=>{button.textContent='Send message';});expect((await dispatch(page,{...c,action:'open'})).ok).toBe(true);
  expect((await dispatch(page,{...c,action:'inspect_preview'})).ok).toBe(true);
  for(const action of ['prepare','send','verify','inspect_sent'])expect((await dispatch(page,{...c,action})).ok).toBe(false);
  expect((await dispatch(page,{...c,action:'inspect_preview',body:'SYNTHETIC forbidden'})).ok).toBe(false);await expect(page.locator('[contenteditable]')).toHaveText('SYNTHETIC existing draft');expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
+});
+
+test('synthetic profile Message link opens only its recipient and ignores the navigation Message link',async({page})=>{
+ await fixture(page);await page.evaluate(()=>{history.pushState(null,'','/synthetic_recipient/');document.querySelector('section')!.remove();const nav=document.createElement('a');nav.href='/direct/inbox/';nav.textContent='Message';nav.addEventListener('click',()=>{throw Error('Global inbox is not the profile Message control');});document.querySelector('nav')!.appendChild(nav);const header=document.createElement('main');header.innerHTML='<span>synthetic_recipient</span><a aria-label="Send a private message to synthetic_recipient" href="/direct/t/synthetic_thread/?entrypoint=profile">Message</a>';header.querySelector('a')!.addEventListener('click',event=>{event.preventDefault();const chat=document.createElement('section');chat.innerHTML='<a href="/synthetic_recipient/" aria-label="Open the profile page of synthetic_recipient">synthetic_recipient</a><div role="textbox" contenteditable="true"></div>';document.body.appendChild(chat);});document.body.appendChild(header);});
+ const c={type:'ERUTY_INSTAGRAM',kind:'chat_preview',job_id:randomUUID(),sender:'synthetic_company',recipient:'synthetic_recipient'};expect((await dispatch(page,{...c,action:'open'})).ok).toBe(true);expect((await dispatch(page,{...c,action:'inspect_preview'})).ok).toBe(true);expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
 });
 test("synthetic DOM adapter sends exact text once, verifies outgoing attribution and rejects repeat Send",async({page})=>{
   await fixture(page);const c=command();expect((await dispatch(page,{...c,action:"prepare"})).ok).toBe(true);
