@@ -7,10 +7,10 @@ import type { MailBranding } from "../outreach/template-contracts";
 import type { DmSelection } from "../outreach/instagram-dm-contracts";
 import type { BrowserObservation,BrowserSendState } from "../outreach/browser-contracts";
 import { discoveryWorkers } from "./worker-schema";
-import type {ChatPreviewTarget,ChatPreviewResult} from '../outreach/chat-preview-contracts';
+import type {ChatPreviewTarget,ChatPreviewResult,ChatComposeMessage,ChatComposeResult} from '../outreach/chat-preview-contracts';
 const dates = () => ({ createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(), updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull() });
 export const chatPreviews=pgTable('outreach_chat_previews',{
- id:uuid().primaryKey(),organizationId:uuid('organization_id').notNull(),accountId:uuid('account_id').notNull(),campaignId:uuid('campaign_id').notNull(),senderUsername:text('sender_username').notNull(),targets:jsonb().$type<ChatPreviewTarget[]>().notNull(),goal:integer().notNull(),state:text().$type<'queued'|'running'|'completed'|'partial'|'blocked'>().notNull().default('queued'),workerId:uuid('worker_id'),instanceId:uuid('instance_id'),claimHash:text('claim_hash'),claimExpiresAt:timestamp('claim_expires_at',{withTimezone:true}),results:jsonb().$type<ChatPreviewResult[]>().notNull().default([]),createdBy:uuid('created_by').notNull(),...dates(),
+ id:uuid().primaryKey(),organizationId:uuid('organization_id').notNull(),accountId:uuid('account_id').notNull(),campaignId:uuid('campaign_id').notNull(),senderUsername:text('sender_username').notNull(),targets:jsonb().$type<ChatPreviewTarget[]>().notNull(),goal:integer().notNull(),state:text().$type<'queued'|'running'|'completed'|'partial'|'blocked'>().notNull().default('queued'),mode:text().$type<'open'|'compose'>().notNull().default('open'),sourcePreviewId:uuid('source_preview_id'),messages:jsonb().$type<ChatComposeMessage[]>().notNull().default([]),workerId:uuid('worker_id'),instanceId:uuid('instance_id'),claimHash:text('claim_hash'),claimExpiresAt:timestamp('claim_expires_at',{withTimezone:true}),results:jsonb().$type<(ChatPreviewResult|ChatComposeResult)[]>().notNull().default([]),createdBy:uuid('created_by').notNull(),...dates(),
 });
 export const senderAccounts = pgTable("outreach_sender_accounts", {
   id: uuid().defaultRandom().primaryKey(), organizationId: uuid("organization_id").notNull(),

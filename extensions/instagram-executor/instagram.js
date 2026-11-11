@@ -1,6 +1,6 @@
 /* global chrome */
 (()=>{
-  const prepared=new Map(),opened=new Map(),preparation=new Map();
+  const prepared=new Map(),opened=new Map(),preparation=new Map(),previewTyped=new Set();
   const normalize=s=>(s??"").replace(/\s+/g," ").trim();
   const visible=e=>!!e&&e.getClientRects().length>0&&getComputedStyle(e).visibility!=="hidden";
   const fail=reason=>{throw new Error(reason);};
@@ -46,6 +46,27 @@
     return exactMessages(root,editor,c).filter(e=>{let parent=e.parentElement;for(let i=0;parent&&parent!==root&&i<8;i++,parent=parent.parentElement){const labels=[...parent.querySelectorAll('[aria-label]')].map(a=>a.getAttribute('aria-label')??"").filter(label=>/님의 메시지|reply.*message|react.*message|message.*options/i.test(label));if(labels.length)return labels.every(label=>self.test(label));}return false;});
   }
   async function command(c){
+    if(c.kind==='draft_preview'){
+      if(c.permit!==undefined||!['foreground','profile','open','fill_draft','inspect_draft','diagnostic_preview'].includes(c.action))fail('unconfirmed_result');validate(c);
+      if(['foreground','profile','open','diagnostic_preview'].includes(c.action))return command({...c,kind:'chat_preview',body:undefined});
+      if(document.visibilityState!=='visible')fail('browser_unavailable');
+      const {root,editor}=thread(c);
+      if(outgoing(root,editor,c).length)fail('already_sent');
+      const comparison=()=>editor.innerText===c.body?'exact':normalize(editor.innerText)===normalize(c.body)?'whitespace_normalized':editor.innerText.trim()?'different':'empty';
+      const mismatch=(reason,step)=>{const readback=previewTyped.has(c.job_id)&&editor.innerText.startsWith(c.body.slice(0,32))&&editor.innerText.length<=2000?editor.innerText:undefined;throw Object.assign(new Error(reason),{diagnostic:{stage:'prepare',prepare_step:step,editor_state:editor.innerText===c.body?'exact':editor.innerText.trim()?'different':'empty',draft_comparison:comparison(),expected_length:Math.min(4000,c.body.length),observed_length:Math.min(4000,editor.innerText.length),expected_breaks:Math.min(1000,c.body.split('\n').length-1),observed_breaks:Math.min(1000,editor.innerText.split('\n').length-1)},...(readback?{typed_readback:readback}:{})});};
+      if(c.action==='fill_draft'&&!['exact','whitespace_normalized'].includes(comparison())){
+        if(editor.innerText.trim())mismatch('draft_conflict','draft_check');
+        previewTyped.add(c.job_id);editor.focus();const selection=window.getSelection(),range=document.createRange();range.selectNodeContents(editor);selection.removeAllRanges();selection.addRange(range);
+        // Normal editable input only. No key events or send-capable controls.
+        // Separate editable line breaks avoid Chromium's extra paragraph gap
+        // when insertText receives consecutive newlines. Neither command sends.
+        const lines=c.body.split('\n');for(let index=0;index<lines.length;index++){if(index)document.execCommand('insertLineBreak',false);if(lines[index])document.execCommand('insertText',false,lines[index]);}
+        await new Promise(resolve=>setTimeout(resolve,120));
+      }
+      const formatting=comparison();if(!['exact','whitespace_normalized'].includes(formatting))mismatch('draft_text_mismatch','text_check');
+      const digest=async text=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)))].map(x=>x.toString(16).padStart(2,'0')).join('');
+      return{recipient:c.recipient,body_sha256:await digest(c.body),rendered_body_sha256:await digest(editor.innerText),formatting,source_url:location.origin+location.pathname,observed_at:new Date().toISOString()};
+    }
     if(c.kind==='chat_preview'){
       if(c.body!==undefined||c.permit!==undefined||!['foreground','profile','open','inspect_preview','diagnostic_preview'].includes(c.action))fail('unconfirmed_result');validateIdentity(c);
       if(c.action==='diagnostic_preview'){
@@ -105,5 +126,5 @@
     }
     fail("unconfirmed_result");
   }
-  chrome.runtime.onMessage.addListener((request,source,respond)=>{if(source.id!==chrome.runtime.id||request?.type!=="ERUTY_INSTAGRAM")return;void command(request).then(result=>respond({ok:true,...result})).catch(e=>respond({ok:false,reason:e.message}));return true;});
+  chrome.runtime.onMessage.addListener((request,source,respond)=>{if(source.id!==chrome.runtime.id||request?.type!=="ERUTY_INSTAGRAM")return;void command(request).then(result=>respond({ok:true,...result})).catch(e=>respond({ok:false,reason:e.message,...(e.diagnostic?{diagnostic:e.diagnostic}:{}),...(e.typed_readback?{typed_readback:e.typed_readback}:{})}));return true;});
 })();

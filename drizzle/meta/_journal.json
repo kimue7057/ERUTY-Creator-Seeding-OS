@@ -121,6 +121,7 @@
     { "idx": 20, "version": "7", "when": 1794291600000, "tag": "0020_browser_outreach", "breakpoints": true },
     { "idx": 21, "version": "7", "when": 1794295200000, "tag": "0021_chrome_outreach_executor", "breakpoints": true },
     { "idx": 22, "version": "7", "when": 1794304800000, "tag": "0022_browser_outreach_recheck", "breakpoints": true },
-    { "idx": 23, "version": "7", "when": 1794391200000, "tag": "0023_browser_chat_preview", "breakpoints": true }
+    { "idx": 23, "version": "7", "when": 1794391200000, "tag": "0023_browser_chat_preview", "breakpoints": true },
+    { "idx": 24, "version": "7", "when": 1794394800000, "tag": "0024_browser_composer_preview", "breakpoints": true }
   ]
 }

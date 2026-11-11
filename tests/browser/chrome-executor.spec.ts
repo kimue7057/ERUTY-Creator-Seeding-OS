@@ -16,6 +16,37 @@ const dispatch=(page:Page,request:unknown)=>page.evaluate(request=>new Promise<{
 function command(){const id=randomUUID();return{type:"ERUTY_INSTAGRAM",job_id:id,sender:"synthetic_company",recipient:"synthetic_recipient",body};}
 function permit(job_id:string){return{job_id,send_permitted:true,expires_at:new Date(Date.now()+120000).toISOString(),body_sha256:createHash('sha256').update(body).digest('hex')};}
 
+test('synthetic composer preview fills exact multiline text but cannot prepare, arm, send or reuse a permit',async({page})=>{
+ await fixture(page);const text='SYNTHETIC creator proposal\n\nSecond line · thank you!',c={...command(),kind:'draft_preview',body:text};
+ const result=await dispatch(page,{...c,action:'fill_draft'}) as {ok:boolean;body_sha256:string};expect(result.ok,JSON.stringify(result)).toBe(true);expect(result.body_sha256).toBe(createHash('sha256').update(text).digest('hex'));expect(await page.locator('[contenteditable]').innerText()).toBe(text);
+ expect((await dispatch(page,{...c,action:'inspect_draft'})).ok).toBe(true);
+ for(const action of ['prepare','arm','send','verify','inspect_sent'])expect((await dispatch(page,{...c,action,permit:permit(c.job_id)})).ok).toBe(false);
+ expect((await dispatch(page,{...c,kind:undefined,action:'send',permit:permit(c.job_id)})).ok).toBe(false);expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
+});
+
+test('synthetic composer preview preserves different text and rejects a different recipient or company',async({page})=>{
+ await fixture(page);const c={...command(),kind:'draft_preview'};await page.locator('[contenteditable]').fill('SYNTHETIC personal draft');
+ expect((await dispatch(page,{...c,action:'fill_draft'})).reason).toBe('draft_conflict');await expect(page.locator('[contenteditable]')).toHaveText('SYNTHETIC personal draft');
+ expect((await dispatch(page,{...c,recipient:'synthetic_other',action:'fill_draft'})).ok).toBe(false);expect((await dispatch(page,{...c,sender:'synthetic_other',action:'fill_draft'})).reason).toBe('sender_mismatch');expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
+});
+
+test('synthetic composer recheck never refills an edited draft and skips already sent text',async({page})=>{
+ await fixture(page);const c={...command(),kind:'draft_preview'};expect((await dispatch(page,{...c,action:'fill_draft'})).ok).toBe(true);await page.locator('[contenteditable]').fill('SYNTHETIC changed after input');expect((await dispatch(page,{...c,action:'inspect_draft'})).reason).toBe('draft_text_mismatch');await expect(page.locator('[contenteditable]')).toHaveText('SYNTHETIC changed after input');
+ await page.locator('[contenteditable]').fill('');await page.locator('#messages').evaluate((messages,text)=>{messages.innerHTML='<div><span></span><button aria-label="Reply to synthetic_company message"></button></div>';messages.querySelector('span')!.textContent=text;},body);expect((await dispatch(page,{...c,action:'fill_draft'})).reason).toBe('already_sent');await expect(page.locator('[contenteditable]')).toBeEmpty();expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
+});
+
+test('synthetic composer accepts only whitespace display differences and stores the actual rendered hash',async({page})=>{
+ await fixture(page);const c={...command(),kind:'draft_preview',body:'SYNTHETIC proposal\n\nThank you!'};await page.locator('[contenteditable]').fill('SYNTHETIC proposal\n\n\nThank you!');await page.evaluate(()=>{document.execCommand=()=>{throw Error('An equivalent existing draft must never be edited');};});
+ const result=await dispatch(page,{...c,action:'fill_draft'}) as {ok:boolean;formatting:string;body_sha256:string;rendered_body_sha256:string};expect(result.ok).toBe(true);expect(result.formatting).toBe('whitespace_normalized');expect(result.body_sha256).toBe(createHash('sha256').update(c.body).digest('hex'));expect(result.rendered_body_sha256).not.toBe(result.body_sha256);expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
+ await page.locator('[contenteditable]').fill('SYNTHETIC proposal\n\nThank you?');const mismatch=await dispatch(page,{...c,action:'inspect_draft'});expect(mismatch.reason).toBe('draft_text_mismatch');expect(JSON.stringify(mismatch)).toContain('"draft_comparison":"different"');expect(JSON.stringify(mismatch)).not.toContain('Thank you?');
+});
+
+test('synthetic failed input retains only its own typed editor readback for diagnosis',async({page})=>{
+ await fixture(page);const c={...command(),kind:'draft_preview',body:'SYNTHETIC proposal intended for this creator. Thank you!'};
+ await page.evaluate(()=>{const input=document.execCommand.bind(document);document.execCommand=(name,show,value)=>input(name,show,value?.replace('Thank you!','Thank you'));});
+ const result=await dispatch(page,{...c,action:'fill_draft'}) as {ok:boolean;reason:string;typed_readback?:string};expect(result.reason).toBe('draft_text_mismatch');expect(result.typed_readback).toBe(c.body.replace('Thank you!','Thank you'));expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
+});
+
 test('synthetic open-only preview preserves an existing draft and rejects all input/send actions',async({page})=>{
  await fixture(page);await page.locator('[contenteditable]').fill('SYNTHETIC existing draft');const c={type:'ERUTY_INSTAGRAM',kind:'chat_preview',job_id:randomUUID(),sender:'synthetic_company',recipient:'synthetic_recipient'};
  await page.evaluate(()=>history.pushState(null,'','/synthetic_recipient/'));await page.locator('#send').evaluate(button=>{button.textContent='Send message';});expect((await dispatch(page,{...c,action:'open'})).ok).toBe(true);
