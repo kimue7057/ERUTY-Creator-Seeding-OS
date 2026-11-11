@@ -12,6 +12,8 @@ import { providerAppService } from "../../src/lib/outreach/provider-apps";
 import { automaticWorkerService } from "../../src/lib/discovery/automatic-worker";
 import { browserWorkerAuth } from "../../src/lib/discovery/remote-auth";
 import {outreachExtensionId} from "../../src/lib/outreach/executor-contracts";
+import {outreachExecutorService} from '../../src/lib/outreach/executors';
+import {chatPreviewService} from '../../src/lib/outreach/chat-previews';
 import { senderAccounts } from "../../src/lib/db/outreach-schema";
 import { sessions } from "../../src/lib/db/schema";
 import * as schema from "../../src/lib/db/schema";
@@ -55,6 +57,16 @@ async function signIn(context:BrowserContext,actor=f.actor){
   await database.insert(sessions).values({tokenHash:hash,userId:actor.userId,organizationId:actor.organizationId,expiresAt:new Date(Date.now()+600000)});
   await context.addCookies([{name:"eruty_session",value:token,domain:"127.0.0.1",path:"/",httpOnly:true,sameSite:"Lax"}]);
 }
+
+test('opened candidate proposal UI queues input only and displays a hash-verified pre-send result',async({page,context})=>{
+ const account=await accountService(database).register(f.actor,{provider:'instagram',label:'SYNTHETIC draft preview',identity:'synthetic_draft_company'}),connections=outreachExecutorService(database),service=chatPreviewService(database),pair=await connections.startPair(f.actor,{accountId:account.id,name:'SYNTHETIC draft Chrome',confirmed:true}),credentials=await connections.pair({code:pair.code,extension_id:outreachExtensionId}),identity=await connections.authenticate(credentials.token);await connections.heartbeat(identity,{observed_username:'synthetic_draft_company',reason:'ready'});
+ const id=crypto.randomUUID();await service.create(f.actor,{id,accountId:account.id,campaignId:seed.campaign.id,candidateIds:[seed.accountId],goal:1});const source=(await service.next(identity)).assignment!,target=source.targets[0];await service.finish(identity,{job_id:source.job_id,claim_token:source.claim_token,results:[{candidate_id:target.candidate_id,recipient:target.recipient,state:'opened',reason:'chat_opened',source_url:target.profile_url,observed_at:new Date().toISOString()}]});
+ await signIn(context);await page.goto('/settings/browser-executor');const card=page.locator(`[data-preview-id="${id}"]`);await card.getByRole('button',{name:'제안문 작성 · 발송 전 준비',exact:true}).click();const form=card.locator('[data-compose-source]'),request=form.getByRole('button',{name:'본문 입력 후 멈추기 · 1명',exact:true});await expect(request).toBeDisabled();const body='SYNTHETIC personalized proposal\nNo transmission';await form.getByRole('textbox').fill(body);await expect(request).toBeEnabled();
+ for(const width of [320,390,1440]){await page.setViewportSize({width,height:1100});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();}await form.screenshot({path:`${artifactDir}/composer-preview-input-synthetic.png`});await request.click();await expect(page.getByRole('status').filter({hasText:'본문 입력만 요청했습니다'})).toBeVisible();
+ const headers={origin:`chrome-extension://${outreachExtensionId}`,'content-type':'application/json','x-eruty-executor':'1',authorization:`Bearer ${credentials.token}`};const old=await context.request.post('/api/outreach/executor/preview-next',{headers,data:{protocol_version:2}});expect((await old.json()).assignment).toBeNull();const next=await context.request.post('/api/outreach/executor/preview-next',{headers,data:{protocol_version:3}});expect(next.status()).toBe(200);const grant=(await next.json()).assignment;expect(grant.mode).toBe('compose');expect(grant.messages[0].body).toBe(body);
+ const done=await context.request.post('/api/outreach/executor/compose-finish',{headers,data:{job_id:grant.job_id,claim_token:grant.claim_token,results:[{candidate_id:target.candidate_id,recipient:target.recipient,state:'drafted',reason:'draft_ready',source_url:target.profile_url,observed_at:new Date().toISOString(),body_sha256:createHash('sha256').update(body).digest('hex')}]}});expect(done.status()).toBe(200);await page.reload();const receipt=page.locator(`[data-preview-id="${grant.job_id}"]`);await expect(receipt).toContainText('발송 전 본문 준비 완료');await expect(receipt).toContainText('발송 0건');await receipt.getByText('준비한 문안',{exact:false}).click();await expect(receipt).toContainText(body);await receipt.screenshot({path:`${artifactDir}/composer-preview-result-synthetic.png`});
+ expect((await client.query('select count(*)::int count from outreach_browser_sends where account_id=$1',[account.id])).rows[0].count).toBe(0);
+});
 
 test("company Chrome setup pairs through the server, returns one scoped send receipt and revokes access",async({page,context,playwright})=>{
   const account=await accountService(database).register(f.actor,{provider:"instagram",label:"SYNTHETIC dedicated extension",identity:"synthetic_extension_company"});

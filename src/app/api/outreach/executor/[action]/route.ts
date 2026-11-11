@@ -21,9 +21,11 @@ export async function POST(request:Request,{params}:{params:Promise<{action:stri
     if(action==="heartbeat")return Response.json(await connections.heartbeat(identity,input),{headers});
     if(action==="disconnect"){z.strictObject({}).parse(input);return Response.json(await connections.revoke(identity.actor,identity.id,true),{headers});}
     if(action==="next"){z.strictObject({}).parse(input);return Response.json(await service.next(identity.actor,identity.lease),{headers});}
-    if(action==='preview-next'){z.strictObject({protocol_version:z.literal(2)}).parse(input);return Response.json(await chatPreviewService().next(identity),{headers});}
+    if(action==='preview-next'){const data=z.strictObject({protocol_version:z.union([z.literal(2),z.literal(3)])}).parse(input);return Response.json(await chatPreviewService().next(identity,data.protocol_version),{headers});}
     if(action==='preview-check')return Response.json(await chatPreviewService().check(identity,input),{headers});
     if(action==='preview-finish')return Response.json(await chatPreviewService().finish(identity,input),{headers});
+    if(action==='compose-check')return Response.json(await chatPreviewService().check(identity,input,'compose'),{headers});
+    if(action==='compose-finish')return Response.json(await chatPreviewService().finish(identity,input,'compose'),{headers});
     if(action==="review-context"){const data=browserReview.omit({worker_id:true,instance_id:true}).parse(input);return Response.json(await service.reviewContext(identity.actor,{...data,...identity.lease}),{headers});}
     if(action==="review-finish"){const data=browserReviewFinish.omit({worker_id:true,instance_id:true}).parse(input);return Response.json(await service.reviewFinish(identity.actor,{...data,...identity.lease}),{headers});}
     const grantSchema=browserSendGrant.omit({worker_id:true,instance_id:true});

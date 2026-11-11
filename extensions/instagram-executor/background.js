@@ -124,13 +124,51 @@ async function openPreview(connection,grant){
   }
   await previewFinish(connection,journal);
 }
+const draftReason=error=>['draft_conflict','already_sent'].includes(error?.message)?error.message:failure(error)==='unconfirmed_result'?'browser_unavailable':failure(error);
+async function draftFinish(connection,journal){
+  const permission=await api('compose-check',grantInput(journal),connection),results=[];
+  for(const target of journal.grant.targets){
+    const entry=journal.entries.find(e=>e.candidate_id===target.candidate_id),text=journal.grant.messages.find(m=>m.candidate_id===target.candidate_id),command={kind:'draft_preview',job_id:journal.grant.job_id,sender:journal.grant.sender,recipient:target.recipient,body:text?.body};
+    if(!entry)continue;
+    try{
+      if(!permission.input_permitted)throw new Error('browser_unavailable');
+      await activate(entry.tabId,command);const observed=await message(entry.tabId,{action:'inspect_draft',...command});
+      if(observed.recipient!==target.recipient||observed.body_sha256!==text.body_sha256)throw new Error('browser_unavailable');
+      results.push({candidate_id:target.candidate_id,recipient:target.recipient,state:'drafted',reason:'draft_ready',source_url:observed.source_url,observed_at:observed.observed_at,body_sha256:observed.body_sha256});
+    }catch(error){results.push({candidate_id:target.candidate_id,recipient:target.recipient,state:'unavailable',reason:entry.reason??draftReason(error),source_url:null,observed_at:new Date().toISOString(),body_sha256:null});}
+  }
+  // Recovery reads existing editors only. It never reopens or refills a draft.
+  const result=await api('compose-finish',{...grantInput(journal),results},connection);await store.remove('draftJournal');await store.set({lastDraftPreview:{jobId:journal.grant.job_id,state:result.state,prepared:results.filter(r=>r.state==='drafted').length,at:new Date().toISOString()}});
+}
+async function draftPreview(connection,grant){
+  if(grant.sender!==connection.sender||grant.targets.length>5||grant.messages?.length!==grant.targets.length)throw new Error('sender_mismatch');
+  const journal={grant,entries:[]};await store.set({draftJournal:journal});
+  for(const target of grant.targets){
+    const text=grant.messages.find(m=>m.candidate_id===target.candidate_id),command={kind:'draft_preview',job_id:grant.job_id,sender:grant.sender,recipient:target.recipient,body:text?.body};
+    let entry;
+    try{
+      const permission=await api('compose-check',grantInput(journal),connection);if(!permission.input_permitted)break;
+      const expected=`https://www.instagram.com/${target.recipient}/`;if(target.profile_url!==expected||!/^[a-z0-9._]{1,30}$/.test(target.recipient)||!text)throw new Error('recipient_unavailable');
+      // Each draft has its own owned tab. Existing user tabs/drafts are never
+      // reloaded or discarded when an extension update invalidates scripts.
+      const tab=await chrome.tabs.create({url:expected,active:true});entry={candidate_id:target.candidate_id,tabId:tab.id};journal.entries.push(entry);await store.set({draftJournal:journal});
+      await navigate(tab.id,expected,command);await waitMessage(tab.id,{action:'profile',...command});await waitMessage(tab.id,{action:'open',...command},8000);await activate(tab.id,command);
+      // Recheck revocation immediately before editable input, not only tab open.
+      if(!(await api('compose-check',grantInput(journal),connection)).input_permitted)throw new Error('browser_unavailable');
+      const observed=await waitMessage(tab.id,{action:'fill_draft',...command},10000);
+      if(observed.recipient!==target.recipient||observed.body_sha256!==text.body_sha256)throw new Error('browser_unavailable');
+    }catch(error){if(entry)entry.reason=draftReason(error);await store.set({draftJournal:journal});if(error.status===403||['sender_mismatch','captcha','login_required','platform_restricted'].includes(failure(error)))break;}
+  }
+  await draftFinish(connection,journal);
+}
 async function tick(){
   if(running)return;running=true;
   try{
-    await secured;const {connection,journal,paused,previewJournal}=await store.get(["connection","journal","paused","previewJournal"]);if(!connection||paused)return;
+    await secured;const {connection,journal,paused,previewJournal,draftJournal}=await store.get(["connection","journal","paused","previewJournal","draftJournal"]);if(!connection||paused)return;
     if(Date.parse(connection.expires_at)<=Date.now()){await store.set({status:"연결 만료 · ERUTY에서 다시 연결하세요"});return;}
     if(journal){await finish(connection,journal,journal.phase==="preparing"?"blocked":"unknown","unconfirmed_result");return;}
     if(previewJournal){await previewFinish(connection,previewJournal);return;}
+    if(draftJournal){await draftFinish(connection,draftJournal);return;}
     const tabId=await tabFor(connection);let probe;
     try{probe=await waitMessage(tabId,{action:"probe",sender:connection.sender},12000,true);}
     catch(e){
@@ -142,7 +180,7 @@ async function tick(){
     const heartbeat=await api("heartbeat",{observed_username:probe.sender,reason:"ready"},connection);await store.set({status:heartbeat.ready?"ready":heartbeat.reason});if(!heartbeat.ready)return;
     const {lastResult,reviewAttempted}=await store.get(["lastResult","reviewAttempted"]);
     if(lastResult?.outcome==="unknown"&&reviewAttempted!==lastResult.jobId){await store.set({reviewAttempted:lastResult.jobId});await review(connection,lastResult.jobId,tabId);return;}
-    const preview=await api('preview-next',{protocol_version:2},connection);if(preview.assignment){await openPreview(connection,preview.assignment);return;}
+    const preview=await api('preview-next',{protocol_version:3},connection);if(preview.assignment){if(preview.assignment.mode==='compose')await draftPreview(connection,preview.assignment);else await openPreview(connection,preview.assignment);return;}
     const next=await api("next",{},connection);if(next.assignment)await execute(connection,next.assignment,tabId);
   }catch(e){await store.set({status:e.message==="forbidden"?"연결 해제·만료 · ERUTY에서 확인하세요":"서버 연결 확인 필요",...(e.message==="forbidden"?{paused:true}:{})});}
   finally{running=false;}

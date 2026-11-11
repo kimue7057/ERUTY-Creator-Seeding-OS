@@ -2,8 +2,18 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import {readFileSync} from "node:fs";
+import {createHash} from 'node:crypto';
 import {outreachExtensionId} from "../src/lib/outreach/executor-contracts";
 import {browserUiDiagnostic} from "../src/lib/outreach/browser-contracts";
+
+test('five composer previews only input and inspect, and a lost finish response recovers without refilling or sending',async()=>{
+ const state:Record<string,unknown>={},tabs=new Map<number,string>(),actions:string[]=[],listener={addListener:()=>{}};let next=1,finishes=0;
+ const chrome={storage:{local:{setAccessLevel:async()=>{},set:async(data:Record<string,unknown>)=>Object.assign(state,data),remove:async(key:string)=>{delete state[key];}}},tabs:{create:async({url}:{url:string})=>{const id=next++;tabs.set(id,url);return{id};},get:async(id:number)=>({url:tabs.get(id),status:'complete',windowId:1}),update:async()=>({windowId:1}),sendMessage:async(id:number,c:{kind:string;action:string;recipient:string;body:string})=>{assert.equal(c.kind,'draft_preview');assert.ok(['foreground','profile','open','fill_draft','inspect_draft'].includes(c.action));actions.push(c.action);return{ok:true,recipient:c.recipient,body_sha256:createHash('sha256').update(c.body).digest('hex'),source_url:tabs.get(id),observed_at:new Date().toISOString()};}},windows:{get:async()=>({state:'normal'}),update:async()=>{}},runtime:{onInstalled:listener,onStartup:listener,onMessageExternal:listener,onMessage:listener},alarms:{onAlarm:listener}};
+ const connection={token:'a'.repeat(64),sender:'synthetic_company'},targets=Array.from({length:5},(_,i)=>({candidate_id:crypto.randomUUID(),recipient:'synthetic_'+i,profile_url:`https://www.instagram.com/synthetic_${i}/`})),grant={job_id:crypto.randomUUID(),claim_token:'b'.repeat(64),sender:'synthetic_company',mode:'compose',targets,messages:targets.map((t,i)=>({candidate_id:t.candidate_id,body:'SYNTHETIC proposal '+i,body_sha256:createHash('sha256').update('SYNTHETIC proposal '+i).digest('hex')}))};
+ const context=vm.createContext({chrome,AbortSignal,URL,setTimeout,clearTimeout,Date,connection,grant,fetch:async(url:string)=>{const action=url.split('/').at(-1);assert.ok(['compose-check','compose-finish'].includes(action!));if(action==='compose-finish'&&++finishes===1)throw Error('SYNTHETIC lost response');return{ok:true,json:async()=>action==='compose-check'?{input_permitted:true}:{state:'completed'}};}});vm.runInContext(readFileSync('extensions/instagram-executor/background.js','utf8'),context);
+ await assert.rejects(vm.runInContext('draftPreview(connection,grant)',context));assert.ok(state.draftJournal);assert.equal(actions.filter(a=>a==='fill_draft').length,5);context.recovered=state.draftJournal;await vm.runInContext('draftFinish(connection,recovered)',context);
+ assert.equal(actions.filter(a=>a==='fill_draft').length,5);assert.equal(actions.filter(a=>a==='send'||a==='prepare').length,0);assert.equal((state.lastDraftPreview as {prepared:number}).prepared,5);assert.equal(state.draftJournal,undefined);assert.equal(tabs.size,5);
+});
 
 test('open-only preview leaves exactly five verified tabs without invoking message input, arm or Send',async()=>{
  const state:Record<string,unknown>={},tabs=new Map<number,string>(),actions:string[]=[];let next=1;const listener={addListener:()=>{}};

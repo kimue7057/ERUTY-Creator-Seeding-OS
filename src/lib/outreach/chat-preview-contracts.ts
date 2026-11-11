@@ -4,6 +4,11 @@ export const chatPreviewInput=z.strictObject({id:z.uuid(),accountId:z.uuid(),cam
 export const chatPreviewGrant=z.strictObject({job_id:z.uuid(),claim_token:z.string().regex(/^[a-f0-9]{64}$/)});
 export const chatPreviewResult=z.strictObject({candidate_id:z.uuid(),recipient:z.string().regex(/^[a-z0-9._]{1,30}$/),state:z.enum(['opened','unavailable']),reason:z.enum(['chat_opened','recipient_unavailable','browser_unavailable','sender_mismatch','login_required','captcha','platform_restricted']),source_url:z.url().nullable(),observed_at:z.iso.datetime(),draft_present:z.boolean().default(false),ui_diagnostic:browserUiDiagnostic.optional()});
 export const chatPreviewFinish=chatPreviewGrant.extend({results:z.array(chatPreviewResult).max(15)});
+export const chatComposeInput=z.strictObject({id:z.uuid(),sourcePreviewId:z.uuid(),messages:z.array(z.strictObject({candidateId:z.uuid(),body:z.string().trim().min(1).max(1000)})).min(1).max(5).refine(v=>new Set(v.map(m=>m.candidateId)).size===v.length)});
+export const chatComposeResult=z.strictObject({candidate_id:z.uuid(),recipient:z.string().regex(/^[a-z0-9._]{1,30}$/),state:z.enum(['drafted','unavailable']),reason:z.enum(['draft_ready','draft_conflict','already_sent','recipient_unavailable','browser_unavailable','sender_mismatch','login_required','captcha','platform_restricted']),source_url:z.url().nullable(),observed_at:z.iso.datetime(),body_sha256:z.string().regex(/^[a-f0-9]{64}$/).nullable(),ui_diagnostic:browserUiDiagnostic.optional()});
+export const chatComposeFinish=chatPreviewGrant.extend({results:z.array(chatComposeResult).max(5)});
+export type ChatComposeMessage={candidate_id:string;body:string;body_sha256:string};
+export type ChatComposeResult=z.infer<typeof chatComposeResult>;
 export type ChatPreviewTarget={candidate_id:string;recipient:string;profile_url:string};
 export type ChatPreviewResult=z.infer<typeof chatPreviewResult>;
 export const chatPreviewStates={queued:'채팅창 열기 대기',running:'채팅창 확인 중',completed:'채팅창 열기 완료',partial:'일부 채팅창 열림',blocked:'채팅창을 열지 못함'} as const;

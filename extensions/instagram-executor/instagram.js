@@ -46,6 +46,24 @@
     return exactMessages(root,editor,c).filter(e=>{let parent=e.parentElement;for(let i=0;parent&&parent!==root&&i<8;i++,parent=parent.parentElement){const labels=[...parent.querySelectorAll('[aria-label]')].map(a=>a.getAttribute('aria-label')??"").filter(label=>/님의 메시지|reply.*message|react.*message|message.*options/i.test(label));if(labels.length)return labels.every(label=>self.test(label));}return false;});
   }
   async function command(c){
+    if(c.kind==='draft_preview'){
+      if(c.permit!==undefined||!['foreground','profile','open','fill_draft','inspect_draft','diagnostic_preview'].includes(c.action))fail('unconfirmed_result');validate(c);
+      if(['foreground','profile','open','diagnostic_preview'].includes(c.action))return command({...c,kind:'chat_preview',body:undefined});
+      if(document.visibilityState!=='visible')fail('browser_unavailable');
+      const {root,editor}=thread(c);
+      if(outgoing(root,editor,c).length)fail('already_sent');
+      if(c.action==='fill_draft'&&editor.innerText!==c.body){
+        if(editor.innerText.trim())fail('draft_conflict');
+        editor.focus();const selection=window.getSelection(),range=document.createRange();range.selectNodeContents(editor);selection.removeAllRanges();selection.addRange(range);
+        // Normal editable input only. No key events or send-capable controls.
+        // Separate editable line breaks avoid Chromium's extra paragraph gap
+        // when insertText receives consecutive newlines. Neither command sends.
+        const lines=c.body.split('\n');for(let index=0;index<lines.length;index++){if(index)document.execCommand('insertLineBreak',false);if(lines[index])document.execCommand('insertText',false,lines[index]);}
+      }
+      if(editor.innerText!==c.body)fail(editor.innerText.trim()?'draft_conflict':'unconfirmed_result');
+      const digest=[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(editor.innerText)))].map(x=>x.toString(16).padStart(2,'0')).join('');
+      return{recipient:c.recipient,body_sha256:digest,source_url:location.origin+location.pathname,observed_at:new Date().toISOString()};
+    }
     if(c.kind==='chat_preview'){
       if(c.body!==undefined||c.permit!==undefined||!['foreground','profile','open','inspect_preview','diagnostic_preview'].includes(c.action))fail('unconfirmed_result');validateIdentity(c);
       if(c.action==='diagnostic_preview'){
