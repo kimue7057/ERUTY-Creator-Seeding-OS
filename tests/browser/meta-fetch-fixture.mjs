@@ -6,8 +6,21 @@ if (!localHosts.includes(new URL(process.env.DATABASE_URL).hostname) || !localHo
 }
 const originalFetch = globalThis.fetch;
 const allowedTokens = new Set(["synthetic-browser-meta-success", "synthetic-browser-meta-other"]);
+const crmFrom='crm-company@example.invalid',crmTo='crm-creator@example.invalid',crmThread='crm_mail_thread',crmTime=Date.now()-20000;
+const crmMail=(id,incoming,time,body)=>({id,threadId:crmThread,internalDate:String(time),payload:{mimeType:'text/plain',headers:[{name:'From',value:incoming?crmTo:crmFrom},{name:'To',value:incoming?crmFrom:crmTo},{name:'Subject',value:'SYNTHETIC CRM proposal'},{name:'Message-ID',value:`<${id}@example.invalid>`}],body:{data:Buffer.from(body).toString('base64url')}}});
+const crmMessages=[crmMail('crm_mail_original',false,crmTime,'SYNTHETIC original proposal')];let crmIncomingInitialized=false;
 globalThis.fetch = async (input, init) => {
   const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
+  const crmBearer=new Headers(init?.headers).get('Authorization');
+  if(crmBearer==='Bearer synthetic-crm-google'){
+    if(url.hostname==='openidconnect.googleapis.com')return Response.json({sub:'synthetic-crm-subject',email:crmFrom,email_verified:true});
+    if(url.hostname==='gmail.googleapis.com'){
+      if(url.pathname.endsWith('/messages/crm_mail_original'))return Response.json({id:'crm_mail_original',threadId:crmThread});
+      if(url.pathname.endsWith('/threads/'+crmThread)){if(!crmIncomingInitialized){crmMessages.push(crmMail('crm_mail_incoming',true,Date.now(),'SYNTHETIC creator answer\n\nPlease share the brief.'));crmIncomingInitialized=true;}return Response.json({id:crmThread,messages:crmMessages});}
+      if(url.pathname.endsWith('/messages/send')){const data=JSON.parse(init.body),raw=Buffer.from(data.raw,'base64url').toString();if(data.threadId!==crmThread||!raw.includes('To: '+crmTo)||!raw.includes('In-Reply-To: <crm_mail_incoming@example.invalid>'))throw Error('Unsafe CRM fixture send');crmMessages.push(crmMail('crm_mail_reply',false,Date.now(),'SYNTHETIC CRM reply\n\n'+crmFrom));return Response.json({id:'crm_mail_reply',threadId:crmThread});}
+    }
+    throw Error('Unexpected CRM fixture request');
+  }
   if (url.hostname !== "graph.facebook.com") return originalFetch(input, init);
   if (url.pathname.endsWith("/debug_token") && allowedTokens.has(url.searchParams.get("input_token"))) {
     return Response.json({ data: { app_id: "10000", type: "SYSTEM_USER", is_valid: true, expires_at: 0, scopes: ["instagram_basic", "instagram_manage_messages"] } });

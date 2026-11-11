@@ -3,7 +3,7 @@ import { OutreachError } from "./contracts";
 export const instagramConversationId=z.string().regex(/^[A-Za-z0-9_:.=+/-]{1,1024}$/);
 export const instagramScopedId=z.string().regex(/^\d{1,64}$/);
 export const dmSelectionSchema=z.object({conversationId:instagramConversationId,recipientId:instagramScopedId,username:z.string().regex(/^[\w.]{1,30}$/)}).strict();
-export const instagramReplySchema=z.object({id:z.uuid(),accountId:z.uuid(),selection:dmSelectionSchema,body:z.string().trim().min(1).max(1000),confirmed:z.literal(true),draftId:z.uuid().nullable().default(null),draftRevision:z.number().int().positive().nullable().default(null)}).strict();
+export const instagramReplySchema=z.object({id:z.uuid(),accountId:z.uuid(),selection:dmSelectionSchema,body:z.string().trim().min(1).max(1000),confirmed:z.literal(true),expectedLastMessageId:z.string().min(1).max(1024).nullable().optional(),draftId:z.uuid().nullable().default(null),draftRevision:z.number().int().positive().nullable().default(null)}).strict();
 export type DmSelection=z.infer<typeof dmSelectionSchema>;
 export type DmMessage={id:string;createdAt:string;senderId:string;senderUsername:string|null;text:string;incoming:boolean};
 export type DmConversation={id:string;updatedAt:string;recipientId:string|null;username:string|null;preview:string};

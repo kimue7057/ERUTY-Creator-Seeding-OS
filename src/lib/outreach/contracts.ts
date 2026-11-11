@@ -35,6 +35,13 @@ export function parseInstagramSystemUserInput(input:unknown) {
 }
 export function outreachErrorMessage(error: unknown): string {
   const messages: Record<string, string> = {
+    mail_read_required:"이메일 답장 조회 권한이 필요합니다. 발신 계정에서 ‘이메일 답장 수신도 연결’을 선택해 Google에 다시 로그인하세요.",
+    mail_read_failed:"회사 메일에서 대화를 불러오지 못했습니다. 연결 상태를 확인하고 다시 조회하세요.",
+    mail_response_invalid:"메일 서비스 응답을 확인하지 못했습니다. 메일은 발송하지 않았습니다.",
+    mail_thread_mismatch:"원래 발송한 메일과 참여자를 확인하지 못했습니다. 회사 메일함에서 대상을 확인하세요. 다른 주소로 자동 회신하지 않습니다.",
+    contact_changed:"새 메시지가 도착했거나 다른 담당자가 변경했습니다. 최신 대화를 다시 읽고 전송을 확인하세요.",
+    contact_closed:"보류·종료 상태이거나 보관된 캠페인입니다. 업무 상태를 확인한 뒤 회신하세요.",
+    contact_inbound_required:"받은 답장을 먼저 동기화해야 회신할 수 있습니다. 대화를 새로고침하세요.",
     browser_outreach_offline:"연락용 브라우저 실행기가 연결되지 않았습니다. 실행 PC의 Codex·브라우저와 연락 작업 설정을 확인하세요.",
     browser_outreach_pending:"이 수신자에게 진행 중이거나 결과가 확인되지 않은 발송이 있습니다. 발송 기록을 먼저 확인하세요.",
     browser_outreach_claim_expired:"브라우저 작업 권한이 만료됐거나 실행기가 바뀌었습니다. 같은 메시지를 자동으로 다시 보내지 않습니다.",

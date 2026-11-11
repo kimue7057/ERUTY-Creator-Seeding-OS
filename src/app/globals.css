@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "./outreach-workspace.css";
+@import "./contact-crm.css";
 
 /* Outreach keeps analysis, writing, presentation and delivery on separate steps. */
 .outreach-intro,.outreach-intro>div,.sender-card-top,.sender-actions,.outreach-creator,.outreach-footer,.outreach-template-options{display:flex;gap:12px;align-items:center;flex-wrap:wrap}

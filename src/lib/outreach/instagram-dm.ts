@@ -66,7 +66,7 @@ export function instagramDmService(database:Pick<typeof db,"transaction">=db,fet
         if(browserPending)throw new OutreachError("browser_outreach_pending");
         await approvedDraft(tx,actor,data);
         if(data.draftId){const [d]=await tx.select().from(drafts).where(draftScope(actor,data.draftId));if(!row.addresses.some(a=>a.address===d.fromAddress))throw new OutreachError("reconnect");}
-        const thread=await provider.thread(data.selection);assertDmWindow(thread.lastIncomingAt);
+        const thread=await provider.thread(data.selection);assertDmWindow(thread.lastIncomingAt);if(data.expectedLastMessageId&&thread.messages.at(-1)?.id!==data.expectedLastMessageId)throw new OutreachError("contact_changed");
         const [claim]=await tx.insert(sends).values({id:data.id,organizationId:actor.organizationId,accountId:row.id,draftId:data.draftId,conversationId:data.selection.conversationId,senderProviderId:row.providerId!,fromUsername:row.identity!,recipientId:data.selection.recipientId,recipientUsername:data.selection.username,body:data.body,inputSha256:hash,createdBy:actor.userId}).returning();
         if(data.draftId)await tx.update(drafts).set({status:"sending",updatedAt:new Date(),updatedBy:actor.userId}).where(draftScope(actor,data.draftId));
         await tx.insert(auditEvents).values({organizationId:actor.organizationId,actorId:actor.userId,entityId:data.id,action:"outreach.instagram_dm_confirmed"});return claim;
@@ -77,7 +77,7 @@ export function instagramDmService(database:Pick<typeof db,"transaction">=db,fet
         const {row,provider}=await context(tx,actor,data.accountId,net);
         if(row.providerId!==claimed.senderProviderId||normalizeIdentity(row.identity??"")!==normalizeIdentity(claimed.fromUsername))throw new OutreachError("reconnect");
         await approvedDraft(tx,actor,data,true);
-        const thread=await provider.thread(data.selection);assertDmWindow(thread.lastIncomingAt);
+        const thread=await provider.thread(data.selection);assertDmWindow(thread.lastIncomingAt);if(data.expectedLastMessageId&&thread.messages.at(-1)?.id!==data.expectedLastMessageId)throw new OutreachError("contact_changed");
         submitted=true;
         const providerMessageId=await provider.send(data.selection.recipientId,data.body);
         const sentAt=new Date();const [saved]=await tx.update(sends).set({status:"sent",providerMessageId,sentAt,updatedAt:sentAt}).where(and(scope(actor,data.id),eq(sends.status,"sending"))).returning();

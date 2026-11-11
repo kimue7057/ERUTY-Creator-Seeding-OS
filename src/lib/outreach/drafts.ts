@@ -95,8 +95,8 @@ export function draftService(database:Pick<typeof db,"transaction">=db,fetcher:t
         submitted=true;
         const response=await fetcher("https://gmail.googleapis.com/gmail/v1/users/me/messages/send",{method:"POST",headers:{Authorization:`Bearer ${token.accessToken}`,"Content-Type":"application/json"},body:JSON.stringify({raw}),redirect:"error",signal:AbortSignal.timeout(20000)});
         if(!response.ok){await response.body?.cancel();if([400,401,403,404,429].includes(response.status)){submitted=false;throw new OutreachError("send_failed");}throw new OutreachError("send_unknown");}
-        const result=z.object({id:z.string().min(1).max(200)}).parse(await response.json());
-        const [saved]=await tx.update(drafts).set({status:"sent",providerMessageId:result.id,sentAt:new Date(),updatedAt:new Date()}).where(scope(actor,id)).returning();
+        const result=z.object({id:z.string().min(1).max(200),threadId:z.string().min(1).max(200).optional()}).parse(await response.json());
+        const [saved]=await tx.update(drafts).set({status:"sent",providerMessageId:result.id,providerThreadId:result.threadId??null,sentAt:new Date(),updatedAt:new Date()}).where(scope(actor,id)).returning();
         await tx.insert(auditEvents).values({organizationId:actor.organizationId,actorId:actor.userId,entityId:id,action:"outreach.sent"});return saved;
       });}catch(error){
         await database.transaction(async tx=>{await outreachMember(tx,actor,true);await tx.update(drafts).set({status:submitted?"unknown":"failed",updatedAt:new Date()}).where(and(scope(actor,id),eq(drafts.status,"sending")));}).catch(()=>{});

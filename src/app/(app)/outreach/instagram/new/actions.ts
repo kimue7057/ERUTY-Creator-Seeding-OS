@@ -9,7 +9,7 @@ export async function loadBrowserOutreach(accountId?:string){
   const actor=await requireActor();try{const service=browserSendService();const [jobs,workers]=await Promise.all([service.history(actor,accountId),process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED==="true"?service.availability(actor,accountId):Promise.resolve([])]);return{jobs,workers};}catch(error){return{error:outreachErrorMessage(error)};}
 }
 export async function requestBrowserOutreach(input:unknown){
-  const actor=await requireActor();try{if(process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED!=="true")throw new OutreachError("browser_outreach_offline");const data=browserSendInput.omit({draftId:true,draftRevision:true}).parse(input);return{job:await browserSendService().create(actor,data)};}catch(error){return{error:outreachErrorMessage(error)};}
+  const actor=await requireActor();try{if(process.env.CODEX_AUTOMATIC_DISCOVERY_ENABLED!=="true")throw new OutreachError("browser_outreach_offline");const data=browserSendInput.parse(input);if(data.draftId||data.draftRevision||data.reviewDraftId||data.reviewDraftRevision||data.reviewBatchId)throw new OutreachError("forbidden");return{job:await browserSendService().create(actor,data)};}catch(error){return{error:outreachErrorMessage(error)};}
 }
 export async function sendBrowserOutreachDraft(id:string,revision:number,confirmed:boolean){
   const actor=await requireActor();try{

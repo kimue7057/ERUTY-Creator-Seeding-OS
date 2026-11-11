@@ -75,3 +75,12 @@ test("campaign Instagram sends require the current final selection, revision and
   await assert.rejects(svc.send(f.actor,next.id,next.revision,true),code("stale"));assert.equal(h.sends(),1);
   const [stored]=await f.database.select().from(senderAccounts).where(eq(senderAccounts.id,h.account.id));assert.equal(stored.status,"connected");
 }));
+
+
+test('contact CRM imports confirmed Instagram outreach, reads inbound, pins sender and recipient, and records one API reply',async()=>withDiscoveryDatabase(async f=>{
+ const {contactService}=await import('../../src/lib/outreach/contacts');const h=await setup(f);
+ await f.database.insert(instagramDmSends).values({id:randomUUID(),organizationId:f.actor.organizationId,accountId:h.account.id,conversationId:h.input.selection.conversationId,senderProviderId:'333',fromUsername:'synthetic_company',recipientId:'444',recipientUsername:h.input.selection.username,body:'SYNTHETIC original proposal',inputSha256:'a'.repeat(64),status:'sent',providerMessageId:'synthetic_first_send',sentAt:new Date(Date.now()-120000),createdBy:f.actor.userId});
+ const crm=contactService(f.database,h.mock),rows=await crm.list(f.actor);assert.equal(rows.length,1);assert.equal(rows[0].origin,'legacy');const inbox=await crm.sync(f.actor,rows[0].id);assert.equal(inbox.messages.at(-1)?.direction,'in');assert.equal(inbox.conversation.instagramSelection?.recipientId,'444');
+ const input={id:randomUUID(),caseId:rows[0].id,version:inbox.conversation.version,body:'SYNTHETIC CRM Instagram reply',confirmed:true};const sent=await crm.reply(f.actor,input);assert.equal(sent.attempts[0].status,'sent');assert.equal(sent.messages.at(-1)?.body,input.body);assert.equal(h.sends(),1);assert.equal((await crm.list(f.actor)).length,1);await crm.reply(f.actor,input);assert.equal(h.sends(),1);
+ await assert.rejects(crm.reply(f.other,{...input,id:randomUUID()}),code('not_found'));assert.equal(h.sends(),1);
+}));
