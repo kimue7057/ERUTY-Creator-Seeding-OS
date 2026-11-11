@@ -10,7 +10,7 @@ import type {ActorScope} from "../auth/permissions";
 import {OutreachError,normalizeIdentity} from "./contracts";
 import {outreachExtensionId,executorHeartbeat,executorPairInput} from "./executor-contracts";
 const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
-type ExecutorIdentity={actor:ActorScope;lease:{worker_id:string;instance_id:string};id:string;accountId:string};
+export type ExecutorIdentity={actor:ActorScope;lease:{worker_id:string;instance_id:string};id:string;accountId:string};
 export function outreachExecutorService(database:Pick<typeof db,"transaction">=db){
   const service={
     list:(actor:ActorScope)=>database.transaction(async tx=>{await outreachMember(tx,actor);return tx.select({id:executors.id,accountId:executors.accountId,name:executors.name,status:executors.status,observedUsername:executors.observedUsername,lastReason:executors.lastReason,lastSeenAt:executors.lastSeenAt,expiresAt:executors.expiresAt}).from(executors).where(eq(executors.organizationId,actor.organizationId)).orderBy(desc(executors.createdAt)).limit(30);}),

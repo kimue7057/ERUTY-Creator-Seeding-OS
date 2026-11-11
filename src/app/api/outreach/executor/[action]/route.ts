@@ -4,6 +4,7 @@ import {outreachExecutorService} from "@/lib/outreach/executors";
 import {outreachExtensionId} from "@/lib/outreach/executor-contracts";
 import {browserSendService} from "@/lib/outreach/browser-sends";
 import {browserSendGrant,browserObservation,browserFinish,browserReview,browserReviewFinish} from "@/lib/outreach/browser-contracts";
+import {chatPreviewService} from '@/lib/outreach/chat-previews';
 export const runtime="nodejs";
 const extensionOrigin=`chrome-extension://${outreachExtensionId}`;
 const headers={"Cache-Control":"private, no-store, max-age=0","Referrer-Policy":"no-referrer","X-Content-Type-Options":"nosniff","Access-Control-Allow-Origin":extensionOrigin,Vary:"Origin"};
@@ -20,6 +21,9 @@ export async function POST(request:Request,{params}:{params:Promise<{action:stri
     if(action==="heartbeat")return Response.json(await connections.heartbeat(identity,input),{headers});
     if(action==="disconnect"){z.strictObject({}).parse(input);return Response.json(await connections.revoke(identity.actor,identity.id,true),{headers});}
     if(action==="next"){z.strictObject({}).parse(input);return Response.json(await service.next(identity.actor,identity.lease),{headers});}
+    if(action==='preview-next'){z.strictObject({}).parse(input);return Response.json(await chatPreviewService().next(identity),{headers});}
+    if(action==='preview-check')return Response.json(await chatPreviewService().check(identity,input),{headers});
+    if(action==='preview-finish')return Response.json(await chatPreviewService().finish(identity,input),{headers});
     if(action==="review-context"){const data=browserReview.omit({worker_id:true,instance_id:true}).parse(input);return Response.json(await service.reviewContext(identity.actor,{...data,...identity.lease}),{headers});}
     if(action==="review-finish"){const data=browserReviewFinish.omit({worker_id:true,instance_id:true}).parse(input);return Response.json(await service.reviewFinish(identity.actor,{...data,...identity.lease}),{headers});}
     const grantSchema=browserSendGrant.omit({worker_id:true,instance_id:true});

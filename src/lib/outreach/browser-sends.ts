@@ -3,7 +3,7 @@ import {and,desc,eq,gt,inArray,sql} from "drizzle-orm";
 import {z} from "zod";
 import {db} from "../db";
 import {auditEvents} from "../db/schema";
-import {senderAccounts as accounts,outreachDrafts as drafts,browserOutreachSends as jobs,instagramDmSends,browserOutreachExecutors as executors} from "../db/outreach-schema";
+import {senderAccounts as accounts,outreachDrafts as drafts,browserOutreachSends as jobs,instagramDmSends,browserOutreachExecutors as executors,chatPreviews} from "../db/outreach-schema";
 import {discoveryWorkers as workers,discoveryExecutions} from "../db/worker-schema";
 import {creatorAssessments} from "../db/assessment-schema";
 import type {ActorScope} from "../auth/permissions";
@@ -117,7 +117,8 @@ export function browserSendService(database:Pick<typeof db,"transaction">=db){
       }
       const [discovering]=await tx.select({id:discoveryExecutions.id}).from(discoveryExecutions).where(and(eq(discoveryExecutions.workerId,worker.id),inArray(discoveryExecutions.state,["starting","running"])));
       const [assessing]=await tx.select({id:creatorAssessments.id}).from(creatorAssessments).where(and(eq(creatorAssessments.workerId,worker.id),eq(creatorAssessments.state,"running")));
-      if(current||discovering||assessing)return{assignment:null};
+      const [preview]=await tx.select({id:chatPreviews.id}).from(chatPreviews).where(and(eq(chatPreviews.organizationId,actor.organizationId),eq(chatPreviews.workerId,worker.id),eq(chatPreviews.state,'running')));
+      if(current||discovering||assessing||preview)return{assignment:null};
       const [found]=await tx.select().from(jobs).where(and(eq(jobs.organizationId,actor.organizationId),eq(jobs.state,"queued"),worker.outreachAccountId?eq(jobs.accountId,worker.outreachAccountId):undefined)).orderBy(jobs.createdAt,jobs.id).limit(1);if(!found)return{assignment:null};
       const sender=await account(tx,actor,found.accountId,true);const [row]=await tx.select().from(jobs).where(scope(actor,found.id)).for("update");if(row.state!=="queued")return{assignment:null};
       if(sender.status==="disconnected"||normalizeIdentity(sender.expectedIdentity)!==row.senderUsername){await tx.update(jobs).set({state:"blocked",reason:"sender_mismatch",updatedAt:new Date()}).where(scope(actor,row.id));await setDraft(tx,actor,row,"failed");return{assignment:null};}

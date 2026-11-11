@@ -15,6 +15,13 @@ async function fixture(page:Page,pending=false){
 const dispatch=(page:Page,request:unknown)=>page.evaluate(request=>new Promise<{ok:boolean;reason?:string;observation?:unknown}>(resolve=>window.erutySyntheticListener(request,{id:"synthetic_extension"},resolve)),request);
 function command(){const id=randomUUID();return{type:"ERUTY_INSTAGRAM",job_id:id,sender:"synthetic_company",recipient:"synthetic_recipient",body};}
 function permit(job_id:string){return{job_id,send_permitted:true,expires_at:new Date(Date.now()+120000).toISOString(),body_sha256:createHash('sha256').update(body).digest('hex')};}
+
+test('synthetic open-only preview preserves an existing draft and rejects all input/send actions',async({page})=>{
+ await fixture(page);await page.locator('[contenteditable]').fill('SYNTHETIC existing draft');const c={type:'ERUTY_INSTAGRAM',kind:'chat_preview',job_id:randomUUID(),sender:'synthetic_company',recipient:'synthetic_recipient'};
+ expect((await dispatch(page,{...c,action:'inspect_preview'})).ok).toBe(true);
+ for(const action of ['prepare','send','verify','inspect_sent'])expect((await dispatch(page,{...c,action})).ok).toBe(false);
+ expect((await dispatch(page,{...c,action:'inspect_preview',body:'SYNTHETIC forbidden'})).ok).toBe(false);await expect(page.locator('[contenteditable]')).toHaveText('SYNTHETIC existing draft');expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
+});
 test("synthetic DOM adapter sends exact text once, verifies outgoing attribution and rejects repeat Send",async({page})=>{
   await fixture(page);const c=command();expect((await dispatch(page,{...c,action:"prepare"})).ok).toBe(true);
   expect((await dispatch(page,{...c,action:"send",permit:permit(c.job_id)})).ok).toBe(true);expect((await dispatch(page,{...c,action:"verify"})).ok).toBe(true);
