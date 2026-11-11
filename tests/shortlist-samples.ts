@@ -13,8 +13,8 @@ import { automaticWorkerService } from "../src/lib/discovery/automatic-worker";
 import { users } from "../src/lib/db/schema";
 import { hashPassword } from "../src/lib/auth/password";
 type Fixture = Parameters<Parameters<typeof withDiscoveryDatabase>[0]>[0];
-export async function seedShortlistCandidate(f: Fixture, platform: "instagram" | "youtube" | "tiktok" = "instagram") {
-  const campaign = await f.campaign(), discovery = discoveryService(f.database), requests = browserRequestService(f.database), remote = remoteBrowserService(f.database);
+export async function seedShortlistCandidate(f: Fixture, platform: "instagram" | "youtube" | "tiktok" = "instagram", existingCampaign?: Awaited<ReturnType<Fixture['campaign']>>) {
+  const campaign = existingCampaign ?? await f.campaign(), discovery = discoveryService(f.database), requests = browserRequestService(f.database), remote = remoteBrowserService(f.database);
   const credentials = { email: `${randomUUID()}@example.invalid`, password: "synthetic-shortlist-contract-password" };
   await f.database.update(users).set({ email: credentials.email, passwordHash: hashPassword(credentials.password) }).where(eq(users.id, f.actor.userId));
   const token = (await browserWorkerAuth(f.database).login(credentials)).token;

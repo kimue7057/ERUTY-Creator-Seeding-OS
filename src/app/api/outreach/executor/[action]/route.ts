@@ -20,8 +20,8 @@ export async function POST(request:Request,{params}:{params:Promise<{action:stri
     const identity=await connections.authenticate(request.headers.get("authorization")?.replace(/^Bearer /,"")??""),service=browserSendService();
     if(action==="heartbeat")return Response.json(await connections.heartbeat(identity,input),{headers});
     if(action==="disconnect"){z.strictObject({}).parse(input);return Response.json(await connections.revoke(identity.actor,identity.id,true),{headers});}
-    if(action==="next"){z.strictObject({}).parse(input);return Response.json(await service.next(identity.actor,identity.lease),{headers});}
-    if(action==='preview-next'){const data=z.strictObject({protocol_version:z.union([z.literal(2),z.literal(3),z.literal(4)])}).parse(input);return Response.json(await chatPreviewService().next(identity,data.protocol_version),{headers});}
+    if(action==="next"){const data=z.strictObject({protocol_version:z.literal(2).optional()}).parse(input);return Response.json(await service.next(identity.actor,identity.lease,data.protocol_version??1),{headers});}
+    if(action==='preview-next'){const data=z.strictObject({protocol_version:z.union([z.literal(2),z.literal(3),z.literal(4),z.literal(5)])}).parse(input);return Response.json(await chatPreviewService().next(identity,data.protocol_version),{headers});}
     if(action==='preview-check')return Response.json(await chatPreviewService().check(identity,input),{headers});
     if(action==='preview-finish')return Response.json(await chatPreviewService().finish(identity,input),{headers});
     if(action==='compose-check')return Response.json(await chatPreviewService().check(identity,input,'compose'),{headers});

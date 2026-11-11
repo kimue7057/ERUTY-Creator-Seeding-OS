@@ -3,7 +3,7 @@ import {and,desc,eq,gt} from "drizzle-orm";
 import {z} from "zod";
 import {db} from "../db";
 import {memberships,auditEvents} from "../db/schema";
-import {browserOutreachExecutors as executors,senderAccounts,browserOutreachSends,outreachDrafts} from "../db/outreach-schema";
+import {browserOutreachExecutors as executors,senderAccounts,browserOutreachSends,outreachDrafts,outreachReviewDrafts} from "../db/outreach-schema";
 import {discoveryWorkers as workers} from "../db/worker-schema";
 import {outreachMember} from "./access";
 import type {ActorScope} from "../auth/permissions";
@@ -13,7 +13,7 @@ const hash=(s:string)=>createHash("sha256").update(s).digest("hex");
 export type ExecutorIdentity={actor:ActorScope;lease:{worker_id:string;instance_id:string};id:string;accountId:string};
 export function outreachExecutorService(database:Pick<typeof db,"transaction">=db){
   const service={
-    list:(actor:ActorScope)=>database.transaction(async tx=>{await outreachMember(tx,actor);return tx.select({id:executors.id,accountId:executors.accountId,name:executors.name,status:executors.status,observedUsername:executors.observedUsername,lastReason:executors.lastReason,lastSeenAt:executors.lastSeenAt,expiresAt:executors.expiresAt}).from(executors).where(eq(executors.organizationId,actor.organizationId)).orderBy(desc(executors.createdAt)).limit(30);}),
+    list:(actor:ActorScope)=>database.transaction(async tx=>{await outreachMember(tx,actor);return tx.select({id:executors.id,accountId:executors.accountId,name:executors.name,status:executors.status,protocolVersion:executors.protocolVersion,observedUsername:executors.observedUsername,lastReason:executors.lastReason,lastSeenAt:executors.lastSeenAt,expiresAt:executors.expiresAt}).from(executors).where(eq(executors.organizationId,actor.organizationId)).orderBy(desc(executors.createdAt)).limit(30);}),
     startPair:(actor:ActorScope,input:unknown)=>database.transaction(async tx=>{
       const data=z.strictObject({accountId:z.uuid(),name:z.string().trim().min(1).max(60),confirmed:z.literal(true)}).parse(input);await outreachMember(tx,actor,true,true);
       const [account]=await tx.select().from(senderAccounts).where(and(eq(senderAccounts.organizationId,actor.organizationId),eq(senderAccounts.id,data.accountId))).for("update");
@@ -46,13 +46,14 @@ export function outreachExecutorService(database:Pick<typeof db,"transaction">=d
       const [account]=await tx.select().from(senderAccounts).where(and(eq(senderAccounts.organizationId,identity.actor.organizationId),eq(senderAccounts.id,connection.accountId)));
       const ready=!!account&&account.status!=="disconnected"&&data.reason==="ready"&&data.observed_username===normalizeIdentity(account.expectedIdentity);
       const reason=ready?"ready":data.reason==="ready"?"sender_mismatch":data.reason,now=new Date();
-      await tx.update(executors).set({observedUsername:data.observed_username,lastReason:reason,lastSeenAt:now,updatedAt:now}).where(eq(executors.id,connection.id));
+      await tx.update(executors).set({protocolVersion:data.protocol_version,observedUsername:data.observed_username,lastReason:reason,lastSeenAt:now,updatedAt:now}).where(eq(executors.id,connection.id));
       await tx.update(workers).set({ready:ready?"ready":"unavailable",outreachReady:ready?"yes":"no",lastSeenAt:now}).where(eq(workers.id,connection.workerId));return{ready,reason};
     }),
     revoke:(actor:ActorScope,id:string,self=false)=>database.transaction(async tx=>{
       await outreachMember(tx,actor,true,!self);const [row]=await tx.update(executors).set({status:"revoked",revokedAt:new Date(),updatedAt:new Date()}).where(and(eq(executors.organizationId,actor.organizationId),eq(executors.id,z.uuid().parse(id)),self?eq(executors.userId,actor.userId):undefined)).returning({id:executors.id,workerId:executors.workerId});if(!row)throw new OutreachError("not_found");
       const pending=await tx.select().from(browserOutreachSends).where(and(eq(browserOutreachSends.organizationId,actor.organizationId),eq(browserOutreachSends.workerId,row.workerId))).for("update");
       for(const job of pending.filter(j=>["preparing","armed"].includes(j.state))){const state=job.state==="armed"?"unknown" as const:"blocked" as const;await tx.update(browserOutreachSends).set({state,reason:"unconfirmed_result",updatedAt:new Date()}).where(eq(browserOutreachSends.id,job.id));if(job.draftId)await tx.update(outreachDrafts).set({status:state==="unknown"?"unknown":"failed",updatedAt:new Date(),updatedBy:actor.userId}).where(and(eq(outreachDrafts.organizationId,actor.organizationId),eq(outreachDrafts.id,job.draftId),eq(outreachDrafts.status,"sending")));}
+      for(const job of pending.filter(j=>j.reviewDraftId&&['preparing','armed'].includes(j.state)))await tx.update(outreachReviewDrafts).set({status:job.state==='armed'?'unknown':'failed',updatedAt:new Date(),updatedBy:actor.userId}).where(and(eq(outreachReviewDrafts.organizationId,actor.organizationId),eq(outreachReviewDrafts.id,job.reviewDraftId!),eq(outreachReviewDrafts.status,'sending')));
       await tx.insert(auditEvents).values({organizationId:actor.organizationId,actorId:actor.userId,entityId:id,action:"outreach.executor_revoked"});return{revoked:true};
     }),
   };return service;

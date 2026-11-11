@@ -20,7 +20,7 @@
   function validateIdentity(c){if(!/^[a-f0-9-]{36}$/.test(c.job_id)||!/^\w[\w.]{0,29}$/.test(c.sender)||!/^\w[\w.]{0,29}$/.test(c.recipient))fail("unconfirmed_result");sender(c.sender);}
   function validate(c){validateIdentity(c);if(typeof c.body!=="string"||!c.body.trim()||c.body.length>1000)fail("unconfirmed_result");}
   function profileIdentity(c){validateIdentity(c);if(location.pathname.replace(/^\/|\/$/g,"").toLowerCase()!==c.recipient)fail("recipient_unavailable");const heading=[...document.querySelectorAll('h1,h2,a')].filter(visible).some(e=>normalize(e.innerText).toLowerCase()===c.recipient);if(!heading)fail("recipient_unavailable");}
-  function profile(c){validate(c);profileIdentity(c);}
+  function profile(c){validate(c);previewProfile(c);}
   const previewHeaders=c=>[...document.querySelectorAll('header')].filter(h=>visible(h)&&[...h.querySelectorAll('h1,h2,a,span,[role="heading"]')].some(e=>visible(e)&&normalize(e.innerText).toLowerCase()===c.recipient));
   const previewScopes=c=>[...document.querySelectorAll('header,main')].filter(h=>visible(h)&&[...h.querySelectorAll('h1,h2,a,span,[role="heading"]')].some(e=>visible(e)&&normalize(e.innerText).toLowerCase()===c.recipient));
   function previewProfile(c){validateIdentity(c);if(location.pathname.replace(/^\/|\/$/g,'').toLowerCase()!==c.recipient)fail('recipient_unavailable');if(!previewScopes(c).length)profileIdentity(c);}
@@ -45,6 +45,18 @@
     const self=new RegExp(`(^|[^A-Za-z0-9._])${c.sender.replaceAll('.', '\\.')}($|[^A-Za-z0-9._])`,'i');
     return exactMessages(root,editor,c).filter(e=>{let parent=e.parentElement;for(let i=0;parent&&parent!==root&&i<8;i++,parent=parent.parentElement){const labels=[...parent.querySelectorAll('[aria-label]')].map(a=>a.getAttribute('aria-label')??"").filter(label=>/님의 메시지|reply.*message|react.*message|message.*options/i.test(label));if(labels.length)return labels.every(label=>self.test(label));}return false;});
   }
+  async function insertMessage(editor,body){
+    editor.focus();const selection=window.getSelection(),range=document.createRange();range.selectNodeContents(editor);selection.removeAllRanges();selection.addRange(range);
+    if(!document.hasFocus()||!editor.contains(selection.anchorNode))fail('browser_unavailable');
+    if(/[\r\n]/.test(body)){
+      const data=new DataTransfer();data.setData('text/plain',body);
+      const paste=new ClipboardEvent('paste',{bubbles:true,cancelable:true,composed:true,clipboardData:data});editor.dispatchEvent(paste);
+      await new Promise(resolve=>setTimeout(resolve,180));
+      // A handled paste may render asynchronously; never append another copy.
+      if(paste.defaultPrevented||editor.innerText.trim())return{input_method:'paste'};
+    }
+    const inserted=document.execCommand('insertText',false,body);await new Promise(resolve=>setTimeout(resolve,120));return{input_method:'insert_text',input_reported_success:inserted};
+  }
   async function command(c){
     if(c.kind==='draft_preview'){
       if(c.permit!==undefined||!['foreground','profile','open','fill_draft','inspect_draft','diagnostic_preview'].includes(c.action))fail('unconfirmed_result');validate(c);
@@ -52,16 +64,12 @@
       if(document.visibilityState!=='visible')fail('browser_unavailable');
       const {root,editor}=thread(c);
       if(outgoing(root,editor,c).length)fail('already_sent');
-      const comparison=()=>editor.innerText===c.body?'exact':normalize(editor.innerText)===normalize(c.body)?'whitespace_normalized':editor.innerText.trim()?'different':'empty';
+      const paragraphText=value=>value.replace(/\r\n?/g,'\n').split('\n').map(line=>line.replace(/[^\S\n]+/g,' ').trim()).join('\n').replace(/\n{3,}/g,'\n\n').trim();
+      const comparison=()=>editor.innerText===c.body?'exact':paragraphText(editor.innerText)===paragraphText(c.body)?'whitespace_normalized':editor.innerText.trim()?'different':'empty';
       const mismatch=(reason,step)=>{const readback=previewTyped.has(c.job_id)&&editor.innerText.startsWith(c.body.slice(0,32))&&editor.innerText.length<=2000?editor.innerText:undefined;throw Object.assign(new Error(reason),{diagnostic:{stage:'prepare',prepare_step:step,editor_state:editor.innerText===c.body?'exact':editor.innerText.trim()?'different':'empty',draft_comparison:comparison(),expected_length:Math.min(4000,c.body.length),observed_length:Math.min(4000,editor.innerText.length),expected_breaks:Math.min(1000,c.body.split('\n').length-1),observed_breaks:Math.min(1000,editor.innerText.split('\n').length-1)},...(readback?{typed_readback:readback}:{})});};
       if(c.action==='fill_draft'&&!['exact','whitespace_normalized'].includes(comparison())){
         if(editor.innerText.trim())mismatch('draft_conflict','draft_check');
-        previewTyped.add(c.job_id);editor.focus();const selection=window.getSelection(),range=document.createRange();range.selectNodeContents(editor);selection.removeAllRanges();selection.addRange(range);
-        // Normal editable input only. No key events or send-capable controls.
-        // Separate editable line breaks avoid Chromium's extra paragraph gap
-        // when insertText receives consecutive newlines. Neither command sends.
-        const lines=c.body.split('\n');for(let index=0;index<lines.length;index++){if(index)document.execCommand('insertLineBreak',false);if(lines[index])document.execCommand('insertText',false,lines[index]);}
-        await new Promise(resolve=>setTimeout(resolve,120));
+        previewTyped.add(c.job_id);await insertMessage(editor,c.body);
       }
       const formatting=comparison();if(!['exact','whitespace_normalized'].includes(formatting))mismatch('draft_text_mismatch','text_check');
       const digest=async text=>[...new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(text)))].map(x=>x.toString(16).padStart(2,'0')).join('');
@@ -90,7 +98,7 @@
     if(document.visibilityState!=="visible")fail("browser_unavailable");
     if(c.action==="foreground"){validate(c);return{};}
     if(c.action==="profile"){profile(c);return{};}
-    if(c.action==="open"){profile(c);if(opened.has(c.job_id))return{};const controls=buttons(document).filter(e=>/^(메시지 보내기|Message|Send message)$/i.test(name(e)));if(controls.length!==1)fail("recipient_unavailable");opened.set(c.job_id,{before:messageLinks()});controls[0].click();return{};}
+    if(c.action==="open"){validate(c);return command({...c,kind:'chat_preview',body:undefined});}
     if(c.action==="conversation_link"){profile(c);const prior=opened.get(c.job_id);if(!prior)fail("recipient_unavailable");const selected=messageLinks().filter(url=>!prior.before.includes(url));if(selected.length!==1)fail("recipient_unavailable");return{direct_url:selected[0]};}
     const {root,editor}=thread(c);
     if(c.action==="prepare"){
@@ -101,10 +109,8 @@
       // cleared or overwritten. The rendered text, not execCommand's boolean,
       // proves the result of the normal editable input path.
       if(editor.innerText!==c.body){
-        if(editor.innerText.trim())fail("unconfirmed_result");editor.focus();
-        const selection=window.getSelection(),range=document.createRange();range.selectNodeContents(editor);selection.removeAllRanges();selection.addRange(range);
-        preparation.set(c.job_id,{prepare_step:"input"});const inserted=document.execCommand('insertText',false,c.body);
-        preparation.set(c.job_id,{prepare_step:"text_check",input_reported_success:inserted});
+        if(editor.innerText.trim())fail("unconfirmed_result");preparation.set(c.job_id,{prepare_step:'input'});const input=await insertMessage(editor,c.body);
+        preparation.set(c.job_id,{prepare_step:'text_check',...input});
       }
       if(editor.innerText!==c.body)fail("unconfirmed_result");
       preparation.set(c.job_id,{...preparation.get(c.job_id),prepare_step:"observation"});

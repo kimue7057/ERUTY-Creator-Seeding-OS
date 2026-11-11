@@ -15,3 +15,39 @@
 .instagram-thread>.outreach-field{display:grid;gap:8px;margin-top:18px}
 .browser-contact-composer{padding:28px;display:grid;gap:16px;max-width:900px}.browser-contact-composer label{display:grid;gap:8px}.browser-contact-composer>.btn{justify-self:start}.browser-contact-composer>.outreach-confirm{display:flex}.browser-outreach-status{margin:20px 0;display:grid;gap:14px}.browser-outreach-receipt{border:1px solid var(--line,#e2e5e0);border-radius:12px;padding:20px;background:#fff}.browser-outreach-receipt>p{white-space:pre-wrap;overflow-wrap:anywhere;margin:12px 0}.browser-outreach-receipt>button{margin-left:16px}@media(max-width:600px){.browser-contact-composer{padding:18px}.browser-outreach-receipt>button{margin:12px 0;display:block}}
 .chat-preview-candidates{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px;max-height:320px;overflow:auto;border:1px solid var(--line,#e2e5e0);padding:12px;border-radius:10px}.browser-contact-composer .chat-preview-candidates label{display:flex;align-items:center;gap:10px;font-size:14px}.chat-preview-candidates small{color:var(--muted,#66736a)}
+.review-workspace { display:grid; gap:18px; }
+.review-progress { display:flex; flex-wrap:wrap; gap:8px; }
+.review-progress button { border:1px solid #d9e4dd; border-radius:12px; padding:13px 18px; background:white; text-align:left; font-weight:650; color:#65746a; }
+.review-progress button.is-active { background:#e7f1eb; color:#24543b; border-color:#8db39c; }
+.review-progress span { margin-left:8px; font-size:12px; }
+.review-layout { display:grid; grid-template-columns:minmax(220px,280px) minmax(0,1fr); gap:20px; align-items:start; }
+.review-list { padding:18px; position:sticky; top:20px; }
+.review-list-title,.review-editor-title { display:flex; align-items:center; justify-content:space-between; gap:14px; }
+.review-list-title span { color:#56715e; font-size:13px; }
+.review-person { border:1px solid #e0e8e2; padding:13px; margin-top:12px; border-radius:14px; min-width:0; }
+.review-person.is-active { border-color:#86b098; background:#f3f8f4; box-shadow:inset 3px 0 #387251; }
+.review-person-open { display:grid; gap:4px; text-align:left; width:100%; background:transparent; min-width:0; }
+.review-person-open strong,.review-person-open span,.review-person-open small { overflow-wrap:anywhere; }
+.review-person-open span { font-size:12px; color:#5d6f62; }.review-person-open small { font-size:11px; color:#748177; }
+.review-pick { display:flex; align-items:center; gap:7px; font-size:12px; margin:12px 0 8px; }
+.review-main { min-width:0; }.review-editor,.review-send-panel { padding:26px; min-width:0; }
+.review-editor h2 { font-size:21px; }.review-editor h2 small { display:block; font-size:13px; color:#6c7a70; margin-top:5px; font-weight:450; }
+.review-copy-layout { display:grid; grid-template-columns:minmax(0,1fr) minmax(240px,320px); gap:24px; margin-top:22px; align-items:start; }
+.review-copy { display:grid; gap:12px; min-width:0; }.review-copy label,.review-send-panel>label:not(.outreach-confirm) { display:grid; gap:8px; font-size:13px; font-weight:650; }
+.review-copy textarea { width:100%; min-width:0; font-size:13px; line-height:1.65; resize:vertical; }.review-message-input { white-space:pre-wrap; }
+.review-phone { background:#f5f3f9; border:1px solid #e1dfe7; border-radius:24px; padding:17px; max-width:340px; width:100%; min-width:0; box-shadow:0 10px 30px #223a2b08; }
+.review-phone-header { display:flex; gap:9px; align-items:center; padding:0 0 14px; border-bottom:1px solid #e4e0e9; }.review-phone-header span:last-child { min-width:0; }.review-phone-header strong { font-size:13px; overflow-wrap:anywhere; }.review-phone-header small { display:block; font-size:10px; color:#817b8d; margin-top:3px; }
+.review-avatar { width:31px; height:31px; border-radius:50%; display:grid; place-items:center; background:#e0d9ee; color:#6c518f; flex-shrink:0; font-size:12px; font-weight:700; }
+.review-phone-from { font-size:10px; color:#7f788a; margin:14px 0 8px; overflow-wrap:anywhere; }
+.review-dm-bubble { white-space:pre-wrap; overflow-wrap:anywhere; background:#e7def5; color:#30283f; padding:15px; border-radius:18px 18px 4px 18px; font-size:12px; line-height:1.65; text-align:left; }
+.review-phone-foot { font-size:10px; line-height:1.5; color:#8b8494; margin-top:14px; }
+.review-evidence { font-size:12px; border-top:1px solid #e4ebe6; padding-top:14px; }.review-evidence summary { cursor:pointer; font-weight:650; }.review-evidence>div { margin:14px 0; }.review-evidence small { display:block; color:#809086; }.review-evidence p { line-height:1.6; color:#69786e; margin-top:5px; }
+.review-send-panel { display:grid; gap:18px; }.review-final-message { border:1px solid #e0e7e2; border-radius:12px; padding:14px; }.review-final-message summary { cursor:pointer; font-size:13px; font-weight:650; }.review-final-message .review-phone { margin-top:14px; }.review-send-button { width:100%; min-height:46px; }
+.review-result { margin-top:22px; border-top:1px solid #dce8df; padding-top:18px; font-size:13px; line-height:1.6; }.review-result small { display:block; color:#62776a; margin-top:8px; }
+@media(max-width:1150px){.review-copy-layout { grid-template-columns:minmax(0,1fr); }.review-phone { max-width:360px; }}
+@media(max-width:760px){.review-layout { grid-template-columns:minmax(0,1fr); }.review-list { position:static; }.review-editor,.review-send-panel { padding:18px; }.review-editor-title { align-items:start; flex-wrap:wrap; }.review-progress button { flex:1; min-width:140px; padding:11px; font-size:12px; }}
+
+@media(max-width:760px){.review-list{max-height:420px;overflow:auto}.review-main{scroll-margin-top:18px}}
+.review-mobile-picker,.review-mobile-pick{display:none}
+.review-copy textarea{font-weight:400}
+@media(max-width:760px){.review-list{display:none}.review-mobile-picker{display:grid;gap:8px;font-size:12px;font-weight:600}.review-mobile-picker select{width:100%;min-width:0}.review-mobile-pick{display:flex;align-items:center;gap:8px;font-size:12px;margin-top:16px}.review-copy-layout>.review-phone{grid-row:1}.review-copy{grid-row:2}.review-copy textarea{font-weight:400}}

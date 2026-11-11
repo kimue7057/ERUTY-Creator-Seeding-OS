@@ -72,7 +72,7 @@ async function execute(connection,grant,tabId){
       if(url.origin!=="https://www.instagram.com"||!/^\/direct\/t\/[A-Za-z0-9_-]+\/?$/.test(url.pathname)||url.search||url.hash||url.username||url.password)throw error;
       await navigate(tabId,url.href,command);prepared=await waitMessage(tabId,{action:"prepare",...command},15000);
     }
-    const refreshed=await api("heartbeat",{observed_username:prepared.observation.sender,reason:"ready"},connection);if(!refreshed.ready)throw new Error("sender_mismatch");
+    const refreshed=await api("heartbeat",{protocol_version:2,observed_username:prepared.observation.sender,reason:"ready"},connection);if(!refreshed.ready)throw new Error("sender_mismatch");
     // Persist before arm: a lost response can never lead to a second Send.
     journal={...journal,phase:"arming",stage:"arm"};await store.set({journal});
     const permit=await api("arm",{...grantInput(journal),observation:prepared.observation},connection);
@@ -175,13 +175,13 @@ async function tick(){
       // Extension reload invalidates old content scripts. Refresh our dedicated
       // tab before claiming any request; never repair/reload an armed job.
       if(e.message==="content_script_missing"){try{await chrome.tabs.reload(tabId);probe=await waitMessage(tabId,{action:"probe",sender:connection.sender});}catch(recovery){e=recovery;}}
-      if(!probe){await api("heartbeat",{observed_username:"",reason:failure(e)==="unconfirmed_result"?"browser_unavailable":failure(e)},connection);await store.set({status:failure(e)});return;}
+      if(!probe){await api("heartbeat",{protocol_version:2,observed_username:"",reason:failure(e)==="unconfirmed_result"?"browser_unavailable":failure(e)},connection);await store.set({status:failure(e)});return;}
     }
-    const heartbeat=await api("heartbeat",{observed_username:probe.sender,reason:"ready"},connection);await store.set({status:heartbeat.ready?"ready":heartbeat.reason});if(!heartbeat.ready)return;
+    const heartbeat=await api("heartbeat",{protocol_version:2,observed_username:probe.sender,reason:"ready"},connection);await store.set({status:heartbeat.ready?"ready":heartbeat.reason});if(!heartbeat.ready)return;
     const {lastResult,reviewAttempted}=await store.get(["lastResult","reviewAttempted"]);
     if(lastResult?.outcome==="unknown"&&reviewAttempted!==lastResult.jobId){await store.set({reviewAttempted:lastResult.jobId});await review(connection,lastResult.jobId,tabId);return;}
-    const preview=await api('preview-next',{protocol_version:4},connection);if(preview.assignment){if(preview.assignment.mode==='compose')await draftPreview(connection,preview.assignment);else await openPreview(connection,preview.assignment);return;}
-    const next=await api("next",{},connection);if(next.assignment)await execute(connection,next.assignment,tabId);
+    const preview=await api('preview-next',{protocol_version:5},connection);if(preview.assignment){if(preview.assignment.mode==='compose')await draftPreview(connection,preview.assignment);else await openPreview(connection,preview.assignment);return;}
+    const next=await api("next",{protocol_version:2},connection);if(next.assignment)await execute(connection,next.assignment,tabId);
   }catch(e){await store.set({status:e.message==="forbidden"?"연결 해제·만료 · ERUTY에서 확인하세요":"서버 연결 확인 필요",...(e.message==="forbidden"?{paused:true}:{})});}
   finally{running=false;}
 }

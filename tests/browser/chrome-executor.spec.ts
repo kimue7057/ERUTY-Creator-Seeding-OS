@@ -18,10 +18,16 @@ function permit(job_id:string){return{job_id,send_permitted:true,expires_at:new 
 
 test('synthetic composer preview fills exact multiline text but cannot prepare, arm, send or reuse a permit',async({page})=>{
  await fixture(page);const text='SYNTHETIC creator proposal\n\nSecond line · thank you!',c={...command(),kind:'draft_preview',body:text};
- const result=await dispatch(page,{...c,action:'fill_draft'}) as {ok:boolean;body_sha256:string};expect(result.ok,JSON.stringify(result)).toBe(true);expect(result.body_sha256).toBe(createHash('sha256').update(text).digest('hex'));expect(await page.locator('[contenteditable]').innerText()).toBe(text);
+ const result=await dispatch(page,{...c,action:'fill_draft'}) as {ok:boolean;body_sha256:string;rendered_body_sha256:string};expect(result.ok,JSON.stringify(result)).toBe(true);expect(result.body_sha256).toBe(createHash('sha256').update(text).digest('hex'));const rendered=await page.locator('[contenteditable]').innerText();expect(rendered.replace(/\n{3,}/g,'\n\n')).toBe(text);expect(result.rendered_body_sha256).toBe(createHash('sha256').update(rendered).digest('hex'));
  expect((await dispatch(page,{...c,action:'inspect_draft'})).ok).toBe(true);
  for(const action of ['prepare','arm','send','verify','inspect_sent'])expect((await dispatch(page,{...c,action,permit:permit(c.job_id)})).ok).toBe(false);
  expect((await dispatch(page,{...c,kind:undefined,action:'send',permit:permit(c.job_id)})).ok).toBe(false);expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
+});
+
+test('standard plain-text paste retains short paragraphs without clipboard access or duplicate fallback',async({page})=>{
+ await fixture(page);await page.evaluate(()=>{const editor=document.querySelector<HTMLElement>('[contenteditable]')!;editor.style.whiteSpace='pre-wrap';editor.addEventListener('paste',event=>{event.preventDefault();editor.textContent=(event as ClipboardEvent).clipboardData!.getData('text/plain');editor.dispatchEvent(new InputEvent('input',{bubbles:true,inputType:'insertFromPaste'}));});document.execCommand=()=>{throw Error('Handled paste must not append fallback text');};});
+ const text='SYNTHETIC personal opening\n\nA short creator-specific idea.\n\nA simple question?\nCompany team',c={...command(),kind:'draft_preview',body:text};
+ const result=await dispatch(page,{...c,action:'fill_draft'}) as {ok:boolean;rendered_body_sha256:string};expect(result.ok,JSON.stringify(result)).toBe(true);expect(await page.locator('[contenteditable]').innerText()).toBe(text);expect(result.rendered_body_sha256).toBe(createHash('sha256').update(text).digest('hex'));expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
 });
 
 test('synthetic composer preview preserves different text and rejects a different recipient or company',async({page})=>{
@@ -39,6 +45,7 @@ test('synthetic composer accepts only whitespace display differences and stores 
  await fixture(page);const c={...command(),kind:'draft_preview',body:'SYNTHETIC proposal\n\nThank you!'};await page.locator('[contenteditable]').fill('SYNTHETIC proposal\n\n\nThank you!');await page.evaluate(()=>{document.execCommand=()=>{throw Error('An equivalent existing draft must never be edited');};});
  const result=await dispatch(page,{...c,action:'fill_draft'}) as {ok:boolean;formatting:string;body_sha256:string;rendered_body_sha256:string};expect(result.ok).toBe(true);expect(result.formatting).toBe('whitespace_normalized');expect(result.body_sha256).toBe(createHash('sha256').update(c.body).digest('hex'));expect(result.rendered_body_sha256).not.toBe(result.body_sha256);expect(await page.evaluate(()=>window.erutySyntheticClicks)).toBe(0);
  await page.locator('[contenteditable]').fill('SYNTHETIC proposal\n\nThank you?');const mismatch=await dispatch(page,{...c,action:'inspect_draft'});expect(mismatch.reason).toBe('draft_text_mismatch');expect(JSON.stringify(mismatch)).toContain('"draft_comparison":"different"');expect(JSON.stringify(mismatch)).not.toContain('Thank you?');
+ await page.locator('[contenteditable]').fill('SYNTHETIC proposal Thank you!');expect((await dispatch(page,{...c,action:'inspect_draft'})).reason).toBe('draft_text_mismatch');
 });
 
 test('synthetic failed input retains only its own typed editor readback for diagnosis',async({page})=>{
@@ -86,7 +93,7 @@ test("synthetic failure diagnostics contain bounded UI controls and counts witho
 });
 test("synthetic conversation fallback accepts only a newly selected site message link",async({page})=>{
   await fixture(page);await page.evaluate(()=>history.pushState(null,'','/synthetic_recipient/'));
-  await page.locator('section').evaluate(section=>{const b=document.createElement('button');b.textContent='Message';b.id='profile-message';b.addEventListener('click',()=>{document.querySelector<HTMLAnchorElement>('#nav-message')!.href='/direct/t/synthetic_thread/';});section.appendChild(b);const a=document.createElement('a');a.id='nav-message';a.href='/direct/inbox/';a.innerHTML='<svg aria-label="Messages" width="24" height="24"></svg>';document.querySelector('nav')!.appendChild(a);});
+  await page.locator('section').evaluate(section=>{section.querySelector('[contenteditable]')!.remove();const b=document.createElement('button');b.textContent='Message';b.id='profile-message';b.addEventListener('click',()=>{document.querySelector<HTMLAnchorElement>('#nav-message')!.href='/direct/t/synthetic_thread/';});section.appendChild(b);const a=document.createElement('a');a.id='nav-message';a.href='/direct/inbox/';a.innerHTML='<svg aria-label="Messages" width="24" height="24"></svg>';document.querySelector('nav')!.appendChild(a);});
   const c=command();expect((await dispatch(page,{...c,action:"conversation_link"})).ok).toBe(false);expect((await dispatch(page,{...c,action:"open"})).ok).toBe(true);
   const result=await dispatch(page,{...c,action:"conversation_link"}) as {ok:boolean;direct_url:string};expect(result.ok).toBe(true);expect(result.direct_url).toBe('http://127.0.0.1:3000/direct/t/synthetic_thread/');
 });
