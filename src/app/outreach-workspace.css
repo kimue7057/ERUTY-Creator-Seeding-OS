@@ -48,3 +48,6 @@
 @media(max-width:760px){.review-layout { grid-template-columns:minmax(0,1fr); }.review-list { position:static; }.review-editor,.review-send-panel { padding:18px; }.review-editor-title { align-items:start; flex-wrap:wrap; }.review-progress button { flex:1; min-width:140px; padding:11px; font-size:12px; }}
 
 @media(max-width:760px){.review-list{max-height:420px;overflow:auto}.review-main{scroll-margin-top:18px}}
+.review-mobile-picker,.review-mobile-pick{display:none}
+.review-copy textarea{font-weight:400}
+@media(max-width:760px){.review-list{display:none}.review-mobile-picker{display:grid;gap:8px;font-size:12px;font-weight:600}.review-mobile-picker select{width:100%;min-width:0}.review-mobile-pick{display:flex;align-items:center;gap:8px;font-size:12px;margin-top:16px}.review-copy-layout>.review-phone{grid-row:1}.review-copy{grid-row:2}.review-copy textarea{font-weight:400}}
