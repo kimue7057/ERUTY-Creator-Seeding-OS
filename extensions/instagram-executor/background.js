@@ -12,11 +12,11 @@ async function api(action,input,connection){
 const grantInput=j=>({job_id:j.grant.job_id,claim_token:j.grant.claim_token});
 async function message(tabId,command){
   let result;try{result=await chrome.tabs.sendMessage(tabId,{type:"ERUTY_INSTAGRAM",...command});}catch(error){if(/Receiving end does not exist|Could not establish connection|Extension context invalidated/i.test(error.message??""))throw new Error("content_script_missing");throw error;}
-  if(!result?.ok)throw new Error(result?.reason??"browser_unavailable");return result;
+  if(!result?.ok)throw Object.assign(new Error(result?.reason??"browser_unavailable"),result?.diagnostic?{diagnostic:result.diagnostic}:{},result?.typed_readback?{typed_readback:result.typed_readback}:{});return result;
 }
 async function waitMessage(tabId,command,timeout=12000,missingFailsFast=false){
   const end=Date.now()+timeout;let last;
-  do{try{return await message(tabId,command);}catch(e){last=e;if(["captcha","platform_restricted","sender_mismatch","login_required"].includes(e.message)||missingFailsFast&&e.message==="content_script_missing")throw e;}await new Promise(r=>setTimeout(r,500));}while(Date.now()<end);
+  do{try{return await message(tabId,command);}catch(e){last=e;if(['captcha','platform_restricted','sender_mismatch','login_required','draft_conflict','draft_text_mismatch','already_sent'].includes(e.message)||missingFailsFast&&e.message==='content_script_missing')throw e;}await new Promise(r=>setTimeout(r,500));}while(Date.now()<end);
   throw last??new Error("browser_unavailable");
 }
 async function tabFor(connection){
@@ -124,7 +124,7 @@ async function openPreview(connection,grant){
   }
   await previewFinish(connection,journal);
 }
-const draftReason=error=>['draft_conflict','already_sent'].includes(error?.message)?error.message:failure(error)==='unconfirmed_result'?'browser_unavailable':failure(error);
+const draftReason=error=>['draft_conflict','draft_text_mismatch','already_sent'].includes(error?.message)?error.message:failure(error)==='unconfirmed_result'?'browser_unavailable':failure(error);
 async function draftFinish(connection,journal){
   const permission=await api('compose-check',grantInput(journal),connection),results=[];
   for(const target of journal.grant.targets){
@@ -134,8 +134,8 @@ async function draftFinish(connection,journal){
       if(!permission.input_permitted)throw new Error('browser_unavailable');
       await activate(entry.tabId,command);const observed=await message(entry.tabId,{action:'inspect_draft',...command});
       if(observed.recipient!==target.recipient||observed.body_sha256!==text.body_sha256)throw new Error('browser_unavailable');
-      results.push({candidate_id:target.candidate_id,recipient:target.recipient,state:'drafted',reason:'draft_ready',source_url:observed.source_url,observed_at:observed.observed_at,body_sha256:observed.body_sha256});
-    }catch(error){results.push({candidate_id:target.candidate_id,recipient:target.recipient,state:'unavailable',reason:entry.reason??draftReason(error),source_url:null,observed_at:new Date().toISOString(),body_sha256:null});}
+      results.push({candidate_id:target.candidate_id,recipient:target.recipient,state:'drafted',reason:'draft_ready',source_url:observed.source_url,observed_at:observed.observed_at,body_sha256:observed.body_sha256,rendered_body_sha256:observed.rendered_body_sha256,formatting:observed.formatting});
+    }catch(error){const diagnostic=entry.diagnostic??error.diagnostic,readback=entry.typed_readback??error.typed_readback;results.push({candidate_id:target.candidate_id,recipient:target.recipient,state:'unavailable',reason:entry.reason??draftReason(error),source_url:null,observed_at:new Date().toISOString(),body_sha256:null,...(diagnostic?{ui_diagnostic:diagnostic}:{}),...(readback?{typed_readback:readback}:{})});}
   }
   // Recovery reads existing editors only. It never reopens or refills a draft.
   const result=await api('compose-finish',{...grantInput(journal),results},connection);await store.remove('draftJournal');await store.set({lastDraftPreview:{jobId:journal.grant.job_id,state:result.state,prepared:results.filter(r=>r.state==='drafted').length,at:new Date().toISOString()}});
@@ -157,7 +157,7 @@ async function draftPreview(connection,grant){
       if(!(await api('compose-check',grantInput(journal),connection)).input_permitted)throw new Error('browser_unavailable');
       const observed=await waitMessage(tab.id,{action:'fill_draft',...command},10000);
       if(observed.recipient!==target.recipient||observed.body_sha256!==text.body_sha256)throw new Error('browser_unavailable');
-    }catch(error){if(entry)entry.reason=draftReason(error);await store.set({draftJournal:journal});if(error.status===403||['sender_mismatch','captcha','login_required','platform_restricted'].includes(failure(error)))break;}
+    }catch(error){if(entry)Object.assign(entry,{reason:draftReason(error),...(error.diagnostic?{diagnostic:error.diagnostic}:{}),...(error.typed_readback?{typed_readback:error.typed_readback}:{})});await store.set({draftJournal:journal});if(error.status===403||['sender_mismatch','captcha','login_required','platform_restricted'].includes(failure(error)))break;}
   }
   await draftFinish(connection,journal);
 }
@@ -180,7 +180,7 @@ async function tick(){
     const heartbeat=await api("heartbeat",{observed_username:probe.sender,reason:"ready"},connection);await store.set({status:heartbeat.ready?"ready":heartbeat.reason});if(!heartbeat.ready)return;
     const {lastResult,reviewAttempted}=await store.get(["lastResult","reviewAttempted"]);
     if(lastResult?.outcome==="unknown"&&reviewAttempted!==lastResult.jobId){await store.set({reviewAttempted:lastResult.jobId});await review(connection,lastResult.jobId,tabId);return;}
-    const preview=await api('preview-next',{protocol_version:3},connection);if(preview.assignment){if(preview.assignment.mode==='compose')await draftPreview(connection,preview.assignment);else await openPreview(connection,preview.assignment);return;}
+    const preview=await api('preview-next',{protocol_version:4},connection);if(preview.assignment){if(preview.assignment.mode==='compose')await draftPreview(connection,preview.assignment);else await openPreview(connection,preview.assignment);return;}
     const next=await api("next",{},connection);if(next.assignment)await execute(connection,next.assignment,tabId);
   }catch(e){await store.set({status:e.message==="forbidden"?"연결 해제·만료 · ERUTY에서 확인하세요":"서버 연결 확인 필요",...(e.message==="forbidden"?{paused:true}:{})});}
   finally{running=false;}

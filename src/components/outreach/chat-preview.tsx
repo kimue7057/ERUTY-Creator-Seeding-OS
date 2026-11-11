@@ -21,7 +21,7 @@ export function ChatPreview({accounts,candidates,writable}:{accounts:{id:string;
    return <article className="browser-outreach-receipt" data-preview-id={job.id} key={job.id}>
     <strong>{composing?composeStates[job.state]:chatPreviewStates[job.state]} · @{job.sender}</strong>
     <p>{composing?`본문 준비 ${ready}/${job.goal}명 · 발송 0건`:`채팅창 ${opened.length}/${job.goal}개 · 본문 입력·발송 없음`}</p>
-    {job.results.map(r=><p key={r.candidate_id}>@{r.recipient} · {r.state==='drafted'?'입력 문장 확인됨':r.state==='opened'?'채팅창 확인됨':r.reason==='draft_conflict'?'기존 입력 내용이 있어 보존함':'중단'}{'draft_present'in r&&r.draft_present?' · 기존 입력 내용 보존':''}</p>)}
+    {job.results.map(r=><p key={r.candidate_id}>@{r.recipient} · {r.state==='drafted'?'입력 문장 확인됨':r.state==='opened'?'채팅창 확인됨':r.reason==='draft_conflict'||r.reason==='draft_text_mismatch'?'문안 불일치 · 입력 내용 보존':'중단'}{'formatting'in r&&r.formatting==='whitespace_normalized'?' · 줄바꿈·공백 표시 차이 있음':''}{'draft_present'in r&&r.draft_present?' · 기존 입력 내용 보존':''}</p>)}
     {composing&&job.messages.map(message=><details key={message.candidate_id}><summary>@{job.targets.find(t=>t.candidate_id===message.candidate_id)?.recipient} 준비한 문안</summary><p style={{whiteSpace:'pre-wrap'}}>{message.body}</p></details>)}
     {!composing&&opened.length>0&&writable&&<button className="btn" disabled={busy||uncertain} onClick={()=>{setEditing(job.id);setBodies({});setComposeId(null);}}>제안문 작성 · 발송 전 준비</button>}
     {editing===job.id&&<div data-compose-source={job.id}>
