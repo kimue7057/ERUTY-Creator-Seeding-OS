@@ -3,7 +3,7 @@ import {and,asc,desc,eq,inArray,isNull,sql} from 'drizzle-orm';
 import {z} from 'zod';
 import type {AnyPgColumn} from 'drizzle-orm/pg-core';
 import {db} from '../db';
-import {contactCases as cases,contactConversations as conversations,contactMessages as messages,contactReplies as replies} from '../db/contact-schema';
+import {contactCases as cases,contactConversations as conversations,contactMessages as messages,contactReplies as replies,contactWorkflows as workflows} from '../db/contact-schema';
 import {senderAccounts,instagramDmSends,browserOutreachSends} from '../db/outreach-schema';
 import {auditEvents,campaigns,memberships,users} from '../db/schema';
 import type {ActorScope} from '../auth/permissions';
@@ -28,7 +28,8 @@ export function contactService(database:Pick<typeof db,'transaction'>=db,fetcher
   await outreachMember(tx,actor,write);const [item]=await tx.select().from(cases).where(caseScope(actor,id));if(!item)throw new OutreachError('not_found');
   const [conversation]=await tx.select().from(conversations).where(convoScope(actor,item.conversationId));if(!conversation)throw new OutreachError('not_found');
   if(write&&item.campaignId){const [campaign]=await tx.select().from(campaigns).where(and(eq(campaigns.organizationId,actor.organizationId),eq(campaigns.id,item.campaignId)));if(!campaign||campaign.status==='archived')throw new OutreachError('contact_closed');}
-  return{item,conversation};
+  const [workflow]=item.workflowId?await tx.select().from(workflows).where(and(scoped(workflows,actor),eq(workflows.id,item.workflowId))):[];
+  return{item:workflow?{...item,progress:workflow.progress,ownerId:workflow.ownerId,nextActionOn:workflow.nextActionOn,notes:workflow.notes,revision:workflow.revision}:item,conversation,workflow};
  }
  async function append(tx:OutreachTx,actor:ActorScope,c:Conversation,input:{sourceKey:string;providerMessageId:string|null;direction:'in'|'out';body:string;sentAt:Date;caseId?:string;headers?:Record<string,string>}){
   // A browser send initially has no provider ID. Attach that ID only to one exact,
@@ -67,7 +68,12 @@ export function contactService(database:Pick<typeof db,'transaction'>=db,fetcher
     const recipient=normalizeIdentity(s.recipient),routeKey=s.channel==='instagram'?recipient:(s.providerThreadId??s.key);
     await tx.insert(conversations).values({organizationId:actor.organizationId,accountId:s.accountId,channel:s.channel,recipient,routeKey,fromAddress:s.from,providerThreadId:s.providerThreadId,instagramSelection:s.selection,subject:s.subject}).onConflictDoNothing();
     const [c]=await tx.select().from(conversations).where(and(scoped(conversations,actor),eq(conversations.accountId,s.accountId),eq(conversations.channel,s.channel),eq(conversations.routeKey,routeKey))).for('update');
-    await tx.insert(cases).values({organizationId:actor.organizationId,conversationId:c.id,campaignId:s.campaignId,creatorAccountId:s.creatorAccountId,displayName:s.name||recipient,origin:s.origin,ownerId:s.createdBy,firstSentAt:new Date(s.sentAt),createdBy:s.createdBy,updatedBy:s.createdBy}).onConflictDoNothing();
+    let workflowId:string|null=null;
+    if(s.campaignId&&s.creatorAccountId){
+     await tx.insert(workflows).values({organizationId:actor.organizationId,campaignId:s.campaignId,creatorAccountId:s.creatorAccountId,ownerId:s.createdBy,createdBy:s.createdBy,updatedBy:s.createdBy}).onConflictDoNothing();
+     const [workflow]=await tx.select({id:workflows.id}).from(workflows).where(and(scoped(workflows,actor),eq(workflows.campaignId,s.campaignId),eq(workflows.creatorAccountId,s.creatorAccountId)));workflowId=workflow.id;
+    }
+    await tx.insert(cases).values({organizationId:actor.organizationId,workflowId,conversationId:c.id,campaignId:s.campaignId,creatorAccountId:s.creatorAccountId,displayName:s.name||recipient,origin:s.origin,ownerId:s.createdBy,firstSentAt:new Date(s.sentAt),createdBy:s.createdBy,updatedBy:s.createdBy}).onConflictDoNothing();
     const [item]=await tx.select().from(cases).where(and(scoped(cases,actor),eq(cases.conversationId,c.id),s.campaignId?eq(cases.campaignId,s.campaignId):isNull(cases.campaignId),s.creatorAccountId?eq(cases.creatorAccountId,s.creatorAccountId):undefined));
     if(await append(tx,actor,c,{sourceKey:s.key,providerMessageId:s.providerMessageId,direction:'out',body:s.body,sentAt:new Date(s.sentAt),caseId:item.id}))await tx.update(conversations).set({version:sql`${conversations.version}+1`,updatedAt:new Date()}).where(convoScope(actor,c.id));
    }return{sources:result.rows.length};
@@ -75,8 +81,8 @@ export function contactService(database:Pick<typeof db,'transaction'>=db,fetcher
   list:async(actor:ActorScope)=>{
    const member=await database.transaction(tx=>outreachMember(tx,actor));if(member.role!=='reviewer')await service.reconcile(actor);
    return database.transaction(async tx=>{await outreachMember(tx,actor);return(await tx.execute<ContactListRow>(sql`
-    SELECT c.id,c.campaign_id as "campaignId",c.creator_account_id as "creatorAccountId",c.display_name as "displayName",c.origin,c.progress,c.owner_id as "ownerId",u.name as "ownerName",c.next_action_on as "nextActionOn",c.first_sent_at as "firstSentAt",v.channel,v.recipient,v.from_address as "fromAddress",v.account_id as "accountId",v.last_synced_at as "lastSyncedAt",v.sync_error as "syncError",a.status as "accountStatus",a.label as "accountLabel",a.scopes @> ARRAY[${GOOGLE_READ_SCOPE}]::text[] as "mailReadEnabled",p.title as "campaignTitle",j.name as "projectName",m.direction as "lastDirection",left(m.body,180) as preview,m.sent_at as "lastMessageAt",EXISTS(SELECT 1 FROM contact_reply_attempts r WHERE r.organization_id=c.organization_id AND r.conversation_id=v.id AND r.status IN ('sending','unknown')) as blocked
-    FROM contact_cases c JOIN contact_conversations v ON v.organization_id=c.organization_id AND v.id=c.conversation_id JOIN outreach_sender_accounts a ON a.organization_id=c.organization_id AND a.id=v.account_id JOIN users u ON u.id=c.owner_id
+    SELECT c.id,c.workflow_id as "workflowId",v.id as "conversationId",c.campaign_id as "campaignId",c.creator_account_id as "creatorAccountId",c.display_name as "displayName",c.origin,coalesce(w.progress,c.progress) as progress,coalesce(w.owner_id,c.owner_id) as "ownerId",u.name as "ownerName",CASE WHEN w.id IS NOT NULL THEN w.next_action_on ELSE c.next_action_on END as "nextActionOn",c.first_sent_at as "firstSentAt",v.channel,v.recipient,v.from_address as "fromAddress",v.account_id as "accountId",v.last_synced_at as "lastSyncedAt",v.sync_error as "syncError",a.status as "accountStatus",a.label as "accountLabel",a.scopes @> ARRAY[${GOOGLE_READ_SCOPE}]::text[] as "mailReadEnabled",p.title as "campaignTitle",j.name as "projectName",m.direction as "lastDirection",left(m.body,180) as preview,m.sent_at as "lastMessageAt",EXISTS(SELECT 1 FROM contact_reply_attempts r WHERE r.organization_id=c.organization_id AND r.conversation_id=v.id AND r.status IN ('sending','unknown')) as blocked
+    FROM contact_cases c LEFT JOIN contact_workflows w ON w.organization_id=c.organization_id AND w.id=c.workflow_id JOIN contact_conversations v ON v.organization_id=c.organization_id AND v.id=c.conversation_id JOIN outreach_sender_accounts a ON a.organization_id=c.organization_id AND a.id=v.account_id JOIN users u ON u.id=coalesce(w.owner_id,c.owner_id)
     LEFT JOIN campaigns p ON p.organization_id=c.organization_id AND p.id=c.campaign_id LEFT JOIN projects j ON j.organization_id=p.organization_id AND j.id=p.project_id
     LEFT JOIN LATERAL(SELECT direction,body,sent_at FROM contact_messages x WHERE x.organization_id=c.organization_id AND x.conversation_id=v.id ORDER BY sent_at DESC,created_at DESC LIMIT 1)m ON true
     WHERE c.organization_id=${actor.organizationId} ORDER BY m.sent_at DESC NULLS LAST,c.id LIMIT 500`)).rows;});
@@ -84,14 +90,17 @@ export function contactService(database:Pick<typeof db,'transaction'>=db,fetcher
   detail:(actor:ActorScope,id:string)=>database.transaction(async tx=>{
    const context=await load(tx,actor,id);const rows=await tx.select().from(messages).where(and(scoped(messages,actor),eq(messages.conversationId,context.conversation.id))).orderBy(desc(messages.sentAt),desc(messages.createdAt)).limit(200);
    const attempts=await tx.select().from(replies).where(and(scoped(replies,actor),eq(replies.conversationId,context.conversation.id))).orderBy(desc(replies.createdAt)).limit(30);
-   const related=await tx.select({id:cases.id,name:cases.displayName,campaignId:cases.campaignId,progress:cases.progress}).from(cases).where(and(scoped(cases,actor),eq(cases.conversationId,context.conversation.id)));
+   const related=await tx.select({id:cases.id,name:cases.displayName,campaignId:cases.campaignId,campaignTitle:campaigns.title}).from(cases).leftJoin(campaigns,and(eq(campaigns.organizationId,actor.organizationId),eq(campaigns.id,cases.campaignId))).where(and(scoped(cases,actor),eq(cases.conversationId,context.conversation.id)));
+   const channels=await tx.select({id:cases.id,channel:conversations.channel,recipient:conversations.recipient,fromAddress:conversations.fromAddress,notes:cases.notes,progress:cases.progress}).from(cases).innerJoin(conversations,and(scoped(conversations,actor),eq(conversations.id,cases.conversationId))).where(and(scoped(cases,actor),context.item.workflowId?eq(cases.workflowId,context.item.workflowId):eq(cases.id,id))).orderBy(asc(cases.createdAt));
+   const [campaignContext]=context.item.campaignId?(await tx.execute<{campaignTitle:string;projectName:string;projectId:string}>(sql`SELECT c.title as "campaignTitle",p.name as "projectName",p.id as "projectId" FROM campaigns c JOIN projects p ON p.organization_id=c.organization_id AND p.id=c.project_id WHERE c.organization_id=${actor.organizationId} AND c.id=${context.item.campaignId}`)).rows:[];
    const owners=await tx.select({id:users.id,name:users.name}).from(memberships).innerJoin(users,eq(users.id,memberships.userId)).where(and(eq(memberships.organizationId,actor.organizationId),inArray(memberships.role,['admin','manager'])));
-   return{...context,messages:rows.reverse(),attempts,related,owners};
+   return{...context,messages:rows.reverse(),attempts,related,owners,channels,campaignContext:campaignContext??null};
   }),
   update:(actor:ActorScope,id:string,input:unknown)=>database.transaction(async tx=>{
-   const data=z.object({revision:z.number().int().positive(),progress:z.enum(['proposal','negotiating','agreed','declined','hold','closed']),ownerId:z.uuid(),nextActionOn:z.iso.date().nullable(),notes:z.string().max(4000)}).strict().parse(input);await load(tx,actor,id,true);
+   const data=z.object({revision:z.number().int().positive(),progress:z.enum(['proposal','negotiating','agreed','declined','hold','closed']),ownerId:z.uuid(),nextActionOn:z.iso.date().nullable(),notes:z.string().max(4000)}).strict().parse(input);const context=await load(tx,actor,id,true);
    const [owner]=await tx.select().from(memberships).where(and(eq(memberships.organizationId,actor.organizationId),eq(memberships.userId,data.ownerId),inArray(memberships.role,['admin','manager'])));if(!owner)throw new OutreachError('forbidden');
-   const {revision,...values}=data;const [saved]=await tx.update(cases).set({...values,revision:revision+1,updatedBy:actor.userId,updatedAt:new Date()}).where(and(caseScope(actor,id),eq(cases.revision,revision))).returning();if(!saved)throw new OutreachError('contact_changed');
+   const {revision,...values}=data,patch={...values,revision:revision+1,updatedBy:actor.userId,updatedAt:new Date()};
+   const [saved]=context.workflow?await tx.update(workflows).set(patch).where(and(scoped(workflows,actor),eq(workflows.id,context.workflow.id),eq(workflows.revision,revision))).returning():await tx.update(cases).set(patch).where(and(caseScope(actor,id),eq(cases.revision,revision))).returning();if(!saved)throw new OutreachError('contact_changed');
    await tx.insert(auditEvents).values({organizationId:actor.organizationId,actorId:actor.userId,entityId:id,action:'contact.case_updated'});return saved;
   }),
   sync:async(actor:ActorScope,id:string)=>{
@@ -125,7 +134,9 @@ export function contactService(database:Pick<typeof db,'transaction'>=db,fetcher
    const claim=await database.transaction(async tx=>{
     await load(tx,actor,data.caseId,true);const [account]=await tx.select().from(senderAccounts).where(and(eq(senderAccounts.organizationId,actor.organizationId),eq(senderAccounts.id,c.accountId))).for('update');if(account?.status!=='connected')throw new OutreachError('reconnect');
     const [current]=await tx.select().from(conversations).where(convoScope(actor,c.id)).for('update');if(current.version!==data.version)throw new OutreachError('contact_changed');
-    const [caseNow]=await tx.select().from(cases).where(caseScope(actor,data.caseId)).for('update');if(['hold','closed','declined'].includes(caseNow.progress))throw new OutreachError('contact_closed');
+    const [caseNow]=await tx.select().from(cases).where(caseScope(actor,data.caseId)).for('update');
+    const [workflowNow]=caseNow.workflowId?await tx.select().from(workflows).where(and(scoped(workflows,actor),eq(workflows.id,caseNow.workflowId))).for('update'):[];
+    if(['hold','closed','declined'].includes(workflowNow?.progress??caseNow.progress))throw new OutreachError('contact_closed');
     const [blocked]=await tx.select({id:replies.id}).from(replies).where(and(scoped(replies,actor),eq(replies.conversationId,c.id),inArray(replies.status,['sending','unknown'])));if(blocked)throw new OutreachError('send_unknown');
     const [b]=await tx.select({id:browserOutreachSends.id}).from(browserOutreachSends).where(and(eq(browserOutreachSends.organizationId,actor.organizationId),eq(browserOutreachSends.accountId,c.accountId),eq(browserOutreachSends.recipientUsername,c.recipient),inArray(browserOutreachSends.state,['queued','preparing','armed','unknown'])));if(b)throw new OutreachError('browser_outreach_pending');
     const [r]=await tx.insert(replies).values({id:data.id,organizationId:actor.organizationId,caseId:data.caseId,conversationId:c.id,accountId:c.accountId,expectedVersion:data.version,body:data.body,inputSha256:hash,status:'sending',createdBy:actor.userId}).returning();await tx.insert(auditEvents).values({organizationId:actor.organizationId,actorId:actor.userId,entityId:r.id,action:'contact.reply_confirmed'});return r;
@@ -153,5 +164,5 @@ export function contactService(database:Pick<typeof db,'transaction'>=db,fetcher
  };
  return service;
 }
-export type ContactListRow={id:string;campaignId:string|null;creatorAccountId:string|null;displayName:string;origin:'selection'|'legacy'|'connection_test';progress:keyof typeof contactProgress;ownerId:string;ownerName:string;nextActionOn:string|null;firstSentAt:Date;channel:'email'|'instagram';recipient:string;fromAddress:string;accountId:string;lastSyncedAt:Date|null;syncError:string|null;accountStatus:string;accountLabel:string;mailReadEnabled:boolean;campaignTitle:string|null;projectName:string|null;lastDirection:'in'|'out';preview:string;lastMessageAt:Date;blocked:boolean};
+export type ContactListRow={id:string;workflowId:string|null;conversationId:string;campaignId:string|null;creatorAccountId:string|null;displayName:string;origin:'selection'|'legacy'|'connection_test';progress:keyof typeof contactProgress;ownerId:string;ownerName:string;nextActionOn:string|null;firstSentAt:Date;channel:'email'|'instagram';recipient:string;fromAddress:string;accountId:string;lastSyncedAt:Date|null;syncError:string|null;accountStatus:string;accountLabel:string;mailReadEnabled:boolean;campaignTitle:string|null;projectName:string|null;lastDirection:'in'|'out';preview:string;lastMessageAt:Date;blocked:boolean};
 export type ContactDetail=Awaited<ReturnType<ReturnType<typeof contactService>['detail']>>;
