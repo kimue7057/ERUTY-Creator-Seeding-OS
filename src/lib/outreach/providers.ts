@@ -5,6 +5,7 @@ import { providerJson } from "./provider-http";
 import { exchangeUnifiedCode, unifiedIdentity } from "./instagram-unified";
 export { providerJson } from "./provider-http";
 
+export const GOOGLE_READ_SCOPE = "https://www.googleapis.com/auth/gmail.readonly";
 export const GOOGLE_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send";
 export const GOOGLE_ALIAS_SCOPE = "https://www.googleapis.com/auth/gmail.settings.basic";
 export type ProviderTokens = { accessToken: string; refreshToken?: string; expiresAt: number | null; scopes: string[]; instagramAccountId?: string; tokenKind?: "meta_system_user" };
@@ -20,13 +21,13 @@ export function providerConfig(provider: SenderProvider, env: Record<string,stri
   return { id, secret, redirectUri: `${origin}/api/outreach/oauth/${provider}/callback`, version, instagramLoginMode, configurationId,
     configured: !!id && !!secret && originValid && /^[a-fA-F0-9]{64}$/.test(env.OUTREACH_ENCRYPTION_KEY ?? "") && (provider !== "instagram" || /^v\d+\.0$/.test(version ?? "") && (instagramLoginMode === "instagram" || instagramLoginMode === "unified" && /^\d+$/.test(configurationId) && /^\d+$/.test(id))) };
 }
-export function authorizationUrl(provider: SenderProvider, state: string, verifier: string, identity: string, aliases: boolean, config = providerConfig(provider)) {
+export function authorizationUrl(provider: SenderProvider, state: string, verifier: string, identity: string, aliases: boolean, config = providerConfig(provider),mailRead=false) {
   if (!config.configured) throw new OutreachError("not_configured");
   const url = new URL({ google: "https://accounts.google.com/o/oauth2/v2/auth", instagram: config.instagramLoginMode === "unified" ? "https://www.facebook.com/dialog/oauth" : "https://www.instagram.com/oauth/authorize", tiktok: "https://www.tiktok.com/v2/auth/authorize/" }[provider]);
   url.searchParams.set(provider === "tiktok" ? "client_key" : "client_id", required(config.id));
   url.searchParams.set("redirect_uri", config.redirectUri); url.searchParams.set("response_type", "code"); url.searchParams.set("state", state);
   if (provider === "google") {
-    url.searchParams.set("scope", ["openid", "email", GOOGLE_SEND_SCOPE, ...(aliases ? [GOOGLE_ALIAS_SCOPE] : [])].join(" "));
+    url.searchParams.set("scope", ["openid", "email", GOOGLE_SEND_SCOPE, ...(mailRead?[GOOGLE_READ_SCOPE]:[]), ...(aliases ? [GOOGLE_ALIAS_SCOPE] : [])].join(" "));
     url.searchParams.set("access_type", "offline"); url.searchParams.set("prompt", "consent select_account"); url.searchParams.set("login_hint", identity);
     url.searchParams.set("code_challenge_method", "S256"); url.searchParams.set("code_challenge", createHash("sha256").update(verifier).digest("base64url"));
   } else if (provider === "instagram") {

@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { and, eq, desc, gt, isNull } from "drizzle-orm";
+import { and, eq, desc, gt, isNull,sql } from "drizzle-orm";
 import { z } from "zod";
 import { db } from "../db";
 import { auditEvents } from "../db/schema";
@@ -8,12 +8,12 @@ import type { ActorScope } from "../auth/permissions";
 import { hashSecret, seal, unseal } from "./crypto";
 import { normalizeIdentity, OutreachError, registerAccountSchema, parseInstagramSystemUserInput, type SenderProvider } from "./contracts";
 import { verifyInstagramSystemUserToken } from "./instagram-unified";
-import { authorizationUrl, exchangeCode, fetchIdentity, matchesExpected, providerConfig, refreshTokens, type ProviderTokens } from "./providers";
+import { authorizationUrl, exchangeCode, fetchIdentity, matchesExpected, providerConfig, refreshTokens, type ProviderTokens,GOOGLE_READ_SCOPE } from "./providers";
 import { resolveProviderConfig } from "./provider-apps";
 import { outreachMember } from "./access";
 export { outreachMember } from "./access";
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
-export const publicAccountColumns = { id:accounts.id,provider:accounts.provider,label:accounts.label,expectedIdentity:accounts.expectedIdentity,identity:accounts.identity,addresses:accounts.addresses,status:accounts.status,verifiedAt:accounts.verifiedAt,expiresAt:accounts.expiresAt,updatedAt:accounts.updatedAt };
+export const publicAccountColumns = { id:accounts.id,provider:accounts.provider,label:accounts.label,expectedIdentity:accounts.expectedIdentity,identity:accounts.identity,addresses:accounts.addresses,status:accounts.status,verifiedAt:accounts.verifiedAt,expiresAt:accounts.expiresAt,updatedAt:accounts.updatedAt,mailReadEnabled:sql<boolean>`'https://www.googleapis.com/auth/gmail.readonly'=any(${accounts.scopes})` };
 export function accountService(database: Pick<typeof db,"transaction"> = db, fetcher: typeof fetch = fetch) {
   const scoped = (actor: ActorScope, id: string) => and(eq(accounts.organizationId,actor.organizationId),eq(accounts.id,z.uuid().parse(id)));
   const context = (org: string,id: string) => `${org}:${id}:sender-token`;
@@ -50,13 +50,13 @@ export function accountService(database: Pick<typeof db,"transaction"> = db, fet
       const [row] = await tx.insert(accounts).values({organizationId:actor.organizationId,provider:data.provider,label:data.label,expectedIdentity:normalizeIdentity(data.identity),createdBy:actor.userId,updatedBy:actor.userId}).onConflictDoNothing().returning(publicAccountColumns);
       if (!row) throw new OutreachError("duplicate"); await audit(tx,actor,row.id,"outreach.account_registered"); return row;
     }),
-    begin: (actor:ActorScope,id:string,sessionHash:string,aliases=false) => database.transaction(async tx => {
+    begin: (actor:ActorScope,id:string,sessionHash:string,aliases=false,mailRead=false) => database.transaction(async tx => {
       const row = await load(tx,actor,id), state = randomBytes(32).toString("base64url"), verifier=randomBytes(48).toString("base64url");
       const config = await resolveProviderConfig(tx,actor.organizationId,row.provider);
-      const url = authorizationUrl(row.provider,state,verifier,row.expectedIdentity,aliases,config);
+      const url = authorizationUrl(row.provider,state,verifier,row.expectedIdentity,aliases,config,mailRead);
       // A newer connection request invalidates old outstanding callbacks for this account.
       await tx.update(states).set({consumedAt:new Date()}).where(and(eq(states.organizationId,actor.organizationId),eq(states.accountId,id),isNull(states.consumedAt)));
-      await tx.insert(states).values({stateHash:hashSecret(state),organizationId:actor.organizationId,accountId:id,userId:actor.userId,sessionHash,appFingerprint:config.fingerprint,verifierCiphertext:seal(verifier,`${actor.organizationId}:${id}:oauth`),aliases:aliases?"yes":"no",expiresAt:new Date(Date.now()+600000)});
+      await tx.insert(states).values({stateHash:hashSecret(state),organizationId:actor.organizationId,accountId:id,userId:actor.userId,sessionHash,appFingerprint:config.fingerprint,verifierCiphertext:seal(verifier,`${actor.organizationId}:${id}:oauth`),aliases:aliases?"yes":"no",mailRead:row.provider==="google"&&mailRead,expiresAt:new Date(Date.now()+600000)});
       return url;
     }),
     complete: async (actor:ActorScope,provider:SenderProvider,state:string,sessionHash:string,code:string|null) => {
@@ -73,6 +73,7 @@ export function accountService(database: Pick<typeof db,"transaction"> = db, fet
         const config = await resolveProviderConfig(tx,actor.organizationId,provider);
         if (grant.appFingerprint !== config.fingerprint) throw new OutreachError("oauth_expired");
         const verified = await exchangeCode(provider,z.string().max(4096).parse(code),unseal(grant.verifierCiphertext,`${actor.organizationId}:${row.id}:oauth`),fetcher,config,row.expectedIdentity);
+        if(grant.mailRead&&!verified.tokens.scopes.includes(GOOGLE_READ_SCOPE))throw new OutreachError("permission_missing");
         if (!matchesExpected(row.expectedIdentity,verified)) throw new OutreachError("wrong_identity");
         const [existing] = await tx.select({id:accounts.id}).from(accounts).where(and(eq(accounts.organizationId,actor.organizationId),eq(accounts.provider,provider),eq(accounts.providerId,verified.id)));
         if (existing && existing.id !== row.id) throw new OutreachError("duplicate");

@@ -16,7 +16,7 @@ export async function accountAction(_previous:AccountActionState,form:FormData):
     else if(action==="connect") {
       const session=(await cookies()).get(SESSION_COOKIE)?.value;
       if(!session) redirect("/login");
-      url=await service.begin(actor,id,tokenHash(session),form.get("aliases")==="on");
+      url=await service.begin(actor,id,tokenHash(session),form.get("aliases")==="on",form.get("mailRead")==="on");
     } else if(action==="instagram-system-user") {
       await service.connectInstagramSystemUser(actor,id,{accessToken:form.get("accessToken"),revision:Number(form.get("revision")),updatedAt:form.get("updatedAt"),confirmed:form.get("confirmed")==="on"});
     } else if(action==="sync") await service.sync(actor,id);

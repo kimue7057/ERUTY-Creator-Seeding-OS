@@ -1,0 +1,2 @@
+import Link from 'next/link';
+export default function SettingsLayout({children}:{children:React.ReactNode}){return <><Link className="source-link" href="/settings">설정 전체</Link><nav className="settings-links" aria-label="설정 메뉴"><Link href="/settings/accounts">발신 계정</Link><Link href="/settings/templates">템플릿·회사 서명</Link><Link href="/settings/browser-executor">회사 Chrome 연결</Link><Link href="/settings/connections">서비스 연결</Link></nav>{children}</>;}

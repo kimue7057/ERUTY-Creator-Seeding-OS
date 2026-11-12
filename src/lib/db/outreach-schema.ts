@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, uuid, text, timestamp, jsonb, unique, foreignKey, check, integer } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, jsonb, unique, foreignKey, check, integer,boolean } from "drizzle-orm/pg-core";
 import { memberships } from "./schema";
 import { campaignCreators } from "./discovery-schema";
 import type { SenderAddress } from "../outreach/contracts";
@@ -37,15 +37,17 @@ export const outreachConnectionTests = pgTable("outreach_connection_tests", {
   check("connection_test_status", sql`${t.status} in ('sending','sent','failed','unknown')`)]);
 export const senderOAuthStates = pgTable("outreach_oauth_states", {
   stateHash: text("state_hash").primaryKey(), organizationId: uuid("organization_id").notNull(), accountId: uuid("account_id").notNull(), userId: uuid("user_id").notNull(),
-  sessionHash: text("session_hash").notNull(), appFingerprint: text("app_fingerprint"), verifierCiphertext: text("verifier_ciphertext").notNull(), aliases: text({ enum:["yes","no"] }).notNull(),
+  sessionHash: text("session_hash").notNull(), appFingerprint: text("app_fingerprint"), verifierCiphertext: text("verifier_ciphertext").notNull(), aliases: text({ enum:["yes","no"] }).notNull(),mailRead:boolean("mail_read").notNull().default(false),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(), consumedAt: timestamp("consumed_at", { withTimezone: true }), createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
 }, t => [foreignKey({ columns:[t.organizationId,t.accountId],foreignColumns:[senderAccounts.organizationId,senderAccounts.id] }), foreignKey({ columns:[t.organizationId,t.userId],foreignColumns:[memberships.organizationId,memberships.userId] })]);
 export const outreachDrafts = pgTable("outreach_drafts", {
+  composeStep: integer("compose_step").notNull().default(0),
   id: uuid().defaultRandom().primaryKey(), organizationId: uuid("organization_id").notNull(), campaignId: uuid("campaign_id").notNull(), creatorAccountId: uuid("creator_account_id").notNull(),
   inputSha256: text("input_sha256").notNull(), channel: text({ enum:["email","instagram","tiktok"] }).notNull(), subject: text().notNull().default(""), body: text().notNull().default(""),
   template: text({ enum:["letter","brand","proposal","followup"] }).notNull().default("letter"), branding: jsonb().$type<MailBranding>().notNull().default({companyName:"",signature:"",color:"#28543e",website:""}), language: text({enum:["한국어","English"]}).notNull().default("English"), purpose: text().notNull().default(""), senderAccountId: uuid("sender_account_id"), fromAddress: text("from_address").notNull().default(""), toAddress: text("to_address").notNull().default(""), recipientSource: text("recipient_source").notNull().default(""),
   revision: integer().notNull().default(1), status: text({ enum:["draft","sending","sent","failed","unknown"] }).notNull().default("draft"),
   instagramConversation: jsonb("instagram_conversation").$type<DmSelection|null>(),
+  providerThreadId:text('provider_thread_id'),
   providerMessageId: text("provider_message_id"), sentAt: timestamp("sent_at", { withTimezone: true }), createdBy: uuid("created_by").notNull(), updatedBy: uuid("updated_by").notNull(), ...dates(),
 }, t => [foreignKey({ columns:[t.organizationId,t.campaignId,t.creatorAccountId],foreignColumns:[campaignCreators.organizationId,campaignCreators.campaignId,campaignCreators.creatorAccountId] }),
   unique("outreach_draft_scope").on(t.organizationId,t.id),

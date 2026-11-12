@@ -108,7 +108,7 @@ test("campaign review inbox, focused details, processing states and final select
   await page.keyboard.press('Escape');
   await page.setViewportSize({width:1440,height:1000});
   await expect(page.getByRole('heading', {name:'정보 부족',exact:true})).toBeFocused();
-  await page.getByRole('link', {name:'진행·기록',exact:true}).click();
+  await page.getByRole('link', {name:'발굴·평가 기록',exact:true}).click();
   await page.getByRole('button', {name:'평가 중 1',exact:true}).click();
   await expect(page.getByText('SNS 원본 근거를 자동 평가하고 있습니다.',{exact:true})).toBeVisible();
   await page.getByRole('button', {name:'평가 중단 1',exact:true}).click();

@@ -19,9 +19,11 @@ function ConnectionCard({account,available,writable,systemUserRevision}:{account
     <div className="sender-addresses"><strong>발신 주소</strong>{account.addresses.length?account.addresses.map(a=><div key={a.address}><span>{a.address}</span><span className="muted">{a.primary?"기본":"승인된 추가 주소"}</span></div>):<p className="description">로그인 연결 후 확인됩니다.</p>}</div>
     {account.provider==="instagram"&&account.status!=="disconnected"&&<Link className="btn btn-primary" href={`/outreach/instagram/new?account=${account.id}`}>첫 DM·브라우저 연락 →</Link>}{account.provider!=="google"&&<p className="outreach-note">{account.provider==="instagram"?"첫 협업 제안은 브라우저 첫 연락에서 진행합니다. 브라우저의 회사 로그인을 별도로 확인하며, 기존 대화의 API 회신에는 메시지 권한과 앱 조건이 필요합니다.":"TikTok 로그인은 계정 확인용입니다. 실제 DM은 Business Messaging 승인과 별도 연결이 필요합니다."}</p>}
     {!available&&<p className="outreach-note">API 로그인 연결에는 회사 앱 등록이 필요합니다. <Link className="source-link" href="/settings/connections">연결 정보 등록하기 →</Link></p>}
+    {account.provider==="google"&&connected&&<p className="description">답장 읽기: {account.mailReadEnabled?"권한 연결됨":"추가 동의 필요 · 아래 이메일 답장 수신도 연결 선택 후 다시 로그인"}</p>}
     {account.verifiedAt&&<p className="description">마지막 계정 확인: {new Date(account.verifiedAt).toLocaleString("ko-KR",{timeZone:"Asia/Seoul"})}</p>}
     {writable&&<form action={action} className="sender-actions"><input type="hidden" name="id" value={account.id}/>
-      {account.provider==="google"&&<label className="sender-alias-check"><input type="checkbox" name="aliases"/>추가 발신 주소도 연결 <span className="muted">Google 메일 설정 권한 추가</span></label>}
+      {account.provider==="google"&&<label className="sender-alias-check"><input type="checkbox" name="aliases" defaultChecked={account.addresses.length>1}/>추가 발신 주소도 연결 <span className="muted">Google 메일 설정 권한 추가</span></label>}
+      {account.provider==="google"&&<label className="sender-alias-check"><input type="checkbox" name="mailRead" defaultChecked={account.mailReadEnabled}/>이메일 답장 수신도 연결 <span className="muted">메일함 전체 읽기 권한에 동의 · ERUTY는 연락한 상대의 대화만 조회·저장</span></label>}
       <button className="btn btn-primary" name="action" value="connect" disabled={pending||!available}><Link2 size={14}/>{pending?"처리 중…":connected?"다시 로그인 · 권한 변경":"로그인 연결"}</button>
       {connected&&<button className="btn" name="action" value="sync" disabled={pending}>주소·상태 새로고침</button>}
       {!confirm&&account.status!=="disconnected"&&<button type="button" className="btn" disabled={pending} onClick={()=>setConfirm(true)}>연결 해제</button>}

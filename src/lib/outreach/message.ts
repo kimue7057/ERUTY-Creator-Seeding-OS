@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { dmSelectionSchema } from "./instagram-dm-contracts";
 import { brandingSchema, defaultBranding, layoutSchema, type MailLayout, type MailBranding } from "./template-contracts";
-export const draftInputSchema=z.object({id:z.uuid(),campaignId:z.uuid(),creatorAccountId:z.uuid(),inputSha256:z.string().regex(/^[a-f0-9]{64}$/),revision:z.number().int().min(0),channel:z.enum(["email","instagram","tiktok"]),subject:z.string().max(200).refine(v=>!/[\r\n]/.test(v)),body:z.string().max(12000),template:layoutSchema,branding:brandingSchema.default(defaultBranding),language:z.enum(["한국어","English"]).default("English"),purpose:z.string().max(1500).default(""),senderAccountId:z.uuid().nullable(),fromAddress:z.string().max(254),toAddress:z.string().max(254),recipientSource:z.string().max(2048),instagramConversation:dmSelectionSchema.nullable().default(null)});
+export const draftInputSchema=z.object({composeStep:z.number().int().min(0).max(3).default(0),id:z.uuid(),campaignId:z.uuid(),creatorAccountId:z.uuid(),inputSha256:z.string().regex(/^[a-f0-9]{64}$/),revision:z.number().int().min(0),channel:z.enum(["email","instagram","tiktok"]),subject:z.string().max(200).refine(v=>!/[\r\n]/.test(v)),body:z.string().max(12000),template:layoutSchema,branding:brandingSchema.default(defaultBranding),language:z.enum(["한국어","English"]).default("English"),purpose:z.string().max(1500).default(""),senderAccountId:z.uuid().nullable(),fromAddress:z.string().max(254),toAddress:z.string().max(254),recipientSource:z.string().max(2048),instagramConversation:dmSelectionSchema.nullable().default(null)});
 export type DraftInput=z.infer<typeof draftInputSchema>;
 export const escapeHtml=(v:string)=>v.replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]!));
 export function signatureText(from: string, branding: MailBranding) {
@@ -16,10 +16,11 @@ export function messageHtml(subject:string,body:string,template:MailLayout,from:
 }
 const encoded=(value:string)=>`=?UTF-8?B?${Buffer.from(value).toString("base64")}?=`;
 const folded=(value:string)=>Buffer.from(value).toString("base64").match(/.{1,76}/g)?.join("\r\n")??"";
-export function rawEmail(input:{id:string;from:string;to:string;subject:string;body:string;template:MailLayout;branding?:MailBranding}) {
+export function rawEmail(input:{id:string;from:string;to:string;subject:string;body:string;template:MailLayout;branding?:MailBranding;reply?:{inReplyTo:string;references:string}}) {
   const from=z.email().parse(input.from),to=z.email().parse(input.to),subject=z.string().min(1).max(200).refine(v=>!/[\r\n]/.test(v)).parse(input.subject);
   z.uuid().parse(input.id);const boundary=`eruty_${input.id.replaceAll("-","")}`;
   const branding=brandingSchema.parse(input.branding??defaultBranding);
-  const raw=[`From: ${from}`,`To: ${to}`,`Subject: ${encoded(subject)}`,`Message-ID: <${input.id}@${from.split("@")[1]}>`,`Date: ${new Date().toUTCString()}`,"MIME-Version: 1.0",`Content-Type: multipart/alternative; boundary="${boundary}"`,"",`--${boundary}`,"Content-Type: text/plain; charset=UTF-8","Content-Transfer-Encoding: base64","",folded(`${input.body}\n\n${signatureText(from,branding)}`),`--${boundary}`,"Content-Type: text/html; charset=UTF-8","Content-Transfer-Encoding: base64","",folded(messageHtml(subject,input.body,input.template,from,branding)),`--${boundary}--`,""].join("\r\n");
+  const replyHeaders=input.reply?[`In-Reply-To: ${z.string().regex(/^<[^<>\s]+@[^<>\s]+>$/).parse(input.reply.inReplyTo)}`,`References: ${z.string().max(12000).regex(/^(?:<[^<>\s]+@[^<>\s]+> ?)+$/).parse(input.reply.references)}`]:[];
+  const raw=[`From: ${from}`,`To: ${to}`,`Subject: ${encoded(subject)}`,`Message-ID: <${input.id}@${from.split("@")[1]}>`,...replyHeaders,`Date: ${new Date().toUTCString()}`,"MIME-Version: 1.0",`Content-Type: multipart/alternative; boundary="${boundary}"`,"",`--${boundary}`,"Content-Type: text/plain; charset=UTF-8","Content-Transfer-Encoding: base64","",folded(`${input.body}\n\n${signatureText(from,branding)}`),`--${boundary}`,"Content-Type: text/html; charset=UTF-8","Content-Transfer-Encoding: base64","",folded(messageHtml(subject,input.body,input.template,from,branding)),`--${boundary}--`,""].join("\r\n");
   return Buffer.from(raw).toString("base64url");
 }

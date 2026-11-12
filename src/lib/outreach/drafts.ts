@@ -1,4 +1,4 @@
-import { and, desc, eq, ilike, or } from "drizzle-orm";
+import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { db } from "../db";
@@ -22,14 +22,15 @@ export function draftService(database:Pick<typeof db,"transaction">=db,fetcher:t
     return detail;
   }
   return {
-    workspace:(actor:ActorScope,filter:{status?:string;channel?:string;search?:string;page?:number}={})=>database.transaction(async tx=>{
+    summary:(actor:ActorScope)=>database.transaction(async tx=>{await outreachMember(tx,actor);const [row]=(await tx.execute<{drafts:number;unknown:number;failed:number}>(sql`SELECT count(*) FILTER(WHERE d.status='draft')::int as drafts,count(*) FILTER(WHERE d.status IN ('unknown','sending'))::int as unknown,count(*) FILTER(WHERE d.status='failed')::int as failed FROM outreach_drafts d JOIN campaigns c ON c.organization_id=d.organization_id AND c.id=d.campaign_id WHERE d.organization_id=${actor.organizationId} AND c.status<>'archived'`)).rows;return row;}),
+    workspace:(actor:ActorScope,filter:{status?:string;channel?:string;search?:string;page?:number;campaign?:string}={})=>database.transaction(async tx=>{
       await outreachMember(tx,actor);
       const status=z.enum(["draft","sent","failed","unknown","sending"]).safeParse(filter.status),channel=z.enum(["email","instagram","tiktok"]).safeParse(filter.channel);
       const search=(filter.search??"").slice(0,150).replace(/[\\%_]/g,"\\$&"),page=z.number().int().min(1).max(10000).parse(filter.page??1);
       return tx.select({id:drafts.id,campaignId:drafts.campaignId,creatorAccountId:drafts.creatorAccountId,subject:drafts.subject,channel:drafts.channel,status:drafts.status,fromAddress:drafts.fromAddress,toAddress:drafts.toAddress,updatedAt:drafts.updatedAt,creatorName:creatorAccounts.displayName,handle:creatorAccounts.currentHandle,platform:creatorAccounts.platform,campaignTitle:campaigns.title}).from(drafts)
         .innerJoin(campaigns,and(eq(campaigns.id,drafts.campaignId),eq(campaigns.organizationId,actor.organizationId)))
         .innerJoin(creatorAccounts,and(eq(creatorAccounts.id,drafts.creatorAccountId),eq(creatorAccounts.organizationId,actor.organizationId)))
-        .where(and(eq(drafts.organizationId,actor.organizationId),status.success?eq(drafts.status,status.data):undefined,channel.success?eq(drafts.channel,channel.data):undefined,search?or(ilike(drafts.subject,`%${search}%`),ilike(creatorAccounts.displayName,`%${search}%`),ilike(creatorAccounts.currentHandle,`%${search}%`),ilike(campaigns.title,`%${search}%`)):undefined))
+        .where(and(eq(drafts.organizationId,actor.organizationId),z.uuid().safeParse(filter.campaign).success?eq(drafts.campaignId,filter.campaign!):undefined,status.success?eq(drafts.status,status.data):undefined,channel.success?eq(drafts.channel,channel.data):undefined,search?or(ilike(drafts.subject,`%${search}%`),ilike(creatorAccounts.displayName,`%${search}%`),ilike(creatorAccounts.currentHandle,`%${search}%`),ilike(campaigns.title,`%${search}%`)):undefined))
         .orderBy(desc(drafts.updatedAt),desc(drafts.id)).limit(26).offset((page-1)*25);
     }),
     duplicate:(actor:ActorScope,id:string)=>database.transaction(async tx=>{
@@ -38,7 +39,7 @@ export function draftService(database:Pick<typeof db,"transaction">=db,fetcher:t
       if(!source)throw new OutreachError("not_found");
       if(["sending","unknown"].includes(source.status))throw new OutreachError("send_unknown");
       await approved(actor,source.campaignId,source.creatorAccountId,source.inputSha256,tx);
-      const data=draftInputSchema.parse({...source,id:randomUUID(),revision:0,senderAccountId:null,fromAddress:""});
+      const data=draftInputSchema.parse({...source,composeStep:1,id:randomUUID(),revision:0,senderAccountId:null,fromAddress:""});
       const [row]=await tx.insert(drafts).values({...data,revision:1,organizationId:actor.organizationId,createdBy:actor.userId,updatedBy:actor.userId}).returning();
       await tx.insert(auditEvents).values({organizationId:actor.organizationId,actorId:actor.userId,entityId:row.id,action:"outreach.draft_copied"});
       return row;
@@ -95,8 +96,8 @@ export function draftService(database:Pick<typeof db,"transaction">=db,fetcher:t
         submitted=true;
         const response=await fetcher("https://gmail.googleapis.com/gmail/v1/users/me/messages/send",{method:"POST",headers:{Authorization:`Bearer ${token.accessToken}`,"Content-Type":"application/json"},body:JSON.stringify({raw}),redirect:"error",signal:AbortSignal.timeout(20000)});
         if(!response.ok){await response.body?.cancel();if([400,401,403,404,429].includes(response.status)){submitted=false;throw new OutreachError("send_failed");}throw new OutreachError("send_unknown");}
-        const result=z.object({id:z.string().min(1).max(200)}).parse(await response.json());
-        const [saved]=await tx.update(drafts).set({status:"sent",providerMessageId:result.id,sentAt:new Date(),updatedAt:new Date()}).where(scope(actor,id)).returning();
+        const result=z.object({id:z.string().min(1).max(200),threadId:z.string().min(1).max(200).optional()}).parse(await response.json());
+        const [saved]=await tx.update(drafts).set({status:"sent",providerMessageId:result.id,providerThreadId:result.threadId??null,sentAt:new Date(),updatedAt:new Date()}).where(scope(actor,id)).returning();
         await tx.insert(auditEvents).values({organizationId:actor.organizationId,actorId:actor.userId,entityId:id,action:"outreach.sent"});return saved;
       });}catch(error){
         await database.transaction(async tx=>{await outreachMember(tx,actor,true);await tx.update(drafts).set({status:submitted?"unknown":"failed",updatedAt:new Date()}).where(and(scope(actor,id),eq(drafts.status,"sending")));}).catch(()=>{});

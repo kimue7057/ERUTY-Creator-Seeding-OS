@@ -65,7 +65,7 @@ export function instagramDmProvider(context:Context,fetcher:typeof fetch=fetch){
       if(result.id!==selection.conversationId)throw new OutreachError("instagram_dm_response_invalid");
       const who=recipient(result.messages.data);
       if(!who?.username||who.id!==selection.recipientId||normalizeIdentity(who.username)!==normalizeIdentity(selection.username))throw new OutreachError("instagram_dm_recipient_changed");
-      const messages:DmMessage[]=result.messages.data.map(m=>({id:m.id,createdAt:new Date(m.created_time).toISOString(),senderId:m.from.id,senderUsername:m.from.username??null,text:m.message??"[사진 또는 첨부 메시지]",incoming:m.from.id===who.id})).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
+      const messages:DmMessage[]=result.messages.data.map(m=>({id:m.id,createdAt:new Date(m.created_time).toISOString(),senderId:m.from.id,senderUsername:m.from.username??null,text:m.message||"[본문이 없는 메시지 · 첨부·공유 내용은 Instagram에서 확인]",incoming:m.from.id===who.id})).sort((a,b)=>a.createdAt.localeCompare(b.createdAt));
       const lastIncomingAt=messages.filter(m=>m.incoming).at(-1)?.createdAt??null;let canReply=true;try{assertDmWindow(lastIncomingAt);}catch{canReply=false;}
       return{selection:{...selection,username:who.username},messages,lastIncomingAt,replyUntil:lastIncomingAt?new Date(Date.parse(lastIncomingAt)+DM_WINDOW_MS).toISOString():null,canReply};
     },
