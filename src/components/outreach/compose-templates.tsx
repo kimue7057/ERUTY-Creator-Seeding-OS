@@ -2,11 +2,11 @@
 import Link from "next/link";
 import { useState } from "react";
 import type { SavedMessageTemplate } from "@/lib/outreach/templates";
-import { applyTemplate, starterTemplates, type MailLayout } from "@/lib/outreach/template-contracts";
-export function ComposeTemplates({templates,channel,creator,brand,campaign,hasSent,writable,onApply}:{templates:SavedMessageTemplate[];channel:string;creator:string;brand:string;campaign:string;hasSent:boolean;writable:boolean;onApply:(value:{subject:string;body:string;template:MailLayout;language:"한국어"|"English"})=>void}) {
+import { applyTemplate, starterCatalog, type MailLayout } from "@/lib/outreach/template-contracts";
+export function ComposeTemplates({templates,channel,language,creator,brand,campaign,hasSent,writable,onApply}:{templates:SavedMessageTemplate[];channel:string;language:"한국어"|"English";creator:string;brand:string;campaign:string;hasSent:boolean;writable:boolean;onApply:(value:{subject:string;body:string;template:MailLayout;language:"한국어"|"English"})=>void}) {
   const [selected,setSelected]=useState(""),[reason,setReason]=useState("");
-  const catalog=templates.filter(t=>!t.archivedAt&&t.channel===channel);
-  const defaults=channel==="email"?starterTemplates.map((t,i)=>({...t,id:`builtin-${i}`,language:"한국어"})):[];
+  const catalog=templates.filter(t=>!t.archivedAt&&t.channel===channel&&t.language===language);
+  const defaults=starterCatalog.filter(t=>t.channel===channel&&t.language===language).map((t,i)=>({...t,id:`builtin-${i}`}));
   const options=catalog.length?catalog:defaults;
   const current=options.find(t=>t.id===selected),needsReason=!!current?.body.includes("{{reason}}"),needsPrevious=current?.layout==="followup"&&!hasSent;
   const values={creator,brand:brand||"{{brand}}",campaign,reason:reason.trim()||"{{reason}}"};

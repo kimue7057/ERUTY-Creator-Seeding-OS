@@ -35,6 +35,14 @@ export function parseInstagramSystemUserInput(input:unknown) {
 }
 export function outreachErrorMessage(error: unknown): string {
   const messages: Record<string, string> = {
+    ai_key_required:"OpenRouter API 키를 입력하세요. 키는 채팅이 아닌 설정 화면에 입력합니다.",
+    ai_key_invalid:"OpenRouter API 키 인증에 실패했습니다. 키의 유효성과 권한을 확인하세요.",
+    ai_credit_required:"OpenRouter 크레딧 또는 이 키의 사용 한도가 부족합니다. OpenRouter에서 확인하세요.",
+    ai_access_denied:"OpenRouter에서 요청을 허용하지 않았습니다. 키와 모델 접근 권한을 확인하세요.",
+    ai_model_unavailable:"선택한 모델이나 구조화된 문장 출력을 사용할 수 없습니다. 모델 ID와 지원 여부를 확인하세요.",
+    ai_rate_limited:"OpenRouter 요청 한도에 도달했습니다. 잠시 후 다시 시도하세요.",
+    ai_provider_unavailable:"OpenRouter 응답을 받지 못했습니다. 연결 상태를 확인하고 다시 요청하세요.",
+    ai_response_invalid:"AI 응답의 형식이나 작성 근거를 확인하지 못했습니다. 본문은 바꾸지 않았습니다.",
     mail_read_required:"이메일 답장 조회 권한이 필요합니다. 발신 계정에서 ‘이메일 답장 수신도 연결’을 선택해 Google에 다시 로그인하세요.",
     mail_read_failed:"회사 메일에서 대화를 불러오지 못했습니다. 연결 상태를 확인하고 다시 조회하세요.",
     mail_response_invalid:"메일 서비스 응답을 확인하지 못했습니다. 메일은 발송하지 않았습니다.",

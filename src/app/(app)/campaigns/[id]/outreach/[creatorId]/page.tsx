@@ -6,6 +6,7 @@ import { evaluationService } from "@/lib/evaluation/service";
 import { assessmentFingerprint } from "@/lib/evaluation/shortlist-policy";
 import { accountService } from "@/lib/outreach/accounts";
 import { draftService } from "@/lib/outreach/drafts";
+import {aiSettingsService} from "@/lib/outreach/ai-settings";
 import { outreachAiReady } from "@/lib/outreach/ai";
 import { OutreachWizard } from "@/components/outreach/outreach-wizard";
 import { templateService } from "@/lib/outreach/templates";
@@ -20,6 +21,7 @@ export default async function OutreachPage({params,searchParams}:{params:Promise
   if(requested&&requested!=="new"&&!z.uuid().safeParse(requested).success)notFound();
   const existing=requested&&requested!=="new"?await draftService().get(actor,requested):requested==="new"?null:history.find(d=>d.status==="draft"&&d.inputSha256===assessmentFingerprint(detail.snapshot));
   if(requested&&requested!=="new"&&(!existing||existing.campaignId!==id||existing.creatorAccountId!==creatorId))notFound();
+  const aiStatus=await aiSettingsService().status(actor);
   const initial=existing??{composeStep:0,id:randomUUID(),campaignId:id,creatorAccountId:creatorId,inputSha256:assessmentFingerprint(detail.snapshot),revision:0,channel:"email" as const,subject:"",body:"",template:"letter" as const,branding:settings.branding,language:"한국어" as const,purpose:"제품 시딩 협업 가능 여부를 제안하고 관심이 있는지 확인",senderAccountId:null,fromAddress:"",toAddress:"",recipientSource:"",instagramConversation:null,status:"draft",sentAt:null};
-  return <OutreachWizard key={initial.id} initial={initial} campaignName={detail.campaign.title} templates={templates} currentBranding={settings.branding} creatorHandle={detail.snapshot.creator.handle??""} creatorName={detail.snapshot.creator.display_name||detail.snapshot.creator.handle||"크리에이터"} profile={detail.snapshot.creator.profile_url} assessment={detail.history[0].output} evidence={detail.snapshot.evidence.map(e=>({id:e.id,url:e.source_url,observedAt:e.observed_at}))} accounts={accounts} aiReady={outreachAiReady()} writable={canWrite(actor)} history={history}/>;
+  return <OutreachWizard key={initial.id} initial={initial} campaignName={detail.campaign.title} brandName={detail.snapshot.brief.project.name} templates={templates} currentBranding={settings.branding} creatorHandle={detail.snapshot.creator.handle??""} creatorName={detail.snapshot.creator.display_name||detail.snapshot.creator.handle||"크리에이터"} profile={detail.snapshot.creator.profile_url} assessment={detail.history[0].output} evidence={detail.snapshot.evidence.map(e=>({id:e.id,url:e.source_url,observedAt:e.observed_at}))} accounts={accounts} aiReady={aiStatus.configured?aiStatus.enabled:outreachAiReady()} writable={canWrite(actor)} history={history}/>;
 }

@@ -1,4 +1,4 @@
--- Run as owner only after migration 0027. The runtime must not own tables.
+-- Run as owner only after migration 0028. The runtime must not own tables.
 GRANT SELECT, INSERT, UPDATE ON outreach_sender_accounts, outreach_oauth_states, outreach_drafts TO eruty_seeding_app;
 GRANT SELECT, INSERT, UPDATE ON outreach_provider_apps, outreach_brand_settings, outreach_templates TO eruty_seeding_app;
 GRANT SELECT, INSERT, UPDATE ON outreach_connection_tests TO eruty_seeding_app;
@@ -8,3 +8,5 @@ GRANT SELECT, INSERT, UPDATE ON outreach_browser_executors TO eruty_seeding_app;
 GRANT SELECT, INSERT, UPDATE ON outreach_chat_previews TO eruty_seeding_app;
 GRANT SELECT, INSERT, UPDATE ON outreach_review_drafts, outreach_review_batches TO eruty_seeding_app;
 GRANT SELECT, INSERT, UPDATE ON contact_workflows, contact_cases, contact_conversations, contact_messages, contact_reply_attempts TO eruty_seeding_app;
+
+GRANT SELECT, INSERT, UPDATE ON outreach_ai_settings TO eruty_seeding_app;

@@ -6,7 +6,7 @@ import { outreachBrandSettings as settings, outreachTemplates as templates } fro
 import type { ActorScope } from "../auth/permissions";
 import { outreachMember } from "./access";
 import { OutreachError } from "./contracts";
-import { brandingSchema, defaultBranding, templateInputSchema, starterTemplates } from "./template-contracts";
+import { brandingSchema, defaultBranding, templateInputSchema, starterCatalog } from "./template-contracts";
 export function templateService(database: Pick<typeof db,"transaction"> = db) {
   return {
     list: (actor: ActorScope) => database.transaction(async tx => {
@@ -50,10 +50,11 @@ export function templateService(database: Pick<typeof db,"transaction"> = db) {
     installDefaults: (actor: ActorScope) => database.transaction(async tx => {
       await outreachMember(tx, actor, true);
       await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${actor.organizationId}),hashtext('outreach-templates'))`);
-      const existing = await tx.select({id: templates.id}).from(templates).where(eq(templates.organizationId, actor.organizationId)).limit(1);
-      if (existing.length) return;
-      await tx.insert(templates).values(starterTemplates.map(t => ({ ...t, organizationId: actor.organizationId, channel: "email" as const, language: "한국어" as const, createdBy: actor.userId, updatedBy: actor.userId })));
-      await tx.insert(auditEvents).values({ organizationId: actor.organizationId, actorId: actor.userId, entityId: actor.organizationId, action: "outreach.templates_initialized" });
+      const existing = await tx.select({name:templates.name,channel:templates.channel,language:templates.language}).from(templates).where(eq(templates.organizationId, actor.organizationId));
+      const missing=starterCatalog.filter(t=>!existing.some(e=>e.name===t.name&&e.channel===t.channel&&e.language===t.language));
+      if(missing.length){await tx.insert(templates).values(missing.map(t => ({ ...t, organizationId: actor.organizationId, createdBy: actor.userId, updatedBy: actor.userId })));
+      await tx.insert(auditEvents).values({ organizationId: actor.organizationId, actorId: actor.userId, entityId: actor.organizationId, action: "outreach.templates_initialized" });}
+      return{added:missing.length};
     }),
   };
 }
