@@ -402,3 +402,12 @@ progress { accent-color: var(--green); height: 7px; }
 @media(max-width:760px){.sidebar nav{grid-template-columns:repeat(5,minmax(0,1fr));gap:2px}.sidebar nav .nav-item{flex-direction:column;padding:9px 1px;gap:7px;font-size:11px;text-align:center;justify-content:flex-start;min-width:0}.sidebar .nav-note{display:none}.journey{gap:6px}.journey>a,.journey>button{padding:8px;font-size:11px}.todo-card{padding:16px}.todo-card>strong{font-size:29px}.settings-grid{grid-template-columns:minmax(0,1fr)}.settings-card{padding:20px}.settings-links{gap:12px}.crm-conversation-tabs a{max-width:220px}.todo-people{grid-template-columns:minmax(0,1fr)}}
 @media(max-width:360px){.todo-grid{grid-template-columns:minmax(0,1fr)}.sidebar nav .nav-item{font-size:10px}}
 .crm-filter-panel>summary{padding:16px 18px;cursor:pointer;font-size:12px;font-weight:600;color:#536e59}.crm-filter-panel[open]>summary{border-bottom:1px solid #e4e9e0}.crm-quick-channels{display:flex;gap:8px;flex-wrap:wrap}.crm-quick-channels button[aria-pressed=true]{background:#eaf3e8;border-color:#7eaa7c;color:#28543e}.crm-filter-panel+.sender-actions{justify-content:flex-end}
+/* Internal translation stays outside the outgoing email/DM preview. */
+.outreach-korean-review{margin:18px 0;padding:18px;border:1px solid #c7ddd5;border-radius:12px;background:#f3f9f6;color:#183e32;min-width:0;overflow-wrap:anywhere}
+.outreach-korean-review>div:first-child{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:baseline}
+.outreach-korean-review small{font-size:12px;color:#536c62}
+.outreach-korean-review p{line-height:1.8}
+.outreach-korean-review .translation-body{white-space:pre-wrap;font-size:14px;margin:14px 0 0}
+.translation-subject{display:flex;gap:10px;font-weight:600}
+.translation-subject span{flex-shrink:0;color:#536c62;font-weight:400}
+.outreach-korean-review .source-link{margin:8px;display:inline-block}
