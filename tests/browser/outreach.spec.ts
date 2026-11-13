@@ -34,6 +34,7 @@ test.beforeAll(async()=>{
     // Synthetic verified rows exist only in this disposable browser-test DB.
     await database.update(senderAccounts).set({status:"connected",identity,providerId:identity,verifiedAt:new Date(),tokenCiphertext:"synthetic-unusable-token",addresses:[{address:identity,label:"Primary",primary:true},{address:`alias-${identity}`,label:"Approved alias",primary:false}]}).where(eq(senderAccounts.id,account.id));
   }
+  const {aiSettingsService}=await import('../../src/lib/outreach/ai-settings');await aiSettingsService(database,async()=>Response.json({choices:[{finish_reason:'stop',message:{content:'{"ok":true}'}}]})).save(f.actor,{revision:0,apiKey:'synthetic-router-ui-key-12345',model:'openai/gpt-5.4-mini'});
   await mkdir(artifactDir,{recursive:true});
 });
 
@@ -324,4 +325,26 @@ test('OpenRouter connects securely and generates a reviewed creator-specific DM 
  await page.goto('/settings/templates');await page.getByLabel('템플릿 채널 필터',{exact:true}).selectOption('instagram');await page.getByLabel('템플릿 언어 필터',{exact:true}).selectOption('English');await expect(page.locator('.template-library-card')).toHaveCount(3);
  for(const width of [320,390,1440]){await page.setViewportSize({width,height:1000});await page.goto('/settings/ai');await expect(page.getByRole('heading',{name:'AI 문장 작성',exact:true})).toBeVisible();expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();await page.screenshot({path:`${artifactDir}/openrouter-${width}-synthetic.png`,fullPage:true,caret:'initial'});}
  await signIn(context,f.reader);await page.goto('/settings/ai');await expect(page.getByRole('button',{name:'연결 테스트 후 저장',exact:true})).toHaveCount(0);
+});
+
+test('English DM and email show current Korean review through every step, hide stale results and Korean originals, and never send translations',async({page,context})=>{
+ const sentBefore=(await client.query('select count(*)::int n from outreach_browser_sends')).rows[0].n;
+ await signIn(context);await page.goto(`/campaigns/${seed.campaign.id}/outreach/${seed.accountId}?draft=new`);
+ await page.getByLabel('연락 채널',{exact:true}).selectOption('instagram');await page.getByRole('button',{name:'다음 · 제안 문장',exact:true}).click();await page.getByLabel('언어',{exact:true}).selectOption('English');
+ const body=page.getByLabel('메시지',{exact:true}),review=page.getByRole('region',{name:'검토용 한글 번역',exact:true});
+ const requestsBefore=(await client.query("select count(*)::int n from audit_events where actor_id=$1 and action='outreach.translation_requested'",[f.actor.userId])).rows[0].n;
+ await body.fill('SYNTHETIC slow old message');await expect(review).toHaveAttribute('aria-busy','true');
+ await expect.poll(async()=>(await client.query("select count(*)::int n from audit_events where actor_id=$1 and action='outreach.translation_requested'",[f.actor.userId])).rows[0].n).toBeGreaterThan(requestsBefore);
+ await body.fill('SYNTHETIC current message\n\nSecond paragraph.');await expect(review.locator('.translation-body')).toHaveCount(0);await expect(review).toContainText('SYNTHETIC current message');await expect(review).not.toContainText('slow old');
+ const original=await body.inputValue();await page.getByRole('button',{name:'다음 · 템플릿·미리보기',exact:true}).click();await expect(review).toContainText(original);await expect(page.locator('.outreach-dm-preview p')).toHaveText(original);expect(await page.locator('.outreach-dm-preview p').innerText()).not.toContain('합성 검토 번역');
+ await page.reload();await expect(review).toContainText(original);await page.getByRole('button',{name:/4.*계정·주소·발송/}).click();await expect(review).toContainText(original);
+ for(const width of [320,390,1440]){await page.setViewportSize({width,height:1100});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBeTruthy();await page.screenshot({path:`${artifactDir}/korean-review-${width}-synthetic.png`,fullPage:true,caret:'initial'});}
+ await page.getByRole('button',{name:/2.*제안 문장/}).click();await page.getByLabel('언어',{exact:true}).selectOption('한국어');await body.fill('안녕하세요. 협업 제안을 드립니다.');await expect(review).toHaveCount(0);
+ await page.getByRole('button',{name:/1.*크리에이터 분석/}).click();await page.getByLabel('연락 채널',{exact:true}).selectOption('email');await page.getByRole('button',{name:/2.*제안 문장/}).click();await page.getByLabel('언어',{exact:true}).selectOption('English');
+ await page.getByLabel('이메일 제목',{exact:true}).fill('SYNTHETIC email title');await page.getByLabel('본문',{exact:true}).fill('SYNTHETIC email message');await expect(review).toContainText('합성 번역 제목: SYNTHETIC email title');
+ await page.getByLabel('이메일 제목',{exact:true}).fill('SYNTHETIC changed title');await expect(review.locator('.translation-subject')).toHaveCount(0);await expect(review).toContainText('합성 번역 제목: SYNTHETIC changed title');
+ await page.getByRole('button',{name:/3.*템플릿·미리보기/}).click();await expect(page.frameLocator('iframe[title="수신자 이메일 미리보기"]').locator('body')).toContainText('SYNTHETIC email message');await expect(page.frameLocator('iframe[title="수신자 이메일 미리보기"]').locator('body')).not.toContainText('합성 검토 번역');await expect(review).toContainText('SYNTHETIC email message');
+ await page.getByRole('button',{name:/2.*제안 문장/}).click();await page.getByLabel('본문',{exact:true}).fill('SYNTHETIC translation fail');await expect(review).toContainText('OpenRouter 응답을 받지 못했습니다.');await expect(review.getByRole('button',{name:'번역 다시 불러오기'})).toBeVisible();
+ await page.getByRole('button',{name:/4.*계정·주소·발송/}).click();await expect(page.getByRole('checkbox',{name:/발신 계정·수신 주소·메시지를 확인/})).toBeDisabled();
+ expect((await client.query('select count(*)::int n from outreach_browser_sends')).rows[0].n).toBe(sentBefore);
 });

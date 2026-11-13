@@ -126,6 +126,7 @@
     { "idx": 25, "version": "7", "when": 1794398400000, "tag": "0025_project_outreach_review", "breakpoints": true },
     { "idx": 26, "version": "7", "when": 1794402000000, "tag": "0026_contact_crm", "breakpoints": true },
     { "idx": 27, "version": "7", "when": 1794445200000, "tag": "0027_contact_workflows", "breakpoints": true },
-    { "idx": 28, "version": "7", "when": 1794531600000, "tag": "0028_outreach_ai_settings", "breakpoints": true }
+    { "idx": 28, "version": "7", "when": 1794531600000, "tag": "0028_outreach_ai_settings", "breakpoints": true },
+    { "idx": 29, "version": "7", "when": 1794535200000, "tag": "0029_outreach_review_translations", "breakpoints": true }
   ]
 }

@@ -35,6 +35,8 @@ export function parseInstagramSystemUserInput(input:unknown) {
 }
 export function outreachErrorMessage(error: unknown): string {
   const messages: Record<string, string> = {
+    translation_busy:"문장을 여러 번 수정해 번역 요청이 잠시 많아졌습니다. 2분 뒤 다시 불러오세요.",
+    translation_invalid:"한글 번역을 확인하지 못했습니다. 원문은 그대로 유지됩니다. 번역을 다시 불러오세요.",
     ai_key_required:"OpenRouter API 키를 입력하세요. 키는 채팅이 아닌 설정 화면에 입력합니다.",
     ai_key_invalid:"OpenRouter API 키 인증에 실패했습니다. 키의 유효성과 권한을 확인하세요.",
     ai_credit_required:"OpenRouter 크레딧 또는 이 키의 사용 한도가 부족합니다. OpenRouter에서 확인하세요.",

@@ -15,7 +15,11 @@ globalThis.fetch = async (input, init) => {
   if(url.hostname==='openrouter.ai'){
     if(crmBearer!=='Bearer synthetic-router-ui-key-12345')throw Error('Unexpected OpenRouter key in isolated fixture');
     const body=JSON.parse(init.body);if(body.model!=='openai/gpt-5.4-mini')throw Error('Unexpected OpenRouter model');
-    let output={ok:true};if(body.max_tokens>256){const data=JSON.parse(body.messages[1].content);output={subject:'SYNTHETIC creator-specific proposal',body:`Hi ${data.creator.display_name}!\n\nSYNTHETIC observed content fits ${data.brand.project.name}.\n\nWould you like a short product brief?`,evidence_ids:[data.evidence[0].id],personalization_reason:'합성 원본 콘텐츠와 해당 캠페인의 브랜드를 연결했습니다.'};}
+    let output={ok:true};if(body.max_tokens>256){const data=JSON.parse(body.messages[1].content);if(data.source){
+      if(data.source.body.includes('SYNTHETIC slow'))await new Promise(r=>setTimeout(r,1800));
+      if(data.source.body.includes('SYNTHETIC translation fail'))return Response.json({error:{message:'Synthetic failure'}},{status:502});
+      output={subject:data.source.subject?'합성 번역 제목: '+data.source.subject:'',body:'합성 검토 번역입니다.\n\n'+data.source.body};
+    }else output={subject:'SYNTHETIC creator-specific proposal',body:`Hi ${data.creator.display_name}!\n\nSYNTHETIC observed content fits ${data.brand.project.name}.\n\nWould you like a short product brief?`,evidence_ids:[data.evidence[0].id],personalization_reason:'합성 원본 콘텐츠와 해당 캠페인의 브랜드를 연결했습니다.'};}
     return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify(output)}}]});
   }
   if(crmBearer==='Bearer synthetic-crm-google'){
