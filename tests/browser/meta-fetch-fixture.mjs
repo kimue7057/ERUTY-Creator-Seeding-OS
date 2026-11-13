@@ -12,6 +12,12 @@ const crmMessages=[crmMail('crm_mail_original',false,crmTime,'SYNTHETIC original
 globalThis.fetch = async (input, init) => {
   const url = new URL(typeof input === "string" || input instanceof URL ? input : input.url);
   const crmBearer=new Headers(init?.headers).get('Authorization');
+  if(url.hostname==='openrouter.ai'){
+    if(crmBearer!=='Bearer synthetic-router-ui-key-12345')throw Error('Unexpected OpenRouter key in isolated fixture');
+    const body=JSON.parse(init.body);if(body.model!=='openai/gpt-5.4-mini')throw Error('Unexpected OpenRouter model');
+    let output={ok:true};if(body.max_tokens>256){const data=JSON.parse(body.messages[1].content);output={subject:'SYNTHETIC creator-specific proposal',body:`Hi ${data.creator.display_name}!\n\nSYNTHETIC observed content fits ${data.brand.project.name}.\n\nWould you like a short product brief?`,evidence_ids:[data.evidence[0].id],personalization_reason:'합성 원본 콘텐츠와 해당 캠페인의 브랜드를 연결했습니다.'};}
+    return Response.json({choices:[{finish_reason:'stop',message:{content:JSON.stringify(output)}}]});
+  }
   if(crmBearer==='Bearer synthetic-crm-google'){
     if(url.hostname==='openidconnect.googleapis.com')return Response.json({sub:'synthetic-crm-subject',email:crmFrom,email_verified:true});
     if(url.hostname==='gmail.googleapis.com'){

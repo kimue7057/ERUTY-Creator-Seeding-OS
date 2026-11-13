@@ -201,7 +201,7 @@ test("four reusable templates, signature versions and archives stay within their
     const svc=templateService(f.database);
     await assert.rejects(svc.installDefaults(f.reader),errorCode("forbidden"));
     await Promise.all([svc.installDefaults(f.actor),svc.installDefaults(f.actor)]);
-    const templates=await svc.list(f.actor);assert.equal(templates.length,4);assert.equal(new Set(templates.map(t=>t.layout)).size,4);assert.equal((await svc.list(f.other)).length,0);
+    const templates=await svc.list(f.actor);assert.equal(templates.length,14);assert.equal(new Set(templates.map(t=>t.layout)).size,4);assert.equal((await svc.list(f.other)).length,0);
     const template=templates[0],saved=await svc.save(f.actor,{...template,name:"Updated"});
     await assert.rejects(svc.save(f.actor,{...template,name:"Stale"}),errorCode("draft_changed"));
     await assert.rejects(svc.archive(f.other,saved.id,saved.revision,true),errorCode("draft_changed"));

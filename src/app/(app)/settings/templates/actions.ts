@@ -10,7 +10,7 @@ export async function archiveMessageTemplate(id:string,revision:number,archived:
   const actor=await requireActor();try {const template=await templateService().archive(actor,id,revision,archived);revalidatePath("/settings/templates");return {template};}catch(error){return {error:outreachErrorMessage(error)};}
 }
 export async function initializeTemplates() {
-  const actor=await requireActor();try {await templateService().installDefaults(actor);revalidatePath("/settings/templates");return {templates:await templateService().list(actor)};}catch(error){return {error:outreachErrorMessage(error)};}
+  const actor=await requireActor();try {const result=await templateService().installDefaults(actor);revalidatePath("/settings/templates");return {templates:await templateService().list(actor),added:result.added};}catch(error){return {error:outreachErrorMessage(error)};}
 }
 export async function saveMailBranding(input:unknown,revision:number) {
   const actor=await requireActor();try {const settings=await templateService().saveBranding(actor,input,revision);revalidatePath("/settings/templates");return {settings};}catch(error){return {error:outreachErrorMessage(error)};}
